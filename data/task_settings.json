@@ -1,0 +1,13 @@
+{
+  "enable_horses_task": true,
+  "horses_task_time": "01:00",
+  "enable_racecard_task": true,
+  "racecard_task_time": "23:00",
+  "last_run_horses": "",
+  "last_run_racecard": "",
+  "enable_backup": true,
+  "backup_folder": "C:\\Hppv\\data\\backup",
+  "backup_filename_template": "Hppv_%Y%m%d_%H%M.sqlite3",
+  "backup_time": "00:00",
+  "last_backup": ""
+}

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>HPPV 馬匹／往績</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+  <nav>
+    <a href="{{ url_for('dashboard') }}">Dashboard</a>
+    <a href="{{ url_for('horses_entry') }}">馬匹／往績</a>
+  </nav>
+
+  <h1>馬匹／往績入口</h1>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <ul style="color:red;">
+      {% for msg in messages %}
+        <li>{{ msg }}</li>
+      {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+
+  <form method="post" action="{{ url_for('horses_entry') }}">
+    <label>HorseId：</label>
+    <input type="text" name="horse_id" value="{{ horse_id or '' }}" placeholder="例如 HK_2021_G227">
+    <button type="submit">抓取並顯示往績</button>
+  </form>
+
+  <p>這裡只是單一馬匹入口。抓取成功後會自動跳到「馬匹往績」詳情頁。</p>
+</body>
+</html>
+
+
+

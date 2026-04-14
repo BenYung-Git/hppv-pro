@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>HPPV 馬匹往績 - {{ horse_id }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+  <nav>
+    <a href="{{ url_for('dashboard') }}">Dashboard</a>
+    <a href="{{ url_for('horses_entry') }}">馬匹／往績</a>
+  </nav>
+
+  <h1>馬匹往績：{{ horse_id }}</h1>
+
+  <p>
+    <a href="{{ url_for('horses_entry') }}">返回馬匹入口</a>
+  </p>
+
+  {% if not records %}
+    <p>目前資料庫中沒有這匹馬的往績紀錄。</p>
+  {% else %}
+    <table border="1" cellpadding="3">
+      <tr>
+        <th>race_date</th>
+        <th>venue</th>
+        <th>race_no</th>
+        <th>course</th>
+        <th>distance</th>
+        <th>going</th>
+        <th>class_band</th>
+        <th>draw</th>
+        <th>rating</th>
+        <th>jockey</th>
+        <th>trainer</th>
+        <th>finish_pos</th>
+        <th>running_pos</th>
+        <th>win_odds</th>
+        <th>time</th>
+        <th>prize</th>
+      </tr>
+      {% for r in records %}
+      <tr>
+        <td>{{ r.race_date }}</td>
+        <td>{{ r.venue }}</td>
+        <td>{{ r.race_no }}</td>
+        <td>{{ r.course }}</td>
+        <td>{{ r.distance }}</td>
+        <td>{{ r.going }}</td>
+        <td>{{ r.class_band }}</td>
+        <td>{{ r.draw }}</td>
+        <td>{{ r.rating }}</td>
+        <td>{{ r.jockey }}</td>
+        <td>{{ r.trainer }}</td>
+        <td>{{ r.finish_pos }}</td>
+        <td>{{ r.running_pos }}</td>
+        <td>{{ r.win_odds }}</td>
+        <td>{{ r.time }}</td>
+        <td>{{ r.prize }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+</body>
+</html>
+
+

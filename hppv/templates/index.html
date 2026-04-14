@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>HPPV Web</title>
+</head>
+<body>
+  <h1>HPPV 馬匹往績 Web 版</h1>
+
+  <form method="post">
+    <label>HorseId:</label>
+    <input type="text" name="horse_id" value="{{ horse_id or '' }}">
+    <button type="submit">抓取並顯示</button>
+  </form>
+
+  {% if records %}
+    <h2>往績列表（共 {{ records|length }} 場）</h2>
+    <table border="1" cellpadding="3">
+      <tr>
+        <th>race_date</th>
+        <th>race_no</th>
+        <th>course</th>
+        <th>distance</th>
+        <th>finish_pos</th>
+        <th>odds</th>
+      </tr>
+      {% for r in records %}
+      <tr>
+        <td>{{ r.race_date }}</td>
+        <td>{{ r.race_no }}</td>
+        <td>{{ r.course }}</td>
+        <td>{{ r.distance }}</td>
+        <td>{{ r.finish_pos }}</td>
+        <td>{{ r.odds }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+</body>
+</html>

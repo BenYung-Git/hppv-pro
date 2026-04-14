@@ -1,0 +1,109 @@
+
+你現在在開發一個 Python + SQLite 專案，專案名稱是 DocFlow-IDP，用來做公司文件的 OCR + 分類 + 分流。
+
+技術與規則：
+- 使用內建 sqlite3，不用 ORM。
+- 只用一個 DB 檔：DocFlow.db。
+- 一律用 conn = sqlite3.connect(path)，cur = conn.cursor()，再用 cur.execute(...)。
+- 建表時要用 CREATE TABLE IF NOT EXISTS。
+- 結束前要 conn.commit()，最後 conn.close()。
+- SQL 一律用三引號多行字串，方便閱讀。
+- 欄位命名用 snake_case。
+
+請在目前這個檔案裡實作一個 init_db() 函數，功能：
+
+1. 連線到 DocFlow.db。
+2. 建立以下資料表（如果不存在）：
+
+   users:
+     - id INTEGER PRIMARY KEY AUTOINCREMENT
+     - username TEXT UNIQUE NOT NULL
+     - display_name TEXT
+     - department TEXT
+     - is_active INTEGER NOT NULL DEFAULT 1
+
+   roles:
+     - id INTEGER PRIMARY KEY AUTOINCREMENT
+     - name TEXT UNIQUE NOT NULL      -- 例如 SYSTEM_ADMIN, DEPT_REVIEWER
+     - description TEXT
+
+   user_roles:
+     - user_id INTEGER NOT NULL
+     - role_id INTEGER NOT NULL
+     - PRIMARY KEY (user_id, role_id)
+
+   documents:
+     - id INTEGER PRIMARY KEY AUTOINCREMENT
+     - file_path TEXT NOT NULL
+     - doc_type TEXT          -- 消費 / 日常 / 文件 等
+     - department TEXT        -- Sales / Purchasing / Accounting 等
+     - ocr_text TEXT
+     - score REAL             -- 分類信心度
+     - status TEXT            -- NEW / REVIEW / CONFIRMED / ERROR
+     - created_at TEXT
+     - updated_at TEXT
+
+   classify_rules:
+     - id INTEGER PRIMARY KEY AUTOINCREMENT
+     - name TEXT NOT NULL             -- 規則名稱，例如 'Sales Invoice'
+     - doc_type TEXT                  -- 對應文件類型
+     - department TEXT                -- 對應部門
+     - keywords TEXT NOT NULL         -- 關鍵字 JSON 字串或以逗號分隔
+     - is_active INTEGER NOT NULL DEFAULT 1
+
+3. 每張表只建一次，不要重複建立。
+4. 所有 SQL 都透過 cur.execute(...) 執行。
+
+產出完整的 Python 函數實作，不要省略 import 或變數。
+
+你正在編輯 DocFlow-IDP 專案的 models.py。
+專案使用 Python sqlite3，並且已有一個 get_conn() 可以回傳 sqlite3.Connection。
+
+請幫我針對 documents 資料表，實作以下函數：
+
+需求與規則：
+- 一律使用 with get_conn() as conn: 取得連線。
+- 用 cur = conn.cursor() 執行 SQL。
+- 參數一律用 ? placeholder，避免字串拼接。
+- 回傳資料時用 row_factory = sqlite3.Row，並轉成 dict。
+
+1. create_document(file_path: str, doc_type: str | None, department: str | None, ocr_text: str | None, score: float | None, status: str) -> int
+   - 新增一筆 documents 紀錄。
+   - created_at, updated_at 自動填 ISO 格式字串（使用 datetime.now().isoformat(timespec="seconds")）。
+   - 回傳新紀錄的 id。
+
+2. get_documents_by_status(status: str, limit: int = 100) -> list[dict]
+   - 依 status 查詢文件，依 created_at DESC 排序，限制筆數。
+   - 每筆資料轉成 dict 回傳。
+
+3. update_document_classification(doc_id: int, doc_type: str, department: str, score: float, status: str) -> None
+   - 更新指定文件的 doc_type, department, score, status, updated_at。
+
+請直接在目前檔案內產出這三個函數的完整實作。
+
+你現在在 DocFlow-IDP 專案的 process_folder.py，使用 Python 3，資料庫是 SQLite (DocFlow.db)。
+
+已知：
+- db.init_db() 會建立資料表。
+- models.create_document(...) 可以把一個文件基本資料寫入 DB。
+- ocr_engine.ocr_file(path) 會回傳 (text: str)。
+- classify_rules.classify(text) 會回傳 (doc_type: str | None, department: str | None, score: float)。
+
+請幫我實作一個 main()，要求：
+
+- 從命令列參數讀取來源資料夾路徑：--source / -s。
+- 掃描該資料夾下所有檔案（只要 .pdf, .jpg, .jpeg, .png）。
+- 對每個檔案：
+  1. 跑 ocr_engine.ocr_file(file_path) 取得 text。
+  2. 用 classify_rules.classify(text) 得到 doc_type, department, score。
+  3. 呼叫 models.create_document(...) 存入 DB，status 視 score 而定：
+     - score >= 0.8 → status = "CONFIRMED"
+     - 0.5 <= score < 0.8 → status = "REVIEW"
+     - score < 0.5 → status = "NEW"
+  4. 在 console 印出一行 summary：
+     [doc_id] file_path -> doc_type / department (score=0.85, status=CONFIRMED)
+
+- 要有 python -m 的保護：if __name__ == "__main__": main()
+
+請產出完整程式碼，包括必要的 import 與 argparse 使用。
+

@@ -1,0 +1,53 @@
+我希望有一個比較系統及專業化的ui 
+
+新增一個button "更新馬匹資料"
+從 HKJC 網站抓取所有（或至少現役）香港馬匹列表。
+來源頁面請用官方馬匹索引頁為主，例如：
+中文：https://racing.hkjc.com/racing/information/chinese/Horse/SelectHorse.aspx
+英文：https://racing.hkjc.com/racing/information/english/Horse/SelectHorse.aspx。racing.hkjc+1
+解析出每匹馬的：
+horse_id（從馬匹連結 URL 的 HorseId query string）
+name_en（英文馬名，可從英文版列表或馬匹頁取得）
+name_zh（中文馬名，可從中文馬匹頁取得）
+將結果寫入 horses table（INSERT OR REPLACE）。
+
+
+不要再用 SelectHorse.aspx 抓馬匹清單，因為那頁現在是靜態框架，沒有列出任何馬匹。
+請重寫 fetch_all_horses_basic_info()，改用
+https://racing.hkjc.com/racing/info/mcs/English/Horses/clas/ 或
+https://racing.hkjc.com/en-us/local/information/latestonhorse?View=Horses%2Fclas%2F
+裡面的「Horse Rating List (Order by Name)」table 來抓資料，每一列至少取：英文馬名 + Brand No.（當作暫時的 horse_id），組成 HorseBasicInfo 回傳。然後 update_horses_table_from_web() 用這些資料寫入 horses table。
+
+1.顯示 N/1291 N 没有變化  永遠 1291/1291
+2. 選不同的 Table 要顯示不同的欄名, 不要顯示所有無關的欄名及資料
+
+1. 資料表combo 往績可以删除 
+2. 馬匹資料表有兩個page.
+   Page 1. 馬匹資料 暫時這樣顯示.
+   Page 2. 往績 不用label + textbox 顯示, 轉為用Grid 顯示
+   當選了馬匹, page1 & page2 資料要同步
+
+
+新增一個查看馬匹排位資料的python 程式 (之後會結合馬匹資料系統)
+來源 : https://racing.hkjc.com/zh-hk/local/information/racecard
+1. 創建排位資料表 (跟據HKJC 所有資料欄_
+   另新增 "預計賠率" , "即時賠率", "獨贏機會率", "後備"
+2. 每次進入就要自動抓取最新排位資料 (如果已跑完的排位表不用下載)
+3. 後備馬也要抓取 但在"後備" 加個是,Default "否"
+4. 一個 "上次更新時間"(一進入就是), 再加一個 button "更新資料" (如按後就要更新時間)
+
+「所有 allowlist / run 問題一律略過，直接修改檔案並貼出完整新檔內容。」
+
+*****************
+任務設定功能
+1. 每日自動按指定時間下載馬匹資料及往績
+2. 每日自動按指定時間下載排位資料
+
+給一個UI介面給我設定並儲存方便隨時更改
+但要注意當下載時用戶可否仍可操作.
+
+
+
+
+
+
