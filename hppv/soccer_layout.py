@@ -12,6 +12,7 @@ from hppv.schema import SOCCER_LAYOUT_SETTINGS_TABLE, soccer_layout_settings_sch
 from hppv.soccer_db import get_connection, table_exists
 
 LAYOUT_KEY_DAILY_MATCHES = "daily_matches"
+LAYOUT_KEY_MATCH_HISTORY = "match_history"
 
 COLUMN_WIDTH_DEFAULT = 100
 COLUMN_WIDTH_MIN = 60
@@ -22,27 +23,40 @@ SORT_ASC = "asc"
 SORT_DESC = "desc"
 ALLOWED_SORT = frozenset({SORT_EMPTY, SORT_ASC, SORT_DESC})
 
-# Display-field catalog for Tab 1.
+# Display-field catalog for Daily Matches.
 # score_* display keys are formatted from paired soccer_daily score_*_home/away columns.
 # ui_et is a layout-only placeholder until official ET meaning/columns are confirmed
 # (no score_et_* DB columns yet; values always display as —).
 COLUMN_CATALOG: tuple[dict[str, Any], ...] = (
-    {"key": "kickoff_hhmm", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_ASC},
-    {"key": "match_code", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "icon", "group": "basic", "default_visible": True, "default_width": 60, "default_sort": SORT_EMPTY},
-    {"key": "competition_code", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "competition_name_zh", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "home_team", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "away_team", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "home_odds", "group": "odds", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "draw_odds", "group": "odds", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "away_odds", "group": "odds", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "score_ht", "group": "result", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "score_2h", "group": "result", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "score_ft", "group": "result", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "ui_et", "group": "result_pending", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "score_pen", "group": "result", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
-    {"key": "result_status", "group": "result", "default_visible": False, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "match_date", "group": "basic", "default_visible": True, "default_width": 110, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "kickoff_hhmm", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_ASC, "sortable": True},
+    {"key": "match_code", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "icon", "group": "basic", "default_visible": True, "default_width": 60, "default_sort": SORT_EMPTY, "sortable": False},
+    {"key": "competition_code", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "competition_name_zh", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "home_team", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "away_team", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "home_odds", "group": "odds", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "draw_odds", "group": "odds", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "away_odds", "group": "odds", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "score_ht", "group": "result", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "score_2h", "group": "result", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "score_ft", "group": "result", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "ui_et", "group": "result_pending", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": False},
+    {"key": "score_pen", "group": "result", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "result_status", "group": "result", "default_visible": False, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+)
+
+# Match History (footylogic_matches) — independent catalog; never copy daily user settings.
+# Composite score columns are display-only: no invented sort by goals / home score.
+HISTORY_COLUMN_CATALOG: tuple[dict[str, Any], ...] = (
+    {"key": "match_date", "group": "basic", "default_visible": True, "default_width": 110, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "kickoff_hhmm", "group": "basic", "default_visible": True, "default_width": 90, "default_sort": SORT_DESC, "sortable": True},
+    {"key": "competition_name", "group": "basic", "default_visible": True, "default_width": 160, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "home_team", "group": "basic", "default_visible": True, "default_width": 140, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "away_team", "group": "basic", "default_visible": True, "default_width": 140, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "score_ht", "group": "result", "default_visible": True, "default_width": 90, "default_sort": SORT_EMPTY, "sortable": False},
+    {"key": "score_ft", "group": "result", "default_visible": True, "default_width": 90, "default_sort": SORT_EMPTY, "sortable": False},
 )
 
 # Rename legacy layout-only placeholder keys to current display keys.
@@ -56,6 +70,18 @@ LEGACY_LAYOUT_KEY_MAP: dict[str, str] = {
 
 COLUMN_KEYS = frozenset(c["key"] for c in COLUMN_CATALOG)
 COLUMN_BY_KEY = {c["key"]: c for c in COLUMN_CATALOG}
+HISTORY_COLUMN_KEYS = frozenset(c["key"] for c in HISTORY_COLUMN_CATALOG)
+HISTORY_COLUMN_BY_KEY = {c["key"]: c for c in HISTORY_COLUMN_CATALOG}
+
+
+def catalog_for_layout_key(layout_key: str) -> tuple[dict[str, Any], ...]:
+    if layout_key == LAYOUT_KEY_MATCH_HISTORY:
+        return HISTORY_COLUMN_CATALOG
+    return COLUMN_CATALOG
+
+
+def column_keys_for_layout_key(layout_key: str) -> frozenset[str]:
+    return frozenset(c["key"] for c in catalog_for_layout_key(layout_key))
 
 ZEBRA_COLORS: tuple[dict[str, str], ...] = (
     {"id": "row_alt_gray", "css": "#f4f6f9"},
@@ -98,9 +124,9 @@ def validate_column_width(raw: Any) -> int:
     return width
 
 
-def default_layout_settings() -> dict[str, Any]:
+def default_layout_settings(layout_key: str = LAYOUT_KEY_DAILY_MATCHES) -> dict[str, Any]:
     columns = []
-    for c in COLUMN_CATALOG:
+    for c in catalog_for_layout_key(layout_key):
         columns.append(
             {
                 "key": c["key"],
@@ -116,12 +142,16 @@ def default_layout_settings() -> dict[str, Any]:
     }
 
 
-def _migrate_legacy_column_list(cols_raw: list[Any]) -> list[Any]:
+def _migrate_legacy_column_list(
+    cols_raw: list[Any],
+    *,
+    layout_key: str = LAYOUT_KEY_DAILY_MATCHES,
+) -> list[Any]:
     """
-    Map legacy ui_ht/2h/ft/pen keys to score_*; keep ui_et and all other settings.
-    Preserves relative order, visible, width, and sort of existing rows.
-    Appends newly introduced catalog keys at the end only.
+    Daily only: map legacy ui_ht/2h/ft/pen keys to score_*; keep ui_et.
+    History: append missing catalog keys only (no daily legacy rename).
     """
+    catalog = catalog_for_layout_key(layout_key)
     migrated: list[Any] = []
     seen: set[str] = set()
     for item in cols_raw:
@@ -129,14 +159,17 @@ def _migrate_legacy_column_list(cols_raw: list[Any]) -> list[Any]:
             migrated.append(item)
             continue
         key = item.get("key")
-        new_key = LEGACY_LAYOUT_KEY_MAP.get(str(key), key)
+        if layout_key == LAYOUT_KEY_DAILY_MATCHES:
+            new_key = LEGACY_LAYOUT_KEY_MAP.get(str(key), key)
+        else:
+            new_key = key
         if new_key in seen:
             continue
         copy = dict(item)
         copy["key"] = new_key
         migrated.append(copy)
         seen.add(str(new_key))
-    for c in COLUMN_CATALOG:
+    for c in catalog:
         if c["key"] in seen:
             continue
         migrated.append(
@@ -151,7 +184,11 @@ def _migrate_legacy_column_list(cols_raw: list[Any]) -> list[Any]:
     return migrated
 
 
-def _normalize_saved_settings(raw: Any) -> dict[str, Any]:
+def _normalize_saved_settings(
+    raw: Any,
+    *,
+    layout_key: str = LAYOUT_KEY_DAILY_MATCHES,
+) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise SoccerLayoutError("invalid_settings", "settings must be an object")
     zebra_enabled = raw.get("zebra_enabled")
@@ -163,7 +200,11 @@ def _normalize_saved_settings(raw: Any) -> dict[str, Any]:
     cols_raw = raw.get("columns")
     if not isinstance(cols_raw, list) or not cols_raw:
         raise SoccerLayoutError("invalid_settings", "columns must be a non-empty array")
-    cols_raw = _migrate_legacy_column_list(cols_raw)
+    cols_raw = _migrate_legacy_column_list(cols_raw, layout_key=layout_key)
+
+    catalog = catalog_for_layout_key(layout_key)
+    catalog_keys = frozenset(c["key"] for c in catalog)
+    by_key = {c["key"]: c for c in catalog}
 
     seen: set[str] = set()
     columns: list[dict[str, Any]] = []
@@ -171,7 +212,7 @@ def _normalize_saved_settings(raw: Any) -> dict[str, Any]:
         if not isinstance(item, dict):
             raise SoccerLayoutError("invalid_settings", "column item must be object")
         key = item.get("key")
-        if key not in COLUMN_KEYS:
+        if key not in catalog_keys:
             raise SoccerLayoutError("invalid_settings", f"unknown column key: {key!r}")
         if key in seen:
             raise SoccerLayoutError("invalid_settings", f"duplicate column key: {key!r}")
@@ -183,9 +224,15 @@ def _normalize_saved_settings(raw: Any) -> dict[str, Any]:
         sort = item.get("sort")
         if sort not in ALLOWED_SORT:
             raise SoccerLayoutError("invalid_settings", f"invalid sort for {key}: {sort!r}")
-        columns.append({"key": key, "visible": visible, "width": width, "sort": sort})
+        # Non-sortable columns must remain empty (no invented composite-score sorts).
+        if not by_key[str(key)].get("sortable", True) and sort not in (None, SORT_EMPTY):
+            raise SoccerLayoutError(
+                "invalid_settings",
+                f"sort not supported for column: {key!r}",
+            )
+        columns.append({"key": key, "visible": visible, "width": width, "sort": sort or SORT_EMPTY})
 
-    missing = COLUMN_KEYS - seen
+    missing = catalog_keys - seen
     if missing:
         raise SoccerLayoutError("invalid_settings", f"missing columns: {sorted(missing)}")
 
@@ -204,21 +251,39 @@ def ensure_layout_schema(conn: sqlite3.Connection) -> None:
 
 def get_layout_settings(db_path: Path, layout_key: str = LAYOUT_KEY_DAILY_MATCHES) -> dict[str, Any]:
     if not db_path.is_file():
-        return default_layout_settings()
+        return default_layout_settings(layout_key)
     with get_connection(db_path) as conn:
         if not table_exists(conn, SOCCER_LAYOUT_SETTINGS_TABLE):
-            return default_layout_settings()
+            return default_layout_settings(layout_key)
         row = conn.execute(
             "SELECT settings_json FROM soccer_layout_settings WHERE layout_key = ?;",
             (layout_key,),
         ).fetchone()
     if not row:
-        return default_layout_settings()
+        return default_layout_settings(layout_key)
     try:
         parsed = json.loads(str(row["settings_json"]))
     except json.JSONDecodeError as e:
         raise SoccerLayoutError("invalid_stored_layout", "stored settings_json is not valid JSON") from e
-    return _normalize_saved_settings(parsed)
+    normalized = _normalize_saved_settings(parsed, layout_key=layout_key)
+    # Persist newly appended catalog keys without resetting others / other layout_keys.
+    catalog_keys = column_keys_for_layout_key(layout_key)
+    stored_keys: set[str] = set()
+    cols = parsed.get("columns") if isinstance(parsed, dict) else None
+    if isinstance(cols, list):
+        for item in cols:
+            if isinstance(item, dict) and item.get("key") is not None:
+                key = str(item["key"])
+                if layout_key == LAYOUT_KEY_DAILY_MATCHES:
+                    key = str(LEGACY_LAYOUT_KEY_MAP.get(key, key))
+                stored_keys.add(key)
+    if catalog_keys - stored_keys:
+        try:
+            save_layout_settings(db_path, normalized, layout_key=layout_key)
+        except SoccerLayoutError:
+            # Read path must still return normalized settings even if write-back fails.
+            pass
+    return normalized
 
 
 def save_layout_settings(
@@ -230,7 +295,7 @@ def save_layout_settings(
 ) -> dict[str, Any]:
     if not db_path.is_file():
         raise SoccerLayoutError("db_missing", f"database missing: {db_path}")
-    normalized = _normalize_saved_settings(settings)
+    normalized = _normalize_saved_settings(settings, layout_key=layout_key)
     stamp = now_utc or utc_now_iso()
     payload = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
     with get_connection(db_path) as conn:
@@ -256,10 +321,10 @@ def zebra_css_for_id(color_id: str) -> str:
     raise SoccerLayoutError("invalid_settings", f"unknown zebra_color_id: {color_id!r}")
 
 
-def catalog_public() -> list[dict[str, Any]]:
+def catalog_public(layout_key: str = LAYOUT_KEY_DAILY_MATCHES) -> list[dict[str, Any]]:
     """Column metadata for UI (no translations)."""
     out = []
-    for c in COLUMN_CATALOG:
+    for c in catalog_for_layout_key(layout_key):
         out.append(
             {
                 "key": c["key"],
@@ -267,6 +332,7 @@ def catalog_public() -> list[dict[str, Any]]:
                 "default_visible": c["default_visible"],
                 "default_width": c["default_width"],
                 "default_sort": c["default_sort"],
+                "sortable": bool(c.get("sortable", True)),
             }
         )
     return out

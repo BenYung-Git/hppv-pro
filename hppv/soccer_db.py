@@ -146,7 +146,11 @@ def init_soccer_db(db_path: Path) -> dict[str, int]:
     Seeds missing translation keys only (never overwrites existing rows).
     """
     # Local import avoids circular import at module load.
-    from hppv.translations import ensure_translations_schema, seed_initial_translations
+    from hppv.translations import (
+        apply_seed_label_renames,
+        ensure_translations_schema,
+        seed_initial_translations,
+    )
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with get_connection(db_path) as conn:
@@ -166,7 +170,8 @@ def init_soccer_db(db_path: Path) -> dict[str, int]:
         conn.executescript(soccer_layout_settings_schema_sql())
         ensure_translations_schema(conn)
         inserted = seed_initial_translations(conn)
-    return {"translations_inserted": inserted}
+        renamed = apply_seed_label_renames(conn)
+    return {"translations_inserted": inserted, "translations_renamed": renamed}
 
 
 def main(argv: list[str] | None = None) -> int:

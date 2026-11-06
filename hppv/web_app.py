@@ -56,12 +56,23 @@ from hppv.soccer_matches import (
     STATUS_FILTER_MAPPING_CONNECTED,
     SoccerDataError,
     fetch_matches_filtered,
+    hong_kong_today,
     normalize_status_filter,
+    parse_all_matches_flag,
     parse_requested_date,
+    resolve_all_matches_arg,
     parse_sort_param,
     search_keys_from_layout,
     shift_date,
     sort_specs_from_layout,
+)
+from hppv.soccer_history import (
+    HISTORY_PAGE_SIZE,
+    default_history_sort_specs,
+    fetch_history_filtered,
+    history_sort_param,
+    history_sort_specs_from_layout,
+    parse_history_sort_param,
 )
 from hppv.soccer_graphql import (
     SoccerGraphQLSendError,
@@ -82,6 +93,7 @@ from hppv.soccer_ingest import (
 )
 from hppv.soccer_layout import (
     LAYOUT_KEY_DAILY_MATCHES,
+    LAYOUT_KEY_MATCH_HISTORY,
     SoccerLayoutError,
     ZEBRA_COLORS,
     catalog_public,
@@ -439,13 +451,28 @@ def _layout_context() -> dict[str, Any]:
     try:
         layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_DAILY_MATCHES)
     except SoccerLayoutError as e:
-        layout = default_layout_settings()
+        layout = default_layout_settings(LAYOUT_KEY_DAILY_MATCHES)
         layout_error = e.code
         logging.getLogger(__name__).warning("soccer layout load failed: %s %s", e.code, e.detail)
     zebra_css = zebra_css_for_id(layout["zebra_color_id"]) if layout.get("zebra_enabled") else ""
+
+    history_layout_error = ""
+    try:
+        history_layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_MATCH_HISTORY)
+    except SoccerLayoutError as e:
+        history_layout = default_layout_settings(LAYOUT_KEY_MATCH_HISTORY)
+        history_layout_error = e.code
+        logging.getLogger(__name__).warning(
+            "soccer history layout load failed: %s %s", e.code, e.detail
+        )
+    history_zebra_css = (
+        zebra_css_for_id(history_layout["zebra_color_id"])
+        if history_layout.get("zebra_enabled")
+        else ""
+    )
     return {
         "layout_settings": layout,
-        "layout_catalog": catalog_public(),
+        "layout_catalog": catalog_public(LAYOUT_KEY_DAILY_MATCHES),
         "layout_zebra_colors": list(ZEBRA_COLORS),
         "layout_zebra_css": zebra_css,
         "layout_error": layout_error,
@@ -453,6 +480,10 @@ def _layout_context() -> dict[str, Any]:
         "layout_width_min": COLUMN_WIDTH_MIN,
         "layout_width_max": COLUMN_WIDTH_MAX,
         "status_filter_mapping_connected": STATUS_FILTER_MAPPING_CONNECTED,
+        "history_layout_settings": history_layout,
+        "history_layout_catalog": catalog_public(LAYOUT_KEY_MATCH_HISTORY),
+        "history_layout_zebra_css": history_zebra_css,
+        "history_layout_error": history_layout_error,
     }
 
 
@@ -478,9 +509,62 @@ def _soccer_list_query_state(layout_settings: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_SOCCER_TABS = frozenset({"matches", "history", "download", "tasks"})
+
+
+def _soccer_active_tab(raw: str | None = None) -> tuple[str, bool, bool]:
+    """
+    Return (tab, open_daily_layout, open_history_layout).
+    Legacy tab=layout → matches + daily layout.
+    tab=history-layout → history + history layout (distinct from daily).
+    """
+    tab = (raw if raw is not None else request.args.get("tab") or "").strip().lower()
+    if tab == "layout":
+        return "matches", True, False
+    if tab == "history-layout":
+        return "history", False, True
+    if tab in _SOCCER_TABS:
+        return tab, False, False
+    return "matches", False, False
+
+
+def _history_list_query_state(layout_settings: dict[str, Any]) -> dict[str, Any]:
+    """History list args — isolated from daily layout / status filter."""
+    n_raw = request.args.get("n")
+    if n_raw is None or str(n_raw).strip() == "":
+        n_raw = request.args.get("page")
+    q = (request.args.get("q") or "").strip()
+    parsed_sort = parse_history_sort_param(request.args.get("sort"))
+    sort_specs = (
+        parsed_sort
+        if parsed_sort is not None
+        else history_sort_specs_from_layout(layout_settings)
+    )
+    return {
+        "n_raw": n_raw,
+        "q": q,
+        "sort_specs": sort_specs,
+        "sort": history_sort_param(sort_specs),
+    }
+
+
+def _empty_history_page_meta(*, all_matches: bool, q: str = "", sort: str = "") -> dict[str, Any]:
+    return {
+        "n": 1,
+        "total_count": 0,
+        "total_pages": 0,
+        "page_size": HISTORY_PAGE_SIZE,
+        "q": q,
+        "all_matches": all_matches,
+        "sort": sort or history_sort_param(default_history_sort_specs()),
+    }
+
+
 @app.get("/soccer/daily")
 def soccer_daily() -> str:
-    """Soccer daily matches UI (read-only from soccer_daily)."""
+    """Soccer database UI (daily matches + related tabs)."""
+    active_tab, open_layout_panel, open_history_layout_panel = _soccer_active_tab()
+    all_matches = resolve_all_matches_arg(request.args)
     selected, date_invalid = parse_requested_date(request.args.get("date"))
     matches: list[dict[str, str]] = []
     load_error = False
@@ -493,7 +577,14 @@ def soccer_daily() -> str:
         "q": "",
         "status": DEFAULT_STATUS_FILTER,
         "status_filter_applied": False,
+        "all_matches": all_matches,
     }
+    history_matches: list[dict[str, str]] = []
+    history_load_error = False
+    history_date_invalid = False
+    history_page_meta = _empty_history_page_meta(all_matches=True)
+    history_all_matches = True
+    history_selected_date = ""
     sync_at = get_last_success_at(SOCCER_DB_PATH, REQUEST_KEY_MATCHES_AND_ODDS)
     sync_at_hkt = None
     if sync_at:
@@ -504,7 +595,55 @@ def soccer_daily() -> str:
     layout_ctx = _layout_context()
     list_state = _soccer_list_query_state(layout_ctx["layout_settings"])
 
-    if date_invalid:
+    # Shared date chrome defaults (history / daily each keep own JS state after load).
+    if date_invalid or selected is None:
+        selected_for_chrome = hong_kong_today()
+    else:
+        selected_for_chrome = selected
+    selected_date = selected_for_chrome.isoformat()
+    prev_date = shift_date(selected_for_chrome, -1).isoformat()
+    next_date = shift_date(selected_for_chrome, 1).isoformat()
+
+    if active_tab == "history":
+        history_all_matches = all_matches
+        hist_state = _history_list_query_state(layout_ctx["history_layout_settings"])
+        history_page_meta = _empty_history_page_meta(
+            all_matches=history_all_matches,
+            q=hist_state["q"],
+            sort=hist_state["sort"],
+        )
+        if date_invalid and not history_all_matches:
+            history_date_invalid = True
+            history_selected_date = ""
+        else:
+            if date_invalid or selected is None:
+                selected = hong_kong_today()
+            history_selected_date = selected.isoformat()
+            selected_date = history_selected_date
+            prev_date = shift_date(selected, -1).isoformat()
+            next_date = shift_date(selected, 1).isoformat()
+            try:
+                hist = fetch_history_filtered(
+                    SOCCER_DB_PATH,
+                    None if history_all_matches else selected,
+                    n=hist_state["n_raw"],
+                    q=hist_state["q"],
+                    sort_specs=hist_state["sort_specs"],
+                )
+                history_matches = hist.matches
+                history_page_meta = {
+                    "n": hist.n,
+                    "total_count": hist.total_count,
+                    "total_pages": hist.total_pages,
+                    "page_size": hist.page_size,
+                    "q": hist.q,
+                    "all_matches": history_all_matches,
+                    "sort": hist.sort,
+                }
+            except SoccerDataError as e:
+                history_load_error = True
+                logging.getLogger(__name__).exception("soccer history read failed: %s", e)
+    elif date_invalid and not all_matches:
         return render_template(
             "soccer_daily.html",
             date_invalid=True,
@@ -515,35 +654,47 @@ def soccer_daily() -> str:
             next_date="",
             sync_at_hkt=sync_at_hkt,
             page_meta=page_meta,
+            all_matches=all_matches,
+            active_tab=active_tab,
+            open_layout_panel=open_layout_panel,
+            open_history_layout_panel=False,
+            history_matches=[],
+            history_load_error=False,
+            history_date_invalid=False,
+            history_page_meta=history_page_meta,
+            history_all_matches=True,
+            history_selected_date="",
             **layout_ctx,
         )
-
-    assert selected is not None
-    selected_date = selected.isoformat()
-    prev_date = shift_date(selected, -1).isoformat()
-    next_date = shift_date(selected, 1).isoformat()
-    try:
-        # Full current-filter list (no 20/page). n = cursor for "N / total_count".
-        result = fetch_matches_filtered(
-            SOCCER_DB_PATH,
-            selected,
-            n=list_state["n_raw"],
-            q=list_state["q"],
-            status=list_state["status"],
-            sort_specs=list_state["sort_specs"],
-            search_keys=list_state["search_keys"],
-        )
-        matches = result.matches
-        page_meta = {
-            "n": result.n,
-            "total_count": result.total_count,
-            "q": result.q,
-            "status": result.status,
-            "status_filter_applied": result.status_filter_applied,
-        }
-    except SoccerDataError as e:
-        load_error = True
-        logging.getLogger(__name__).exception("soccer daily read failed: %s", e)
+    else:
+        if date_invalid or selected is None:
+            selected = hong_kong_today()
+        selected_date = selected.isoformat()
+        prev_date = shift_date(selected, -1).isoformat()
+        next_date = shift_date(selected, 1).isoformat()
+        try:
+            # Full current-filter list (no 20/page). n = cursor for "N / total_count".
+            result = fetch_matches_filtered(
+                SOCCER_DB_PATH,
+                None if all_matches else selected,
+                n=list_state["n_raw"],
+                q=list_state["q"],
+                status=list_state["status"],
+                sort_specs=list_state["sort_specs"],
+                search_keys=list_state["search_keys"],
+            )
+            matches = result.matches
+            page_meta = {
+                "n": result.n,
+                "total_count": result.total_count,
+                "q": result.q,
+                "status": result.status,
+                "status_filter_applied": result.status_filter_applied,
+                "all_matches": all_matches,
+            }
+        except SoccerDataError as e:
+            load_error = True
+            logging.getLogger(__name__).exception("soccer daily read failed: %s", e)
 
     return render_template(
         "soccer_daily.html",
@@ -555,8 +706,26 @@ def soccer_daily() -> str:
         next_date=next_date,
         sync_at_hkt=sync_at_hkt,
         page_meta=page_meta,
+        all_matches=all_matches,
+        active_tab=active_tab,
+        open_layout_panel=open_layout_panel,
+        open_history_layout_panel=open_history_layout_panel,
+        history_matches=history_matches,
+        history_load_error=history_load_error,
+        history_date_invalid=history_date_invalid,
+        history_page_meta=history_page_meta,
+        history_all_matches=history_all_matches,
+        history_selected_date=history_selected_date or selected_date,
         **layout_ctx,
     )
+
+
+@app.get("/soccer/history")
+def soccer_history():
+    """Match-history tab entry."""
+    args = request.args.to_dict(flat=True)
+    args["tab"] = "history"
+    return redirect(url_for("soccer_daily", **args))
 
 
 @app.post("/lang")
@@ -757,20 +926,67 @@ def api_soccer_sync_state() -> Any:
     return jsonify({"ok": True, "request_key": key, "last_success_at": ts, "last_success_at_hkt": hkt})
 
 
+@app.get("/api/soccer/history-matches")
+def api_soccer_history_matches() -> Any:
+    """Paged Footylogic history list. Never reads quarantine or soccer_daily."""
+    all_matches = resolve_all_matches_arg(request.args)
+    selected, invalid = parse_requested_date(request.args.get("date"))
+    if all_matches:
+        if invalid or selected is None:
+            selected = hong_kong_today()
+    elif invalid or selected is None:
+        return jsonify({"ok": False, "error": "invalid_date"}), 400
+    try:
+        hist_layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_MATCH_HISTORY)
+    except SoccerLayoutError:
+        hist_layout = default_layout_settings(LAYOUT_KEY_MATCH_HISTORY)
+    hist_state = _history_list_query_state(hist_layout)
+    try:
+        result = fetch_history_filtered(
+            SOCCER_DB_PATH,
+            None if all_matches else selected,
+            n=hist_state["n_raw"],
+            q=hist_state["q"],
+            sort_specs=hist_state["sort_specs"],
+        )
+    except SoccerDataError as e:
+        logging.getLogger(__name__).exception("soccer history-matches api failed: %s", e)
+        return jsonify({"ok": False, "error": "read_error", "detail": str(e)}), 500
+    return jsonify(
+        {
+            "ok": True,
+            "source": "footylogic_matches",
+            "date": selected.isoformat(),
+            "all_matches": all_matches,
+            "matches": result.matches,
+            "n": result.n,
+            "total_count": result.total_count,
+            "total_pages": result.total_pages,
+            "page_size": result.page_size,
+            "q": result.q,
+            "sort": result.sort,
+        }
+    )
+
+
 @app.get("/api/soccer/daily-matches")
 def api_soccer_daily_matches() -> Any:
+    all_matches = resolve_all_matches_arg(request.args)
     selected, invalid = parse_requested_date(request.args.get("date"))
-    if invalid or selected is None:
+    if all_matches:
+        if invalid or selected is None:
+            selected = hong_kong_today()
+    elif invalid or selected is None:
         return jsonify({"ok": False, "error": "invalid_date"}), 400
     try:
         layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_DAILY_MATCHES)
     except SoccerLayoutError:
-        layout = default_layout_settings()
+        layout = default_layout_settings(LAYOUT_KEY_DAILY_MATCHES)
     list_state = _soccer_list_query_state(layout)
     try:
         result = fetch_matches_filtered(
             SOCCER_DB_PATH,
-            selected,
+            None if all_matches else selected,
             n=list_state["n_raw"],
             q=list_state["q"],
             status=list_state["status"],
@@ -784,6 +1000,7 @@ def api_soccer_daily_matches() -> Any:
         {
             "ok": True,
             "date": selected.isoformat(),
+            "all_matches": all_matches,
             "matches": result.matches,
             "n": result.n,
             "total_count": result.total_count,
@@ -813,7 +1030,7 @@ def api_soccer_layout_get() -> Any:
             "ok": True,
             "layout_key": LAYOUT_KEY_DAILY_MATCHES,
             "settings": settings,
-            "catalog": catalog_public(),
+            "catalog": catalog_public(LAYOUT_KEY_DAILY_MATCHES),
             "zebra_colors": list(ZEBRA_COLORS),
             "width": {
                 "default": COLUMN_WIDTH_DEFAULT,
@@ -840,6 +1057,44 @@ def api_soccer_layout_save() -> Any:
         return jsonify({"ok": False, "error": "save_failed"}), 500
     return jsonify({"ok": True, "settings": saved})
 
+
+@app.get("/api/soccer/layout/match-history")
+def api_soccer_history_layout_get() -> Any:
+    try:
+        settings = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_MATCH_HISTORY)
+    except SoccerLayoutError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    return jsonify(
+        {
+            "ok": True,
+            "layout_key": LAYOUT_KEY_MATCH_HISTORY,
+            "settings": settings,
+            "catalog": catalog_public(LAYOUT_KEY_MATCH_HISTORY),
+            "zebra_colors": list(ZEBRA_COLORS),
+            "width": {
+                "default": COLUMN_WIDTH_DEFAULT,
+                "min": COLUMN_WIDTH_MIN,
+                "max": COLUMN_WIDTH_MAX,
+            },
+        }
+    )
+
+
+@app.post("/api/soccer/layout/match-history")
+def api_soccer_history_layout_save() -> Any:
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or "settings" not in data:
+        return jsonify({"ok": False, "error": "invalid_settings"}), 400
+    try:
+        saved = save_layout_settings(
+            SOCCER_DB_PATH, data["settings"], layout_key=LAYOUT_KEY_MATCH_HISTORY
+        )
+    except SoccerLayoutError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("soccer history layout save failed: %s", e)
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+    return jsonify({"ok": True, "layout_key": LAYOUT_KEY_MATCH_HISTORY, "settings": saved})
 
 
 @app.get("/settings")

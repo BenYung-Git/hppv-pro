@@ -8,6 +8,7 @@ from hppv.schema import translations_expected_columns
 from hppv.soccer_db import init_soccer_db
 from hppv.translations import (
     TranslationError,
+    apply_seed_label_renames,
     create_translation,
     list_translations,
     load_active_text_map,
@@ -117,7 +118,42 @@ def test_translate_active_key(tmp_path: Path) -> None:
     db_path = tmp_path / "soccer.sqlite3"
     init_soccer_db(db_path)
     text_map = load_active_text_map(db_path, "en")
-    assert translate(text_map, "soccer.daily.title") == "Daily Soccer Matches"
+    assert translate(text_map, "soccer.daily.title") == "Soccer Database"
+    assert translate(text_map, "soccer.daily.tab.history") == "Match History"
+    text_map_hant = load_active_text_map(db_path, "zh-Hant")
+    assert translate(text_map_hant, "nav.soccer_daily") == "足球資料庫"
+    assert translate(text_map_hant, "soccer.daily.tab.history") == "球賽往績"
+    assert translate(load_active_text_map(db_path, "zh-Hans"), "soccer.daily.tab.history") == "球赛往绩"
     text_map_zh = load_active_text_map(db_path, "zh-Hans")
     assert translate(text_map_zh, "soccer.daily.under_construction") == "功能建设中"
+
+
+def test_seed_label_renames_only_when_old_defaults(tmp_path: Path) -> None:
+    db_path = tmp_path / "soccer.sqlite3"
+    init_soccer_db(db_path)
+    with get_connection(db_path) as conn:
+        conn.execute(
+            "UPDATE translations SET zh_hant=?, en=?, zh_hans=? WHERE text_key=?",
+            ("足球每日賽事", "Daily Soccer Matches", "足球每日赛事", "nav.soccer_daily"),
+        )
+        conn.execute(
+            "UPDATE translations SET zh_hant=? WHERE text_key=?",
+            ("使用者自訂標題", "soccer.daily.title"),
+        )
+        n = apply_seed_label_renames(conn)
+        nav = conn.execute(
+            "SELECT zh_hant, en, zh_hans FROM translations WHERE text_key=?",
+            ("nav.soccer_daily",),
+        ).fetchone()
+        title = conn.execute(
+            "SELECT zh_hant FROM translations WHERE text_key=?",
+            ("soccer.daily.title",),
+        ).fetchone()
+    assert n == 1
+    assert (nav["zh_hant"], nav["en"], nav["zh_hans"]) == (
+        "足球資料庫",
+        "Soccer Database",
+        "足球数据库",
+    )
+    assert title["zh_hant"] == "使用者自訂標題"
 

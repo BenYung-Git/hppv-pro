@@ -36,7 +36,7 @@ class TranslationError(ValueError):
 INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
     # Nav / settings entry
     ("nav.system_settings", "系統設定", "System Settings", "系统设定"),
-    ("nav.soccer_daily", "足球每日賽事", "Daily Soccer Matches", "足球每日赛事"),
+    ("nav.soccer_daily", "足球資料庫", "Soccer Database", "足球数据库"),
     ("nav.language", "語言", "Language", "语言"),
     ("lang.zh_hant", "繁體中文", "Traditional Chinese", "繁体中文"),
     ("lang.en", "English", "English", "English"),
@@ -82,7 +82,7 @@ INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
     ("translations.err.not_found", "找不到記錄", "Record not found", "找不到记录"),
     ("translations.empty", "沒有符合條件的記錄", "No matching records", "没有符合条件的记录"),
     # Soccer Phase I surfaces
-    ("soccer.daily.title", "足球每日賽事", "Daily Soccer Matches", "足球每日赛事"),
+    ("soccer.daily.title", "足球資料庫", "Soccer Database", "足球数据库"),
     ("soccer.daily.under_construction", "功能建置中", "Under construction", "功能建设中"),
     # Soccer daily matches UI
     ("soccer.daily.prev_day", "前一天", "Previous day", "前一天"),
@@ -92,6 +92,7 @@ INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
     ("soccer.daily.download_not_available", "下載功能尚未開放", "Download is not available yet", "下载功能尚未开放"),
     ("soccer.daily.sync_hint", "可於「下載資料」Tab 發送請求同步賽事", "Send a request in the Download Data tab to sync matches", "可在「下载数据」Tab 发送请求同步赛事"),
     ("soccer.daily.update_disabled_hint", "請使用「下載資料」Tab 的發送功能同步資料", "Use Send in the Download Data tab to sync data", "请使用「下载数据」Tab 的发送功能同步数据"),
+    ("soccer.daily.col.date", "比賽日期", "Match Date", "比赛日期"),
     ("soccer.daily.col.time", "時間", "Time", "时间"),
     ("soccer.daily.col.match_code", "賽事編號", "Match No.", "赛事编号"),
     ("soccer.daily.col.icon", "圖示", "Icon", "图标"),
@@ -111,8 +112,112 @@ INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
     ("soccer.daily.icon_alt", "足球", "Football", "足球"),
     # Soccer daily tabs / download UI
     ("soccer.daily.tab.matches", "每日賽事", "Daily Matches", "每日赛事"),
+    ("soccer.daily.tab.history", "球賽往績", "Match History", "球赛往绩"),
+    (
+        "soccer.history.empty",
+        "沒有符合條件的往績賽事",
+        "No historical matches for this filter",
+        "没有符合条件的往绩赛事",
+    ),
+    (
+        "soccer.history.read_error",
+        "往績資料讀取失敗，請稍後重試",
+        "Failed to load match history. Please try again later.",
+        "往绩数据读取失败，请稍后重试",
+    ),
+    (
+        "soccer.history.hint",
+        "資料來自 Footylogic 往績庫（唯讀），與每日賽事分開。",
+        "Data is from the Footylogic history store (read-only), separate from Daily Matches.",
+        "数据来自 Footylogic 往绩库（只读），与每日赛事分开。",
+    ),
+    (
+        "soccer.history.search_placeholder",
+        "搜尋主隊、客隊、賽事名稱或 ID…",
+        "Search home, away, competition name or ID…",
+        "搜索主队、客队、赛事名称或 ID…",
+    ),
+    (
+        "soccer.history.pager.status",
+        "目前頁 / 總頁數",
+        "Current page / total pages",
+        "当前页 / 总页数",
+    ),
+    (
+        "soccer.history.pager.nav",
+        "往績列表分頁",
+        "History list pagination",
+        "往绩列表分页",
+    ),
+    (
+        "soccer.history.col.competition_id",
+        "賽事 ID",
+        "Competition ID",
+        "赛事 ID",
+    ),
+    (
+        "soccer.history.layout.mode_title",
+        "球賽往績 — 版面設定",
+        "Match History — Layout Settings",
+        "球赛往绩 — 版面设置",
+    ),
+    (
+        "soccer.history.layout.table_name_value",
+        "球賽往績",
+        "Match History",
+        "球赛往绩",
+    ),
+    (
+        "soccer.history.col.desc.match_date",
+        "比賽日期（footylogic_matches.match_date_hkt）",
+        "Match date (footylogic_matches.match_date_hkt)",
+        "比赛日期（footylogic_matches.match_date_hkt）",
+    ),
+    (
+        "soccer.history.col.desc.kickoff_hhmm",
+        "開賽時間（HKT HH:mm，來自 kickoff_hkt）",
+        "Kick-off time (HKT HH:mm from kickoff_hkt)",
+        "开赛时间（HKT HH:mm，来自 kickoff_hkt）",
+    ),
+    (
+        "soccer.history.col.desc.competition_name",
+        "賽事名稱；缺值顯示 competition_id",
+        "Competition name; falls back to competition_id",
+        "赛事名称；缺值显示 competition_id",
+    ),
+    (
+        "soccer.history.col.desc.home_team",
+        "主隊名稱；缺值顯示 home_team_id",
+        "Home team name; falls back to home_team_id",
+        "主队名称；缺值显示 home_team_id",
+    ),
+    (
+        "soccer.history.col.desc.away_team",
+        "客隊名稱；缺值顯示 away_team_id",
+        "Away team name; falls back to away_team_id",
+        "客队名称；缺值显示 away_team_id",
+    ),
+    (
+        "soccer.history.col.desc.score_ht",
+        "上半場比分（組合顯示）",
+        "Half-time score (combined display)",
+        "上半场比分（组合显示）",
+    ),
+    (
+        "soccer.history.col.desc.score_ft",
+        "全場比分（組合顯示）",
+        "Full-time score (combined display)",
+        "全场比分（组合显示）",
+    ),
+    (
+        "soccer.history.layout.sort_unsupported",
+        "此欄位不支援排序",
+        "Sort is not supported for this column",
+        "此栏位不支持排序",
+    ),
     ("soccer.daily.tab.download", "下載資料", "Download Data", "下载数据"),
     ("soccer.daily.tab.tasks", "任務", "Tasks", "任务"),
+    # Button label on Daily Matches toolbar (not a top-level tab).
     ("soccer.daily.tab.layout", "版面設定", "Layout", "版面设定"),
     ("soccer.daily.task.update_odds", "更新賠率", "Update odds", "更新赔率"),
     ("soccer.daily.task.update_matches", "更新賽事", "Update matches", "更新赛事"),
@@ -139,6 +244,7 @@ INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
     ("soccer.daily.ingest_range_hint", "範圍過大可能逾時或截斷；請縮短 startDate／endDate 後再送出（本系統不會自動分段）。", "Large ranges may time out or truncate; shorten startDate/endDate and resend (no automatic splitting).", "范围过大可能超时或截断；请缩短 startDate／endDate 后再送出（本系统不会自动分段）。"),
     ("soccer.daily.ingest_download_vs_saved", "來源下載筆數／成功入庫場數", "Source rows downloaded / matches saved", "来源下载笔数／成功入库场数"),
     ("soccer.daily.filter.status", "狀態", "Status", "状态"),
+    ("soccer.daily.filter.all_matches", "所有賽事", "All Matches", "所有赛事"),
     ("soccer.daily.filter.results", "賽果", "Results", "赛果"),
     ("soccer.daily.filter.prematch", "未開賽", "Not started", "未开赛"),
     ("soccer.daily.filter.inplay", "比賽中", "In play", "比赛中"),
@@ -157,6 +263,7 @@ INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
     ("soccer.daily.col.pen", "十二碼", "Penalties", "十二码"),
     ("soccer.daily.col.et", "加時", "Extra time", "加时"),
     ("soccer.daily.col.result_status", "賽果狀態", "Result status", "赛果状态"),
+    ("soccer.daily.col.desc.match_date", "比賽日期（每場 soccer_daily.match_date）", "Match date (per-row soccer_daily.match_date)", "比赛日期（每场 soccer_daily.match_date）"),
     ("soccer.daily.col.desc.kickoff_hhmm", "開賽時間（香港）", "Kick-off time (HKT)", "开赛时间（香港）"),
     ("soccer.daily.col.desc.match_code", "賽事編號", "Match code", "赛事编号"),
     ("soccer.daily.col.desc.icon", "足球圖示", "Football icon", "足球图标"),
@@ -198,6 +305,12 @@ INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
     ("soccer.daily.ingest_no_existing", "回應沒有可更新的既有賽事，未更新資料", "No existing matches to update; no data changed", "回应没有可更新的既有赛事，未更新数据"),
     ("soccer.daily.sync_results_label", "上次正式賽果更新", "Last official results update", "上次正式赛果更新"),
     ("soccer.daily.layout.title", "UI 版面設定", "UI layout settings", "UI 版面设定"),
+    (
+        "soccer.daily.layout.mode_title",
+        "每日賽事 — 版面設定",
+        "Daily Matches — Layout",
+        "每日赛事 — 版面设定",
+    ),
     ("soccer.daily.layout.table_name_label", "表格名稱", "Table name", "表格名称"),
     ("soccer.daily.layout.table_name_value", "每日賽事", "Daily Matches", "每日赛事"),
     ("soccer.daily.layout.zebra_label", "列表間隔行底色", "Alternating row colour", "列表间隔行底色"),
@@ -361,6 +474,46 @@ def seed_initial_translations(conn: sqlite3.Connection) -> int:
         )
         inserted += 1
     return inserted
+
+
+# Product label renames: update only when all three langs still match the previous seed.
+SEED_LABEL_RENAMES: tuple[
+    tuple[str, tuple[str, str, str], tuple[str, str, str]],
+    ...,
+] = (
+    (
+        "nav.soccer_daily",
+        ("足球每日賽事", "Daily Soccer Matches", "足球每日赛事"),
+        ("足球資料庫", "Soccer Database", "足球数据库"),
+    ),
+    (
+        "soccer.daily.title",
+        ("足球每日賽事", "Daily Soccer Matches", "足球每日赛事"),
+        ("足球資料庫", "Soccer Database", "足球数据库"),
+    ),
+    (
+        "soccer.daily.col.date",
+        ("日期", "Date", "日期"),
+        ("比賽日期", "Match Date", "比赛日期"),
+    ),
+)
+
+
+def apply_seed_label_renames(conn: sqlite3.Connection) -> int:
+    """Apply known product renames without clobbering user-customized labels."""
+    updated = 0
+    for text_key, old, new in SEED_LABEL_RENAMES:
+        cur = conn.execute(
+            """
+            UPDATE translations
+            SET zh_hant = ?, en = ?, zh_hans = ?
+            WHERE text_key = ?
+              AND zh_hant = ? AND en = ? AND zh_hans = ?;
+            """,
+            (new[0], new[1], new[2], text_key, old[0], old[1], old[2]),
+        )
+        updated += int(cur.rowcount or 0)
+    return updated
 
 
 def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:

@@ -193,6 +193,34 @@ def test_page_has_send_not_download_icon() -> None:
     assert "icon_download_soccer" not in html
 
 
+def test_soccer_history_route_redirects_to_tab() -> None:
+    import re
+
+    from hppv.web_app import app
+
+    client = app.test_client()
+    resp = client.get("/soccer/history", follow_redirects=False)
+    assert resp.status_code in (301, 302, 303, 307, 308)
+    loc = resp.headers.get("Location") or ""
+    assert "/soccer/daily" in loc
+    assert "tab=history" in loc
+
+    html = client.get("/soccer/daily?tab=history").get_data(as_text=True)
+    assert 'id="tab-btn-history"' in html
+    assert 'id="tab-panel-history"' in html
+    assert 'data-tab="history"' in html
+    assert re.search(
+        r'class="settings-tab active"[^>]*id="tab-btn-history"',
+        html,
+        flags=re.S,
+    )
+    assert re.search(
+        r'class="tab-panel active"[^>]*id="tab-panel-history"',
+        html,
+        flags=re.S,
+    )
+
+
 def test_page_has_tasks_tab_ui_defaults() -> None:
     import re
 
@@ -202,12 +230,37 @@ def test_page_has_tasks_tab_ui_defaults() -> None:
     html = client.get("/soccer/daily").get_data(as_text=True)
 
     assert 'id="tab-btn-matches"' in html
+    assert 'id="tab-btn-history"' in html
     assert 'id="tab-btn-download"' in html
     assert 'id="tab-btn-tasks"' in html
-    assert 'id="tab-btn-layout"' in html
+    assert 'id="tab-btn-layout"' not in html
+    assert 'data-tab="layout"' not in html
+    assert 'id="tab-panel-layout"' not in html
+    assert 'id="btn-open-layout"' in html
+    assert 'id="matches-layout-mode"' in html
+    assert 'id="matches-list-mode"' in html
+    assert 'id="matches-layout-panel"' not in html
+    assert 'id="tab-panel-history"' in html
     assert 'id="tab-panel-tasks"' in html
-    assert 'id="tab-panel-layout"' in html
+    assert 'data-tab="history"' in html
     assert 'data-tab="tasks"' in html
+    # Top tabs: matches → history → download → tasks (no layout tab)
+    m = html.find('id="tab-btn-matches"')
+    h = html.find('id="tab-btn-history"')
+    d = html.find('id="tab-btn-download"')
+    t = html.find('id="tab-btn-tasks"')
+    assert 0 <= m < h < d < t
+    # Layout entry only inside daily matches toolbar (above pager)
+    btn = html.find('id="btn-open-layout"')
+    pager = html.find('id="matches-pager"')
+    hist = html.find('id="tab-panel-history"')
+    assert 0 <= btn < pager < hist
+    # Default: list mode class; layout mode markup present but exclusive
+    assert "matches-mode-list" in html
+    assert 'id="layout-mode-toolbar"' in html
+    assert 'id="btn-layout-save"' in html
+    assert 'id="btn-layout-cancel"' in html
+    assert "function setLayoutMode(" in html
     assert 'id="match-status-filter"' in html
     assert 'value="prematch" selected' in html
     assert "update_odds_and_results" in html

@@ -18,7 +18,9 @@ from hppv.soccer_matches import (
     hong_kong_today,
     normalize_record_index,
     normalize_status_filter,
+    parse_all_matches_flag,
     parse_requested_date,
+    resolve_all_matches_arg,
     search_keys_from_layout,
     shift_date,
     sort_specs_from_layout,
@@ -148,6 +150,7 @@ def test_fetch_by_date_order_and_readonly(tmp_path: Path) -> None:
 
     rows = fetch_matches_by_date(db_path, date(2026, 11, 4))
     assert [r["match_id"] for r in rows] == ["M0", "M1", "M2"]
+    assert rows[1]["match_date"] == "2026-11-04"
     assert rows[1]["kickoff_hhmm"] == "20:00"
     assert rows[1]["competition_code"] == "ACL2"
     assert rows[1]["competition_name_zh"] == "亞冠2"
@@ -218,11 +221,12 @@ def test_api_daily_matches_returns_full_day_and_n_total(
 
     monkeypatch.setattr(wa, "SOCCER_DB_PATH", db_path)
     client = wa.app.test_client()
-    resp = client.get("/api/soccer/daily-matches?date=2026-11-05")
+    resp = client.get("/api/soccer/daily-matches?date=2026-11-05&all_matches=0")
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["ok"] is True
     assert body["date"] == "2026-11-05"
+    assert body["all_matches"] is False
     assert len(body["matches"]) == 1
     assert body["matches"][0]["match_id"] == "API1"
     assert body["n"] == 1
@@ -231,7 +235,7 @@ def test_api_daily_matches_returns_full_day_and_n_total(
     assert "total_pages" not in body
     assert body["status_filter_mapping"]["connected"] is False
 
-    page = client.get("/soccer/daily?date=2026-11-05")
+    page = client.get("/soccer/daily?date=2026-11-05&all_matches=0")
     assert page.status_code == 200
     html = page.get_data(as_text=True)
     assert "賽事資料讀取失敗" not in html
@@ -334,18 +338,184 @@ def test_api_n_over_total_count(
     monkeypatch.setattr(wa, "SOCCER_DB_PATH", db)
     client = wa.app.test_client()
 
-    resp = client.get("/api/soccer/daily-matches?date=2026-11-05&n=5&status=prematch")
+    resp = client.get(
+        "/api/soccer/daily-matches?date=2026-11-05&all_matches=0&n=5&status=prematch"
+    )
     body = resp.get_json()
     assert body["n"] == 5
     assert body["total_count"] == 25
     assert len(body["matches"]) == 25  # full list
     assert body["status"] == "prematch"
+    assert body["all_matches"] is False
 
     # legacy page= accepted as n
-    legacy = client.get("/api/soccer/daily-matches?date=2026-11-05&page=3")
+    legacy = client.get(
+        "/api/soccer/daily-matches?date=2026-11-05&all_matches=0&page=3"
+    )
     assert legacy.get_json()["n"] == 3
     assert legacy.get_json()["total_count"] == 25
 
-    html = client.get("/soccer/daily?date=2026-11-05&n=5").get_data(as_text=True)
+    html = client.get(
+        "/soccer/daily?date=2026-11-05&all_matches=0&n=5"
+    ).get_data(as_text=True)
     assert 'id="matches-pager"' in html
     assert "5 / 25" in html
+
+
+def test_match_date_column_in_filtered_and_all_modes(tmp_path: Path) -> None:
+    db = tmp_path / "soccer.sqlite3"
+    init_soccer_db(db)
+    _insert_match(
+        db,
+        match_id="MD1",
+        match_date="2026-11-01",
+        kickoff_at="2026-11-01T15:00:00+08:00",
+    )
+    _insert_match(
+        db,
+        match_id="MD2",
+        match_date="2026-11-02",
+        kickoff_at="2026-11-02T16:00:00+08:00",
+    )
+    one = fetch_matches_filtered(db, date(2026, 11, 2), n=1)
+    assert one.total_count == 1
+    assert one.matches[0]["match_date"] == "2026-11-02"
+    assert one.matches[0]["kickoff_hhmm"] == "16:00"
+
+    all_rows = fetch_matches_filtered(db, None, n=1)
+    assert all_rows.total_count == 2
+    by_id = {m["match_id"]: m for m in all_rows.matches}
+    assert by_id["MD1"]["match_date"] == "2026-11-01"
+    assert by_id["MD2"]["match_date"] == "2026-11-02"
+
+    sorted_rows = fetch_matches_filtered(
+        db,
+        None,
+        n=1,
+        sort_specs=[("match_date", "desc")],
+    )
+    assert [m["match_id"] for m in sorted_rows.matches] == ["MD2", "MD1"]
+
+
+def test_parse_all_matches_flag_defaults_true() -> None:
+    assert parse_all_matches_flag(None) is True
+    assert parse_all_matches_flag("") is True
+    assert parse_all_matches_flag("1") is True
+    assert parse_all_matches_flag("true") is True
+    assert parse_all_matches_flag("0") is False
+    assert parse_all_matches_flag("false") is False
+    assert parse_all_matches_flag("off") is False
+
+
+def test_all_matches_skips_date_filter(tmp_path: Path) -> None:
+    db = tmp_path / "soccer.sqlite3"
+    init_soccer_db(db)
+    _insert_match(
+        db,
+        match_id="D1",
+        match_date="2026-11-04",
+        kickoff_at="2026-11-04T12:00:00+08:00",
+    )
+    _insert_match(
+        db,
+        match_id="D2",
+        match_date="2026-11-05",
+        kickoff_at="2026-11-05T12:00:00+08:00",
+    )
+    by_day = fetch_matches_filtered(db, date(2026, 11, 5), n=1)
+    assert by_day.total_count == 1
+    assert by_day.all_matches is False
+    assert by_day.matches[0]["match_id"] == "D2"
+
+    all_rows = fetch_matches_filtered(db, None, n=1)
+    assert all_rows.total_count == 2
+    assert all_rows.all_matches is True
+    assert {m["match_id"] for m in all_rows.matches} == {"D1", "D2"}
+
+
+def test_all_matches_ui_default_and_date_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = tmp_path / "soccer.sqlite3"
+    init_soccer_db(db)
+    _insert_match(
+        db,
+        match_id="A1",
+        match_date="2026-11-04",
+        kickoff_at="2026-11-04T10:00:00+08:00",
+        home_team="甲隊",
+    )
+    _insert_match(
+        db,
+        match_id="B1",
+        match_date="2026-11-05",
+        kickoff_at="2026-11-05T11:00:00+08:00",
+        home_team="乙隊",
+    )
+    from hppv import web_app as wa
+
+    monkeypatch.setattr(wa, "SOCCER_DB_PATH", db)
+    client = wa.app.test_client()
+
+    # Default: all_matches checked, date controls disabled, no date filter.
+    html = client.get("/soccer/daily").get_data(as_text=True)
+    assert 'id="match-all-matches"' in html
+    assert 'id="match-all-matches"' in html and "checked" in html
+    assert 'id="match-date"' in html
+    assert 'disabled' in html
+    assert 'id="btn-prev-day"' in html
+    assert 'aria-disabled="true"' in html
+    assert "1 / 2" in html or "2 / 2" in html
+
+    default_api = client.get("/api/soccer/daily-matches?date=2026-11-05").get_json()
+    assert default_api["ok"] is True
+    assert default_api["all_matches"] is True
+    assert default_api["total_count"] == 2
+
+    # Unchecked: filter by selected date.
+    dated = client.get(
+        "/api/soccer/daily-matches?date=2026-11-05&all_matches=0"
+    ).get_json()
+    assert dated["all_matches"] is False
+    assert dated["total_count"] == 1
+    assert dated["matches"][0]["match_id"] == "B1"
+
+    html_date = client.get(
+        "/soccer/daily?date=2026-11-05&all_matches=0"
+    ).get_data(as_text=True)
+    prev_tag = html_date.split('id="btn-prev-day"', 1)[1].split(">", 1)[0]
+    next_tag = html_date.split('id="btn-next-day"', 1)[1].split(">", 1)[0]
+    assert "disabled" not in prev_tag
+    assert "disabled" not in next_tag
+    date_tag = html_date.split('id="match-date"', 1)[1].split(">", 1)[0]
+    assert "disabled" not in date_tag
+    assert 'value="0"' in html_date  # hidden all_matches stays false
+    assert "1 / 1" in html_date
+
+    # Undecoded &amp;all_matches=0 must not fall back to default true.
+    amp = client.get(
+        "/api/soccer/daily-matches?date=2026-11-05&amp;all_matches=0"
+    ).get_json()
+    assert amp["all_matches"] is False
+    assert amp["total_count"] == 1
+
+    assert resolve_all_matches_arg({"all_matches": "0"}) is False
+    assert resolve_all_matches_arg({"amp;all_matches": "0"}) is False
+    assert resolve_all_matches_arg({}) is True
+
+    # Pager keeps all_matches + other filters.
+    paged = client.get(
+        "/api/soccer/daily-matches?date=2026-11-05&all_matches=1&n=2&status=prematch&q="
+    ).get_json()
+    assert paged["all_matches"] is True
+    assert paged["n"] == 2
+    assert paged["total_count"] == 2
+    assert paged["status"] == "prematch"
+
+    html_paged = client.get(
+        "/soccer/daily?date=2026-11-05&all_matches=1&n=2&status=prematch"
+    ).get_data(as_text=True)
+    assert 'id="match-all-matches"' in html_paged
+    assert "checked" in html_paged
+    assert "2 / 2" in html_paged
+    assert 'value="prematch" selected' in html_paged or "selected" in html_paged

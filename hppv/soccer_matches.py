@@ -25,6 +25,7 @@ STATUS_FILTER_KEYS = frozenset({"results", "prematch", "inplay", "void"})
 DEFAULT_STATUS_FILTER = "prematch"
 
 _SORT_SQL: dict[str, str] = {
+    "match_date": "match_date",
     "kickoff_hhmm": "kickoff_at",
     "match_code": "match_code",
     "competition_code": "competition_code",
@@ -42,6 +43,7 @@ _SORT_SQL: dict[str, str] = {
 }
 
 _SEARCH_SQL: dict[str, str] = {
+    "match_date": "lower(ifnull(match_date,''))",
     "kickoff_hhmm": "lower(substr(ifnull(kickoff_at,''), 12, 5))",
     "match_code": "lower(ifnull(match_code,''))",
     "competition_code": "lower(ifnull(competition_code,''))",
@@ -107,7 +109,7 @@ _MATCH_SELECT_SQL = """
 
 @dataclass(frozen=True, slots=True)
 class MatchListResult:
-    """Full filtered day list + 1-based record cursor n (N / total_count)."""
+    """Full filtered list + 1-based record cursor n (N / total_count)."""
 
     matches: list[dict[str, str]]
     n: int
@@ -115,6 +117,41 @@ class MatchListResult:
     q: str
     status: str
     status_filter_applied: bool
+    all_matches: bool = False
+
+
+def parse_all_matches_flag(raw: Any) -> bool:
+    """
+    All-matches mode (no date filter).
+    Explicit false: 0 / false / no / off (case-insensitive).
+    Explicit true: 1 / true / yes / on.
+    Missing/blank defaults to True (initial UI default).
+    """
+    if raw is None:
+        return True
+    text = str(raw).strip().lower()
+    if text == "":
+        return True
+    if text in ("0", "false", "no", "off"):
+        return False
+    if text in ("1", "true", "yes", "on"):
+        return True
+    return True
+
+
+def resolve_all_matches_arg(args: Any) -> bool:
+    """
+    Read all_matches from a Werkzeug/Flask args mapping.
+    If the key is present (even empty), parse it; only default True when absent.
+    Also tolerates accidental 'amp;all_matches' from undecoded &amp; in links.
+    """
+    if hasattr(args, "get"):
+        if "all_matches" in args:
+            return parse_all_matches_flag(args.get("all_matches"))
+        # Undecoded HTML entity link: ?date=X&amp;all_matches=0
+        if "amp;all_matches" in args:
+            return parse_all_matches_flag(args.get("amp;all_matches"))
+    return True
 
 
 class SoccerDataError(RuntimeError):
@@ -266,6 +303,7 @@ def _row_to_view(row: Any) -> dict[str, str]:
 
     return {
         "match_id": match_id,
+        "match_date": format_text_field(_get("match_date")),
         "kickoff_hhmm": format_kickoff_hhmm(row["kickoff_at"]),
         "match_code": format_text_field(row["match_code"]),
         "competition_code": format_text_field(row["competition_code"]),
@@ -398,17 +436,21 @@ def _build_order_clause(sort_specs: list[tuple[str, str]] | None) -> str:
 
 def _build_where_and_params(
     *,
-    match_date: date,
+    match_date: date | None,
     q: str,
     status: str,
     search_keys: list[str] | None,
 ) -> tuple[str, list[Any], bool]:
     """
-    Shared WHERE for filtered SELECT.
-    Filter = date + search + status (status SQL only when mapping connected).
+    Shared WHERE for filtered SELECT on soccer_daily only.
+    Filter = optional date + search + status (status SQL only when mapping connected).
+    match_date=None means all soccer_daily rows (no date clause).
     """
-    clauses = ["match_date = ?"]
-    params: list[Any] = [match_date.isoformat()]
+    clauses: list[str] = []
+    params: list[Any] = []
+    if match_date is not None:
+        clauses.append("match_date = ?")
+        params.append(match_date.isoformat())
     status_applied = False
 
     status_key = normalize_status_filter(status)
@@ -432,12 +474,14 @@ def _build_where_and_params(
             clauses.append("(" + " OR ".join(ors) + ")")
             params.extend([needle] * len(keys))
 
+    if not clauses:
+        return "1 = 1", params, status_applied
     return " AND ".join(clauses), params, status_applied
 
 
 def fetch_matches_filtered(
     db_path: Path,
-    match_date: date,
+    match_date: date | None,
     *,
     n: Any = 1,
     q: str = "",
@@ -446,7 +490,8 @@ def fetch_matches_filtered(
     search_keys: list[str] | None = None,
 ) -> MatchListResult:
     """
-    Return ALL matches for the current filter (date + search + status when mapped).
+    Return ALL soccer_daily matches for the current filter.
+    match_date=None skips date filter (all-matches mode). Never reads footylogic_*.
     No per-page LIMIT. n is the 1-based cursor for UI "N / total_count".
     """
     if not db_path.is_file():
@@ -454,6 +499,7 @@ def fetch_matches_filtered(
 
     q_text = (q or "").strip()
     status_text = normalize_status_filter(status)
+    all_mode = match_date is None
     where_sql, where_params, status_applied = _build_where_and_params(
         match_date=match_date,
         q=q_text,
@@ -480,9 +526,8 @@ def fetch_matches_filtered(
     except SoccerDataError:
         raise
     except Exception as e:
-        raise SoccerDataError(
-            f"filtered query failed for match_date={match_date.isoformat()}: {e}"
-        ) from e
+        label = "all_matches" if all_mode else f"match_date={match_date.isoformat()}"
+        raise SoccerDataError(f"filtered query failed for {label}: {e}") from e
 
     matches = [_row_to_view(r) for r in rows]
     total_count = len(matches)
@@ -493,6 +538,7 @@ def fetch_matches_filtered(
         q=q_text,
         status=status_text,
         status_filter_applied=status_applied,
+        all_matches=all_mode,
     )
 
 
