@@ -1,8 +1,7 @@
-﻿# Soccer runtime DB (Phase I); do not commit
-data/soccer.sqlite3
+﻿# Soccer DB: data/soccer.sqlite3 is tracked once as migrate seed.
+# Ignore SQLite sidecars only.
 data/soccer.sqlite3-shm
 data/soccer.sqlite3-wal
-**/soccer.sqlite3
 **/soccer.sqlite3-shm
 **/soccer.sqlite3-wal
 
