@@ -1,7 +1,11 @@
-﻿# Soccer DB: data/soccer.sqlite3 is tracked once as migrate seed.
-# Ignore SQLite sidecars only.
+﻿# Soccer runtime DB: do not commit local updates.
+# Remote seed remains available in history at commit 1430ebc
+# (Add soccer.sqlite3 seed once for migrate). Updating that remote
+# seed requires explicit user confirmation.
+data/soccer.sqlite3
 data/soccer.sqlite3-shm
 data/soccer.sqlite3-wal
+**/soccer.sqlite3
 **/soccer.sqlite3-shm
 **/soccer.sqlite3-wal
 
