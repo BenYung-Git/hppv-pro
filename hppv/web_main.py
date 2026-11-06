@@ -199,7 +199,7 @@ def horse_history(horse_id: str) -> str:
 
 
 def main() -> None:
-    app.run(host="0.0.0.0", port=8000, debug=False)
+    app.run(host="0.0.0.0", port=800, debug=False)
 
 
 if __name__ == "__main__":

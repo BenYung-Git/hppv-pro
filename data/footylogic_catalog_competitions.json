@@ -1,0 +1,1234 @@
+[
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10227,
+    "groupName": "英格蘭",
+    "competitionId": 50071337,
+    "competitionName": "英格蘭超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10227,
+    "groupName": "英格蘭",
+    "competitionId": 50073224,
+    "competitionName": "英格蘭冠軍聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10227,
+    "groupName": "英格蘭",
+    "competitionId": 50073225,
+    "competitionName": "英格蘭甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10227,
+    "groupName": "英格蘭",
+    "competitionId": 50073226,
+    "competitionName": "英格蘭足球乙級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10227,
+    "groupName": "英格蘭",
+    "competitionId": 50080028,
+    "competitionName": "英格蘭足總盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10227,
+    "groupName": "英格蘭",
+    "competitionId": 50072185,
+    "competitionName": "英格蘭聯賽盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10227,
+    "groupName": "英格蘭",
+    "competitionId": 50073757,
+    "competitionName": "英格蘭聯賽錦標"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10227,
+    "groupName": "英格蘭",
+    "competitionId": 50072650,
+    "competitionName": "英格蘭社區盾"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10227,
+    "groupName": "英格蘭",
+    "competitionId": 50075060,
+    "competitionName": "女子英格蘭超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10227,
+    "groupName": "英格蘭",
+    "competitionId": 50060464,
+    "competitionName": "女子英格蘭足總盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10227,
+    "groupName": "英格蘭",
+    "competitionId": 50076502,
+    "competitionName": "女子英格蘭聯賽盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10013,
+    "groupName": "澳洲",
+    "competitionId": 50077785,
+    "competitionName": "澳洲職業聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10013,
+    "groupName": "澳洲",
+    "competitionId": 50066753,
+    "competitionName": "澳洲盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10013,
+    "groupName": "澳洲",
+    "competitionId": 50078340,
+    "competitionName": "女子澳洲職業聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10013,
+    "groupName": "澳洲",
+    "competitionId": 50077786,
+    "competitionName": "澳洲冠軍聯賽盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10013,
+    "groupName": "澳洲",
+    "competitionId": 50061951,
+    "competitionName": "澳洲全國聯賽 - 新南威爾斯"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10013,
+    "groupName": "澳洲",
+    "competitionId": 50062410,
+    "competitionName": "澳洲全國聯賽 - 維多利亞"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10013,
+    "groupName": "澳洲",
+    "competitionId": 50063214,
+    "competitionName": "澳洲全國聯賽 - 昆士蘭"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10109,
+    "groupName": "日本",
+    "competitionId": 50072146,
+    "competitionName": "日本職業聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10109,
+    "groupName": "日本",
+    "competitionId": 50061893,
+    "competitionName": "日職百年構想聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10109,
+    "groupName": "日本",
+    "competitionId": 50072297,
+    "competitionName": "日本乙組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10109,
+    "groupName": "日本",
+    "competitionId": 50061894,
+    "competitionName": "日乙日丙百年構想聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10109,
+    "groupName": "日本",
+    "competitionId": 50074377,
+    "competitionName": "日本聯賽盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10109,
+    "groupName": "日本",
+    "competitionId": 50042169,
+    "competitionName": "日本超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10109,
+    "groupName": "日本",
+    "competitionId": 50073507,
+    "competitionName": "日本天皇盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10109,
+    "groupName": "日本",
+    "competitionId": 50075714,
+    "competitionName": "女子日本聯賽盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10109,
+    "groupName": "日本",
+    "competitionId": 50073863,
+    "competitionName": "女子日本職業聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10109,
+    "groupName": "日本",
+    "competitionId": 50057757,
+    "competitionName": "日本皇后盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10115,
+    "groupName": "南韓",
+    "competitionId": 50063585,
+    "competitionName": "南韓職業聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10115,
+    "groupName": "南韓",
+    "competitionId": 50063709,
+    "competitionName": "韓國乙組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10115,
+    "groupName": "南韓",
+    "competitionId": 50071352,
+    "competitionName": "南韓足總盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10115,
+    "groupName": "南韓",
+    "competitionId": 50066320,
+    "competitionName": "女子南韓職業聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10200,
+    "groupName": "西班牙",
+    "competitionId": 50072540,
+    "competitionName": "西班牙甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10200,
+    "groupName": "西班牙",
+    "competitionId": 50073227,
+    "competitionName": "西班牙乙組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10200,
+    "groupName": "西班牙",
+    "competitionId": 50079132,
+    "competitionName": "西班牙盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10200,
+    "groupName": "西班牙",
+    "competitionId": 50059730,
+    "competitionName": "西班牙超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10200,
+    "groupName": "西班牙",
+    "competitionId": 50074373,
+    "competitionName": "女子西班牙甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10200,
+    "groupName": "西班牙",
+    "competitionId": 50059205,
+    "competitionName": "女子西班牙盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10200,
+    "groupName": "西班牙",
+    "competitionId": 50060619,
+    "competitionName": "女子西班牙超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10107,
+    "groupName": "意大利",
+    "competitionId": 50072541,
+    "competitionName": "意大利甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10107,
+    "groupName": "意大利",
+    "competitionId": 50073389,
+    "competitionName": "意大利盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10107,
+    "groupName": "意大利",
+    "competitionId": 50058987,
+    "competitionName": "意大利超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10107,
+    "groupName": "意大利",
+    "competitionId": 50076758,
+    "competitionName": "女子意大利甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10107,
+    "groupName": "意大利",
+    "competitionId": 50059200,
+    "competitionName": "女子意大利盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10107,
+    "groupName": "意大利",
+    "competitionId": 50770760,
+    "competitionName": "女子意大利超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10082,
+    "groupName": "德國",
+    "competitionId": 50072572,
+    "competitionName": "德國甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10082,
+    "groupName": "德國",
+    "competitionId": 50072721,
+    "competitionName": "德國乙組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10082,
+    "groupName": "德國",
+    "competitionId": 50073517,
+    "competitionName": "德國盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10082,
+    "groupName": "德國",
+    "competitionId": 50072655,
+    "competitionName": "德國超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10082,
+    "groupName": "德國",
+    "competitionId": 50073859,
+    "competitionName": "女子德國甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10082,
+    "groupName": "德國",
+    "competitionId": 50079549,
+    "competitionName": "女子德國盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10074,
+    "groupName": "法國",
+    "competitionId": 50072542,
+    "competitionName": "法國甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10074,
+    "groupName": "法國",
+    "competitionId": 50072775,
+    "competitionName": "法國乙組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10074,
+    "groupName": "法國",
+    "competitionId": 50057475,
+    "competitionName": "法國足總盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10074,
+    "groupName": "法國",
+    "competitionId": 28,
+    "competitionName": "法國聯賽盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10074,
+    "groupName": "法國",
+    "competitionId": 50072651,
+    "competitionName": "法國冠軍盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10074,
+    "groupName": "法國",
+    "competitionId": 50052905,
+    "competitionName": "女子法國甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10074,
+    "groupName": "法國",
+    "competitionId": 50064902,
+    "competitionName": "女子法國盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10140,
+    "groupName": "墨西哥",
+    "competitionId": 50071090,
+    "competitionName": "墨西哥超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10140,
+    "groupName": "墨西哥",
+    "competitionId": 50071767,
+    "competitionName": "墨西哥甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10140,
+    "groupName": "墨西哥",
+    "competitionId": 127,
+    "competitionName": "墨西哥盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10140,
+    "groupName": "墨西哥",
+    "competitionId": 50030446,
+    "competitionName": "墨西哥超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10140,
+    "groupName": "墨西哥",
+    "competitionId": 50071768,
+    "competitionName": "墨西哥冠軍盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10140,
+    "groupName": "墨西哥",
+    "competitionId": 50072148,
+    "competitionName": "女子墨西哥超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10140,
+    "groupName": "墨西哥",
+    "competitionId": 51063874,
+    "competitionName": "女子墨西哥冠軍盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10228,
+    "groupName": "美國",
+    "competitionId": 50062774,
+    "competitionName": "美國職業聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10228,
+    "groupName": "美國",
+    "competitionId": 50064216,
+    "competitionName": "美國冠軍聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10228,
+    "groupName": "美國",
+    "competitionId": 50065172,
+    "competitionName": "美國公開盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10228,
+    "groupName": "美國",
+    "competitionId": 50064608,
+    "competitionName": "女子美國職業聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10214,
+    "groupName": "泰國",
+    "competitionId": 50075052,
+    "competitionName": "泰國甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10176,
+    "groupName": "卡塔爾",
+    "competitionId": 50073750,
+    "competitionName": "卡塔爾超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10176,
+    "groupName": "卡塔爾",
+    "competitionId": 50076130,
+    "competitionName": "卡塔爾星盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10176,
+    "groupName": "卡塔爾",
+    "competitionId": 50062058,
+    "competitionName": "卡塔爾王子盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10187,
+    "groupName": "沙特阿拉伯",
+    "competitionId": 50072976,
+    "competitionName": "沙特職業聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10187,
+    "groupName": "沙特阿拉伯",
+    "competitionId": 50073293,
+    "competitionName": "沙特國王盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10226,
+    "groupName": "阿聯酋",
+    "competitionId": 50073223,
+    "competitionName": "阿聯酋職業聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10226,
+    "groupName": "阿聯酋",
+    "competitionId": 50076034,
+    "competitionName": "阿聯酋聯賽盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10226,
+    "groupName": "阿聯酋",
+    "competitionId": 50076585,
+    "competitionName": "阿聯酋總統盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10073,
+    "groupName": "芬蘭",
+    "competitionId": 50066265,
+    "competitionName": "芬蘭超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10163,
+    "groupName": "挪威",
+    "competitionId": 50064599,
+    "competitionName": "挪威超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10163,
+    "groupName": "挪威",
+    "competitionId": 50077563,
+    "competitionName": "挪威盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10163,
+    "groupName": "挪威",
+    "competitionId": 151,
+    "competitionName": "挪威超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10163,
+    "groupName": "挪威",
+    "competitionId": 50065203,
+    "competitionName": "女子挪威超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10163,
+    "groupName": "挪威",
+    "competitionId": 50069243,
+    "competitionName": "女子挪威盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10208,
+    "groupName": "瑞典",
+    "competitionId": 50066251,
+    "competitionName": "瑞典超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10208,
+    "groupName": "瑞典",
+    "competitionId": 50074515,
+    "competitionName": "瑞典盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10208,
+    "groupName": "瑞典",
+    "competitionId": 50065711,
+    "competitionName": "女子瑞典超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10208,
+    "groupName": "瑞典",
+    "competitionId": 50063340,
+    "competitionName": "女子瑞典盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10179,
+    "groupName": "俄羅斯",
+    "competitionId": 50071760,
+    "competitionName": "俄羅斯超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10179,
+    "groupName": "俄羅斯",
+    "competitionId": 50072387,
+    "competitionName": "俄羅斯盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10179,
+    "groupName": "俄羅斯",
+    "competitionId": 50064616,
+    "competitionName": "女子俄羅斯超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10179,
+    "groupName": "俄羅斯",
+    "competitionId": 51051626,
+    "competitionName": "女子俄羅斯盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10010,
+    "groupName": "阿根廷",
+    "competitionId": 50071523,
+    "competitionName": "阿根廷甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10010,
+    "groupName": "阿根廷",
+    "competitionId": 50060623,
+    "competitionName": "阿根廷盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10010,
+    "groupName": "阿根廷",
+    "competitionId": 50076949,
+    "competitionName": "阿根廷超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10010,
+    "groupName": "阿根廷",
+    "competitionId": 910,
+    "competitionName": "阿甲盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10010,
+    "groupName": "阿根廷",
+    "competitionId": 50064772,
+    "competitionName": "女子阿根廷甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10030,
+    "groupName": "巴西",
+    "competitionId": 50060945,
+    "competitionName": "巴西甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10030,
+    "groupName": "巴西",
+    "competitionId": 50069839,
+    "competitionName": "巴西乙組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10030,
+    "groupName": "巴西",
+    "competitionId": 50060028,
+    "competitionName": "巴西聖保羅省聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10030,
+    "groupName": "巴西",
+    "competitionId": 50062196,
+    "competitionName": "女子巴西甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10030,
+    "groupName": "巴西",
+    "competitionId": 50065165,
+    "competitionName": "巴西盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10030,
+    "groupName": "巴西",
+    "competitionId": 50068520,
+    "competitionName": "女子巴西聖保羅省聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10153,
+    "groupName": "荷蘭",
+    "competitionId": 50072702,
+    "competitionName": "荷蘭甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10153,
+    "groupName": "荷蘭",
+    "competitionId": 50072683,
+    "competitionName": "荷蘭乙組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10153,
+    "groupName": "荷蘭",
+    "competitionId": 50079045,
+    "competitionName": "荷蘭盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10153,
+    "groupName": "荷蘭",
+    "competitionId": 50072150,
+    "competitionName": "荷蘭超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10153,
+    "groupName": "荷蘭",
+    "competitionId": 50073343,
+    "competitionName": "女子荷蘭甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10153,
+    "groupName": "荷蘭",
+    "competitionId": 50058892,
+    "competitionName": "女子荷蘭盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10153,
+    "groupName": "荷蘭",
+    "competitionId": 51066817,
+    "competitionName": "女子荷蘭超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10174,
+    "groupName": "葡萄牙",
+    "competitionId": 50072755,
+    "competitionName": "葡萄牙超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10174,
+    "groupName": "葡萄牙",
+    "competitionId": 50078330,
+    "competitionName": "葡萄牙盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10174,
+    "groupName": "葡萄牙",
+    "competitionId": 50079115,
+    "competitionName": "葡萄牙聯賽盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10174,
+    "groupName": "葡萄牙",
+    "competitionId": 50072223,
+    "competitionName": "葡萄牙超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10246,
+    "groupName": "蘇格蘭",
+    "competitionId": 50072147,
+    "competitionName": "蘇格蘭超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10246,
+    "groupName": "蘇格蘭",
+    "competitionId": 50060552,
+    "competitionName": "蘇格蘭足總盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10246,
+    "groupName": "蘇格蘭",
+    "competitionId": 50071005,
+    "competitionName": "蘇格蘭聯賽盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10246,
+    "groupName": "蘇格蘭",
+    "competitionId": 50073353,
+    "competitionName": "女子蘇格蘭超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10246,
+    "groupName": "蘇格蘭",
+    "competitionId": 50840348,
+    "competitionName": "女子蘇格蘭盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10246,
+    "groupName": "蘇格蘭",
+    "competitionId": 50703846,
+    "competitionName": "女子蘇格蘭聯賽盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10021,
+    "groupName": "比利時",
+    "competitionId": 50072736,
+    "competitionName": "比利時甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10021,
+    "groupName": "比利時",
+    "competitionId": 50078408,
+    "competitionName": "比利時盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10021,
+    "groupName": "比利時",
+    "competitionId": 50072149,
+    "competitionName": "比利時超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10043,
+    "groupName": "智利",
+    "competitionId": 50060946,
+    "competitionName": "智利甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10043,
+    "groupName": "智利",
+    "competitionId": 50061296,
+    "competitionName": "智利盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10043,
+    "groupName": "智利",
+    "competitionId": 50060650,
+    "competitionName": "智利超級盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10230,
+    "groupName": "烏拉圭",
+    "competitionId": 50061959,
+    "competitionName": "烏拉圭甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10014,
+    "groupName": "奧地利",
+    "competitionId": 50071739,
+    "competitionName": "奧地利甲組聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10014,
+    "groupName": "奧地利",
+    "competitionId": 51495022,
+    "competitionName": "奧地利盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10209,
+    "groupName": "瑞士",
+    "competitionId": 50071722,
+    "competitionName": "瑞士超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10209,
+    "groupName": "瑞士",
+    "competitionId": 51495026,
+    "competitionName": "瑞士盃"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10058,
+    "groupName": "丹麥",
+    "competitionId": 50071735,
+    "competitionName": "丹麥超級聯賽"
+  },
+  {
+    "browse_category": "league",
+    "browse_categoryId": 1,
+    "groupId": 10058,
+    "groupName": "丹麥",
+    "competitionId": 50075565,
+    "competitionName": "丹麥盃"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50068132,
+    "groupName": "世盃",
+    "competitionId": 50068132,
+    "competitionName": "世盃"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50068132,
+    "groupName": "世盃",
+    "competitionId": 906,
+    "competitionName": "世盃外圍賽(歐洲)"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50068132,
+    "groupName": "世盃",
+    "competitionId": 907,
+    "competitionName": "世盃外圍賽(南美洲)"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50068132,
+    "groupName": "世盃",
+    "competitionId": 903,
+    "competitionName": "世盃外圍賽(亞洲)"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50068132,
+    "groupName": "世盃",
+    "competitionId": 904,
+    "competitionName": "世盃外圍賽(中北美)"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50068132,
+    "groupName": "世盃",
+    "competitionId": 905,
+    "competitionName": "世盃外圍賽(非洲)"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50027358,
+    "groupName": "歐洲國家盃",
+    "competitionId": 50012300,
+    "competitionName": "歐洲國家盃外圍賽"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50027358,
+    "groupName": "歐洲國家盃",
+    "competitionId": 50027358,
+    "competitionName": "歐洲國家盃"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50024195,
+    "groupName": "亞洲盃",
+    "competitionId": 50024195,
+    "competitionName": "亞洲盃"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50024195,
+    "groupName": "亞洲盃",
+    "competitionId": 50049043,
+    "competitionName": "亞洲盃外圍賽"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50075194,
+    "groupName": "亞運會",
+    "competitionId": 50075194,
+    "competitionName": "亞運男足"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50075194,
+    "groupName": "亞運會",
+    "competitionId": 50075195,
+    "competitionName": "亞運女足"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50058923,
+    "groupName": "非洲國家盃",
+    "competitionId": 50058923,
+    "competitionName": "非洲國家盃"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50058923,
+    "groupName": "非洲國家盃",
+    "competitionId": 50076033,
+    "competitionName": "非洲國家盃外圍賽"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50058923,
+    "groupName": "非洲國家盃",
+    "competitionId": 50071673,
+    "competitionName": "女子非洲國家盃"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50000736,
+    "groupName": "東亞錦標賽",
+    "competitionId": 50000736,
+    "competitionName": "東亞錦標賽"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50000736,
+    "groupName": "東亞錦標賽",
+    "competitionId": 50049490,
+    "competitionName": "女子東亞錦標賽"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50048846,
+    "groupName": "U21歐洲國家盃",
+    "competitionId": 50048846,
+    "competitionName": "U21歐洲國家盃"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50048846,
+    "groupName": "U21歐洲國家盃",
+    "competitionId": 50048730,
+    "competitionName": "U21歐國外"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50031230,
+    "groupName": "奧足",
+    "competitionId": 50031230,
+    "competitionName": "男奧足"
+  },
+  {
+    "browse_category": "international",
+    "browse_categoryId": 3,
+    "groupId": 50031230,
+    "groupName": "奧足",
+    "competitionId": 50031246,
+    "competitionName": "女奧足"
+  }
+]

@@ -1,0 +1,24 @@
+{
+  "show_cols": [
+    "race_date",
+    "distance",
+    "draw",
+    "going",
+    "finish_pos",
+    "win_odds"
+  ],
+  "sort_seq": [
+    [
+      "race_date",
+      "desc"
+    ],
+    [
+      "distance",
+      "asc"
+    ],
+    [
+      "draw",
+      "asc"
+    ]
+  ]
+}

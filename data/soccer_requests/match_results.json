@@ -1,0 +1,11 @@
+{
+  "operationName": "matchResults",
+  "variables": {
+    "startDate": "2026-11-04",
+    "endDate": "2026-11-05",
+    "startIndex": 0,
+    "endIndex": 0,
+    "teamId": null
+  },
+  "query": "query matchResults($startDate: String, $endDate: String, $startIndex: Int,$endIndex: Int,$teamId: String) {\n      matchNumByDate(startDate: $startDate, endDate: $endDate, teamId: $teamId) {\n        total\n      }\n      matches: matchResult(startDate: $startDate, endDate: $endDate, startIndex: $startIndex,endIndex: $endIndex, teamId: $teamId) {\n        id\n        status\n        frontEndId\n        matchDayOfWeek\n        matchNumber\n        matchDate\n        kickOffTime\n        sequence\n        homeTeam {\n          id\n          name_en\n          name_ch\n        }\n        awayTeam {\n          id\n          name_en\n          name_ch\n        }\n        tournament {\n          code\n          name_en\n          name_ch\n        }\n        results {\n          homeResult\n          awayResult\n          ttlCornerResult\n          resultConfirmType\n          payoutConfirmed\n          stageId\n          resultType\n          sequence\n        }\n        poolInfo {\n          payoutRefundPools\n          refundPools\n          ntsInfo\n          entInfo\n          definedPools\n          ngsInfo {\n            str\n            name_en\n            name_ch\n            instNo\n          }\n          agsInfo {\n            str\n            name_en\n            name_ch\n          }\n        }\n      }\n    }\n"
+}

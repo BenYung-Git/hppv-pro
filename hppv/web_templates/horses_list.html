@@ -1,0 +1,954 @@
+{% extends "base.html" %}
+{% block title %}馬匹列表 - HPPV Web{% endblock %}
+{% block content %}
+<style>
+  .search-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .search-left, .search-right { display: flex; align-items: center; gap: 8px; }
+  .search-left input[type="text"] { min-width: 340px; }
+  .search-right select { min-width: 420px; }
+  .section-title { font-size: 18px; font-weight: 700; margin: 4px 0 10px 0; color: #1d2a3a; }
+  .sort-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 10px; flex-wrap: wrap; }
+  .sort-bar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pp-preset-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    background: #f0f4fa;
+    border-radius: 8px;
+    border: 1px solid #dbe3ef;
+    font-size: 14px;
+  }
+  .pp-preset-bar label { font-weight: 600; color: #2c3d52; }
+  .pp-preset-bar select { min-width: 220px; padding: 4px 8px; }
+  .sort-summary { font-size: 13px; color: #46566a; }
+  .results-table th a { text-decoration: none; color: inherit; }
+  .results-table th a:hover { font-weight: 700; }
+  .sort-primary { font-weight: 800; color: #163e78; }
+  .sort-secondary { color: #60748f; }
+  .sort-third { color: #8899ae; }
+  .results-table th.hidden-col,
+  .results-table td.hidden-col {
+    display: none !important;
+  }
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(10,20,36,.35); display: none; z-index: 2000;
+  }
+  .multi-sort-panel {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(760px, 92vw); max-height: 80vh; overflow: auto;
+    background: #fff; border-radius: 10px; border: 1px solid #dbe3ef; padding: 14px; z-index: 2100; display: none;
+  }
+  .multi-sort-panel-header {
+    cursor: move; padding: 6px 10px; margin: -14px -14px 10px -14px;
+    background: #1f3d66; color: #fff; font-weight: 700; border-radius: 10px 10px 0 0;
+  }
+  .sort-panel-header-row {
+    display: grid;
+    grid-template-columns: 44px 60px minmax(0, 1fr) 88px;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 0 6px 0;
+    margin-bottom: 2px;
+    border-bottom: 2px solid #dbe3ef;
+    background: #f4f7fc;
+    font-size: 12px;
+    font-weight: 700;
+    color: #3d5266;
+    letter-spacing: 0.02em;
+  }
+  .sort-panel-header-row .col-display,
+  .sort-panel-header-row .col-sort,
+  .sort-panel-header-row .col-dir { text-align: center; }
+  .sort-panel-header-row .col-field { padding-left: 2px; }
+  .sort-row {
+    display: grid;
+    grid-template-columns: 44px 60px minmax(0, 1fr) 88px;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #eef3fb;
+  }
+  .sort-row .col-display-cell,
+  .sort-row .col-sort-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sort-row .col-display-cell input[type="checkbox"],
+  .sort-row .col-sort-cell input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    cursor: pointer;
+  }
+  .sort-row .sort-main-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .sort-row .sort-main-cell .field-label,
+  .sort-row .sort-main-cell .sort-label { flex: 1; min-width: 0; }
+  .sort-row .move { flex-shrink: 0; }
+  .sort-row .move button { margin-right: 2px; }
+  .sort-row .sort-dir-cell { display: flex; justify-content: center; }
+  .sort-row .dir-btn { width: 56px; }
+  .panel-actions { margin-top: 10px; display: flex; justify-content: flex-end; gap: 8px; }
+</style>
+<div class="card">
+  <h1>選馬＋往績</h1>
+  <div class="search-row">
+    <form method="get" action="{{ url_for('horses_list') }}" class="search-left">
+      <label>關鍵字：</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="中文名 / 英文名 / 布號（Brand No.）">
+      <input type="hidden" name="horse_id" value="{{ selected_horse_id }}">
+      <input type="hidden" name="panel" value="{{ panel_state }}">
+      <input type="hidden" name="pp_preset_id" value="{{ pp_active_preset_id }}">
+      {% if pp_visible_param %}
+      <input type="hidden" name="pp_visible" value="{{ pp_visible_param }}">
+      {% endif %}
+      {% for pair in sort_seq %}
+      <input type="hidden" name="sort{{ loop.index }}" value="{{ pair[0] }}">
+      <input type="hidden" name="dir{{ loop.index }}" value="{{ pair[1] }}">
+      {% endfor %}
+      <button type="submit">搜尋</button>
+    </form>
+
+    <form method="get" action="{{ url_for('horses_list') }}" class="search-right">
+      <input type="hidden" name="q" value="">
+      <input type="hidden" name="panel" value="{{ panel_state }}">
+      <input type="hidden" name="pp_preset_id" value="{{ pp_active_preset_id }}">
+      {% if pp_visible_param %}
+      <input type="hidden" name="pp_visible" value="{{ pp_visible_param }}">
+      {% endif %}
+      {% for pair in sort_seq %}
+      <input type="hidden" name="sort{{ loop.index }}" value="{{ pair[0] }}">
+      <input type="hidden" name="dir{{ loop.index }}" value="{{ pair[1] }}">
+      {% endfor %}
+      <label>馬匹：</label>
+      <select name="horse_id" onchange="this.form.submit()">
+        {% for h in horses %}
+        {% set hid = h["horse_id"] %}
+        {% set label_zh = h["name_zh"] or "—" %}
+        {% set label_en = h["name_en"] or "—" %}
+        {% set label_brand = h["brand_no"] or "—" %}
+        <option value="{{ hid }}" {% if selected_horse_id == hid %}selected{% endif %}>
+          {{ label_zh }} / {{ label_en }} ({{ label_brand }})
+        </option>
+        {% else %}
+        <option value="">沒有匹配馬匹</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <div><strong>目前馬匹：</strong>{{ selected_horse_id or "—" }}</div>
+    <div><strong>Status：</strong>{{ selected_status or "—" }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+    <div class="section-title" style="margin:0;">對賽往績</div>
+    <a href="{{ url_for('export_report', report='horse_results') }}" style="font-size:13px; padding:6px 12px; border:1px solid #2563eb; color:#2563eb; border-radius:6px; text-decoration:none;">匯出馬匹往績 (Excel)</a>
+  </div>
+  <div class="pp-preset-bar">
+    <label for="pp-preset-select">往績顯示／排序方案：</label>
+    <select id="pp-preset-select" name="pp_preset_id">
+      {% for p in pp_presets_meta %}
+      <option value="{{ p.id }}" {% if p.id == pp_active_preset_id %}selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="sort-bar">
+    <div class="sort-summary">排序順序：{{ sort_summary }}</div>
+    <div class="sort-bar-right">
+      <button type="button" id="pp-save-as-new-btn">儲存為新方案</button>
+      <button type="button" id="pp-update-current-btn">更新目前方案</button>
+      <button type="button" onclick="openSortPanel()">資料排序及顯示</button>
+    </div>
+  </div>
+
+  <table id="past-perf-table" class="results-table">
+    <thead>
+      {% set cols = [
+        ("race_date", "Race Date"),
+        ("venue", "Venue"),
+        ("race_no", "Race No."),
+        ("course", "Course"),
+        ("distance", "Distance"),
+        ("going", "Going"),
+        ("class_band", "Class"),
+        ("draw", "Draw"),
+        ("rating", "Rating"),
+        ("jockey", "Jockey"),
+        ("trainer", "Trainer"),
+        ("finish_pos", "Finish Pos"),
+        ("running_pos", "Running Pos"),
+        ("win_odds", "Win Odds"),
+        ("time", "Time"),
+        ("prize", "Prize"),
+        ("flag", "Flag")
+      ] %}
+      <tr>
+        {% for key, label in cols %}
+          {% set st = sort_state[key] %}
+          {% if st.selected and st.order == 1 %}
+            {% set arrow = "▲" if st.dir == "asc" else "▼" %}
+            {% set cls = "sort-primary" %}
+          {% elif st.selected and st.order == 2 %}
+            {% set arrow = "▲₂" if st.dir == "asc" else "▼₂" %}
+            {% set cls = "sort-secondary" %}
+          {% elif st.selected and st.order == 3 %}
+            {% set arrow = "▲₃" if st.dir == "asc" else "▼₃" %}
+            {% set cls = "sort-third" %}
+          {% else %}
+            {% set arrow = "" %}
+            {% set cls = "" %}
+          {% endif %}
+          <th data-key="{{ key }}"{% if key not in pp_show_cols_default %} class="hidden-col"{% endif %}>
+            <a class="{{ cls }}" href="{{ url_for('horses_list') }}?{{ base_header_qs }}&clicked_col={{ key }}">
+              {{ label }} {{ arrow }}
+            </a>
+          </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        {% for key, label in cols %}
+        <td data-key="{{ key }}"{% if key not in pp_show_cols_default %} class="hidden-col"{% endif %}>{{ r[key] }}</td>
+        {% endfor %}
+      </tr>
+      {% else %}
+      <tr><td colspan="17">目前沒有可顯示的往績。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <script>
+    window.CURRENT_SORT_SEQ = {{ sort_seq | tojson }};
+    (function ppSavePresetInit() {
+      function getCurrentPpShowCols() {
+        var rows = document.querySelectorAll("#multi-sort-list .sort-row");
+        var result = [];
+        rows.forEach(function (row) {
+          var key = row.dataset.key;
+          var displayCb = row.querySelector(".display-checkbox");
+          if (!key || !displayCb) {
+            return;
+          }
+          if (displayCb.checked) {
+            result.push(key);
+          }
+        });
+        return result;
+      }
+      function getCurrentPpSortSeqFromUrl() {
+        var params = new URLSearchParams(window.location.search);
+        var result = [];
+        for (var i = 1; i <= 3; i++) {
+          var col = params.get("sort" + i);
+          if (!col) {
+            continue;
+          }
+          var dir = params.get("dir" + i) || "asc";
+          dir = dir.toLowerCase() === "desc" ? "desc" : "asc";
+          result.push([col, dir]);
+        }
+        return result;
+      }
+      function getCurrentPpSortSeq() {
+        var fromUrl = getCurrentPpSortSeqFromUrl();
+        if (fromUrl.length) {
+          return fromUrl.slice(0, 3);
+        }
+        if (Array.isArray(window.CURRENT_SORT_SEQ) && window.CURRENT_SORT_SEQ.length) {
+          return window.CURRENT_SORT_SEQ.map(function (pair) {
+            return [pair[0], pair[1]];
+          }).slice(0, 3);
+        }
+        return [];
+      }
+      window.getCurrentPpShowCols = getCurrentPpShowCols;
+      var saveUrl = {{ url_for("save_pp_preset") | tojson }};
+      var saveNewBtn = document.getElementById("pp-save-as-new-btn");
+      var updateBtn = document.getElementById("pp-update-current-btn");
+      var presetSelect = document.getElementById("pp-preset-select");
+
+      if (presetSelect) {
+        presetSelect.addEventListener("change", function () {
+          var id = presetSelect.value;
+          var url = new URL(window.location.href);
+          if (id) {
+            url.searchParams.set("pp_preset_id", id);
+          } else {
+            url.searchParams.delete("pp_preset_id");
+          }
+          url.searchParams.delete("sort1");
+          url.searchParams.delete("sort2");
+          url.searchParams.delete("sort3");
+          url.searchParams.delete("dir1");
+          url.searchParams.delete("dir2");
+          url.searchParams.delete("dir3");
+          url.searchParams.delete("pp_visible");
+          window.location.href = url.toString();
+        });
+      }
+
+      if (saveNewBtn) {
+        saveNewBtn.addEventListener("click", function () {
+          var showCols = getCurrentPpShowCols();
+          var sortSeq = getCurrentPpSortSeq();
+          if (!showCols.length) {
+            alert("請至少顯示一個欄位才可儲存。");
+            return;
+          }
+          var name = window.prompt("請輸入方案名稱（例如：按途程+日子排序）：");
+          if (!name || !String(name).trim()) {
+            return;
+          }
+          fetch(saveUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Requested-With": "XMLHttpRequest",
+            },
+            body: JSON.stringify({
+              mode: "create",
+              name: String(name).trim(),
+              show_cols: showCols,
+              sort_seq: sortSeq,
+            }),
+          })
+            .then(function (res) {
+              return res.json().then(function (data) {
+                return { res: res, data: data };
+              });
+            })
+            .then(function (x) {
+              if (!x.res.ok || !x.data || !x.data.ok) {
+                throw new Error((x.data && x.data.error) || "儲存失敗");
+              }
+              alert("已儲存為新方案。");
+              var newId = x.data.id;
+              if (newId) {
+                var url = new URL(window.location.href);
+                url.searchParams.set("pp_preset_id", newId);
+                url.searchParams.delete("sort1");
+                url.searchParams.delete("sort2");
+                url.searchParams.delete("sort3");
+                url.searchParams.delete("dir1");
+                url.searchParams.delete("dir2");
+                url.searchParams.delete("dir3");
+                url.searchParams.delete("pp_visible");
+                window.location.href = url.toString();
+              } else {
+                window.location.reload();
+              }
+            })
+            .catch(function (err) {
+              console.error(err);
+              alert("儲存失敗。");
+            });
+        });
+      }
+
+      if (updateBtn && presetSelect) {
+        updateBtn.addEventListener("click", function () {
+          var activeId = presetSelect.value;
+          if (!activeId) {
+            alert("請先選擇要更新的方案。");
+            return;
+          }
+          var showCols = getCurrentPpShowCols();
+          var sortSeq = getCurrentPpSortSeq();
+          if (!showCols.length) {
+            alert("請至少顯示一個欄位。");
+            return;
+          }
+          if (!window.confirm("確定要用目前設定覆蓋此方案？")) {
+            return;
+          }
+          fetch(saveUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Requested-With": "XMLHttpRequest",
+            },
+            body: JSON.stringify({
+              mode: "update",
+              id: activeId,
+              show_cols: showCols,
+              sort_seq: sortSeq,
+            }),
+          })
+            .then(function (res) {
+              return res.json().then(function (data) {
+                return { res: res, data: data };
+              });
+            })
+            .then(function (x) {
+              if (!x.res.ok || !x.data || !x.data.ok) {
+                throw new Error((x.data && x.data.error) || "更新失敗");
+              }
+              alert("方案已更新。");
+            })
+            .catch(function (err) {
+              console.error(err);
+              alert("更新失敗。");
+            });
+        });
+      }
+    })();
+  </script>
+</div>
+
+<div id="sortBackdrop" class="modal-backdrop" onclick="closeSortPanel()"></div>
+<div id="multi-sort-panel" class="multi-sort-panel">
+  <div id="multi-sort-panel-header" class="multi-sort-panel-header">資料排序及顯示</div>
+  <div class="multi-sort-panel-body">
+  <div class="sort-panel-header-row">
+    <span class="col-display">顯示</span>
+    <span class="col-sort">排序</span>
+    <span class="col-field">欄位</span>
+    <span class="col-dir">方向</span>
+  </div>
+  <div id="multi-sort-list">
+    {% for key, label in sortable_fields %}
+    {% set st = sort_state[key] %}
+    <div class="sort-row" data-key="{{ key }}" data-dir="{{ st.dir }}" data-selected="{{ '1' if st.selected else '0' }}" data-order="{{ st.order }}">
+      <div class="col-display-cell">
+        <input type="checkbox" class="display-checkbox" {% if key in pp_show_cols_default %}checked{% endif %}>
+      </div>
+      <div class="col-sort-cell">
+        <input type="checkbox" class="sort-checkbox" {% if st.selected %}checked{% endif %}>
+      </div>
+      <div class="sort-main-cell col-field-cell">
+        <div class="move">
+          <button type="button" onclick="moveUp(this)">↑</button>
+          <button type="button" onclick="moveDown(this)">↓</button>
+        </div>
+        <span class="field-label">{{ label }}</span>
+      </div>
+      <div class="sort-dir-cell">
+        <button type="button" class="dir-btn" onclick="toggleDir(this)">{{ "↑" if st.dir == "asc" else "↓" }}</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="panel-actions">
+    <button type="button" onclick="applySort()">套用排序</button>
+    <button type="button" onclick="resetSort()">回預設排序</button>
+    <button type="button" onclick="closeSortPanel()">取消</button>
+  </div>
+  </div>
+</div>
+
+<script>
+  const ALL_SORT_KEYS = {{ sortable_fields | map("first") | list | tojson }};
+  const INITIAL_SEQ = {{ sort_seq | tojson }};
+  const INITIAL_SHOW_COLS = {{ pp_show_cols_default | list | tojson }};
+
+  /**
+   * sortState[i] = { key, dir, selected, order, show }
+   * selected=true：order 為排序鍵次序（0 最前，最多三個），與 preset sort_seq 一致。
+   * selected=false：order 為「未選排序」列之尾序（↑↓ 與其他未選排序之列交換）。
+   * show：是否勾選「顯示」（與 preset / pp_visible 一致）；面板列順序為 已選排序 → 僅顯示 → 兩者皆未勾。
+   */
+  let sortState = [];
+  /** 勾選先後（數值愈細愈「舊」），用於四選一時優先踢走非 race_date 中最舊者 */
+  let selectGen = {};
+  let genTick = 0;
+
+  function stateByKey(key) {
+    for (var i = 0; i < sortState.length; i++) {
+      if (sortState[i].key === key) {
+        return sortState[i];
+      }
+    }
+    return null;
+  }
+
+  function renumberSelectedOrders() {
+    var ordered = sortState
+      .filter(function (s) {
+        return s.selected;
+      })
+      .sort(function (a, b) {
+        return a.order - b.order;
+      });
+    ordered.forEach(function (s, i) {
+      s.order = i;
+    });
+  }
+
+  function renumberTailOrders() {
+    var tail = sortState
+      .filter(function (s) {
+        return !s.selected;
+      })
+      .sort(function (a, b) {
+        return a.order - b.order;
+      });
+    tail.forEach(function (s, i) {
+      s.order = i;
+    });
+  }
+
+  function hydrateFromServer() {
+    sortState = [];
+    selectGen = {};
+    genTick = 0;
+    var rawSeq = INITIAL_SEQ && INITIAL_SEQ.length ? INITIAL_SEQ : [["race_date", "desc"]];
+    var seq = [];
+    var seenSk = {};
+    for (var qi = 0; qi < rawSeq.length && seq.length < 3; qi++) {
+      var pr = rawSeq[qi];
+      if (!pr || !pr[0] || seenSk[pr[0]]) {
+        continue;
+      }
+      seenSk[pr[0]] = true;
+      seq.push(pr);
+    }
+    if (!seq.length) {
+      seq = [["race_date", "desc"]];
+    }
+    var seqKeyToIdx = {};
+    for (var si = 0; si < seq.length; si++) {
+      var sk = seq[si][0];
+      if (sk && seqKeyToIdx[sk] === undefined) {
+        seqKeyToIdx[sk] = si;
+      }
+    }
+    var showSet = {};
+    if (Array.isArray(INITIAL_SHOW_COLS)) {
+      INITIAL_SHOW_COLS.forEach(function (k) {
+        showSet[k] = true;
+      });
+    }
+    var tailPos = 0;
+    sortState = ALL_SORT_KEYS.map(function (k) {
+      var idx = seqKeyToIdx[k];
+      var sh = !!showSet[k];
+      if (idx !== undefined) {
+        return { key: k, dir: seq[idx][1], selected: true, order: idx, show: sh };
+      }
+      var defDir = k === "race_date" ? "desc" : "asc";
+      var o = tailPos;
+      tailPos += 1;
+      return { key: k, dir: defDir, selected: false, order: o, show: sh };
+    });
+    seq.forEach(function (pair, i) {
+      selectGen[pair[0]] = i;
+    });
+    genTick = seq.length;
+    renumberSelectedOrders();
+    renumberTailOrders();
+  }
+
+  function evictOneToMakeRoom() {
+    var sel = sortState.filter(function (s) {
+      return s.selected;
+    });
+    if (sel.length < 3) {
+      return;
+    }
+    var nonRace = sel.filter(function (s) {
+      return s.key !== "race_date";
+    });
+    var victim;
+    if (nonRace.length > 0) {
+      victim = nonRace.reduce(function (a, b) {
+        return (selectGen[a.key] < selectGen[b.key] ? a : b);
+      });
+    } else {
+      victim = sel.reduce(function (a, b) {
+        return (selectGen[a.key] < selectGen[b.key] ? a : b);
+      });
+    }
+    victim.selected = false;
+    victim.order = 999999;
+    renumberSelectedOrders();
+    renumberTailOrders();
+  }
+
+  function byOrderAsc(a, b) {
+    return a.order - b.order;
+  }
+
+  /** 面板／往績表欄序：已勾排序 → 僅勾顯示 → 兩者皆未勾；各段內再按 order */
+  function getPanelBlockOrderedState() {
+    var selected = sortState.filter(function (s) {
+      return s.selected;
+    }).sort(byOrderAsc);
+    var showOnly = sortState
+      .filter(function (s) {
+        return !s.selected && s.show;
+      })
+      .sort(byOrderAsc);
+    var inactive = sortState
+      .filter(function (s) {
+        return !s.selected && !s.show;
+      })
+      .sort(byOrderAsc);
+    return selected.concat(showOnly, inactive);
+  }
+
+  function getPanelColumnKeyOrder() {
+    return getPanelBlockOrderedState().map(function (s) {
+      return s.key;
+    });
+  }
+
+  /** 依 sortState 重排往績表 thead / tbody 內帶 data-key 的欄位；show/hide 仍由 setColumnVisible 負責 */
+  function applyColumnOrderFromSortState(table) {
+    if (!table) {
+      return;
+    }
+    var keyOrder = getPanelColumnKeyOrder();
+    var theadRow = table.querySelector("thead tr");
+    var tbody = table.querySelector("tbody");
+    if (!theadRow || !tbody) {
+      return;
+    }
+    var thMap = {};
+    Array.from(theadRow.querySelectorAll("th[data-key]")).forEach(function (th) {
+      thMap[th.dataset.key] = th;
+    });
+    var seenTh = {};
+    keyOrder.forEach(function (key) {
+      var th = thMap[key];
+      if (th) {
+        theadRow.appendChild(th);
+        seenTh[key] = true;
+      }
+    });
+    Object.keys(thMap).forEach(function (key) {
+      if (!seenTh[key] && thMap[key]) {
+        theadRow.appendChild(thMap[key]);
+      }
+    });
+    Array.from(tbody.querySelectorAll("tr")).forEach(function (tr) {
+      var tdMap = {};
+      Array.from(tr.querySelectorAll("td[data-key]")).forEach(function (td) {
+        tdMap[td.dataset.key] = td;
+      });
+      if (Object.keys(tdMap).length === 0) {
+        return;
+      }
+      var seenTd = {};
+      keyOrder.forEach(function (key) {
+        var td = tdMap[key];
+        if (td) {
+          tr.appendChild(td);
+          seenTd[key] = true;
+        }
+      });
+      Object.keys(tdMap).forEach(function (key) {
+        if (!seenTd[key] && tdMap[key]) {
+          tr.appendChild(tdMap[key]);
+        }
+      });
+    });
+  }
+
+  function renderSortList() {
+    var container = document.getElementById("multi-sort-list");
+    if (!container) {
+      return;
+    }
+    var rows = Array.from(container.querySelectorAll(".sort-row"));
+    var byKey = {};
+    rows.forEach(function (r) {
+      byKey[r.dataset.key] = r;
+    });
+    getPanelBlockOrderedState().forEach(function (s) {
+      var row = byKey[s.key];
+      if (row) {
+        container.appendChild(row);
+      }
+    });
+    rows.forEach(function (row) {
+      var k = row.dataset.key;
+      var st = stateByKey(k);
+      var sortCb = row.querySelector(".sort-checkbox");
+      if (sortCb && st) {
+        sortCb.checked = st.selected;
+      }
+      var dirBtn = row.querySelector(".dir-btn");
+      if (dirBtn && st) {
+        dirBtn.textContent = st.dir === "asc" ? "↑" : "↓";
+      }
+    });
+    var pastTable = document.getElementById("past-perf-table");
+    if (pastTable) {
+      applyColumnOrderFromSortState(pastTable);
+    }
+  }
+
+  function bindCheckboxes() {
+    var list = document.getElementById("multi-sort-list");
+    if (!list) {
+      return;
+    }
+    Array.from(list.querySelectorAll(".sort-row")).forEach(function (row) {
+      var k = row.dataset.key;
+      var cb = row.querySelector(".sort-checkbox");
+      if (!cb || cb.dataset.bound === "1") {
+        return;
+      }
+      cb.dataset.bound = "1";
+      cb.addEventListener("change", function () {
+        var st = stateByKey(k);
+        if (!st) {
+          return;
+        }
+        if (!cb.checked) {
+          st.selected = false;
+          st.order = 999999;
+          renumberSelectedOrders();
+          renumberTailOrders();
+          renderSortList();
+          return;
+        }
+        while (sortState.filter(function (s) { return s.selected; }).length >= 3) {
+          evictOneToMakeRoom();
+        }
+        genTick += 1;
+        selectGen[k] = genTick;
+        var maxO = -1;
+        sortState.forEach(function (s) {
+          if (s.selected && s.order > maxO) {
+            maxO = s.order;
+          }
+        });
+        st.selected = true;
+        st.order = maxO + 1;
+        renumberSelectedOrders();
+        renderSortList();
+      });
+    });
+  }
+
+  function setColumnVisible(table, colKey, visible) {
+    if (!table || !colKey) {
+      return;
+    }
+    var sel = 'th[data-key="' + colKey + '"], td[data-key="' + colKey + '"]';
+    table.querySelectorAll(sel).forEach(function (cell) {
+      cell.style.display = visible ? "" : "none";
+      if (visible) {
+        cell.classList.remove("hidden-col");
+      } else {
+        cell.classList.add("hidden-col");
+      }
+    });
+  }
+
+  function bindDisplayCheckboxes() {
+    var list = document.getElementById("multi-sort-list");
+    var pastPerfTable = document.getElementById("past-perf-table");
+    if (!list || !pastPerfTable) {
+      return;
+    }
+    Array.from(list.querySelectorAll(".sort-row")).forEach(function (row) {
+      var key = row.dataset.key;
+      var displayCheckbox = row.querySelector(".display-checkbox");
+      if (!key || !displayCheckbox || displayCheckbox.dataset.bound === "1") {
+        return;
+      }
+      displayCheckbox.dataset.bound = "1";
+      setColumnVisible(pastPerfTable, key, displayCheckbox.checked);
+      displayCheckbox.addEventListener("change", function (e) {
+        var st = stateByKey(key);
+        if (st) {
+          st.show = e.target.checked;
+        }
+        setColumnVisible(pastPerfTable, key, e.target.checked);
+        renderSortList();
+      });
+    });
+  }
+
+  (function initSortPanel() {
+    hydrateFromServer();
+    renderSortList();
+    bindCheckboxes();
+    bindDisplayCheckboxes();
+  })();
+
+  function openSortPanel() {
+    document.getElementById("sortBackdrop").style.display = "block";
+    document.getElementById("multi-sort-panel").style.display = "block";
+    const url = new URL(window.location.href);
+    url.searchParams.set("panel", "open");
+    window.history.replaceState(null, "", url.toString());
+  }
+  function closeSortPanel() {
+    document.getElementById("sortBackdrop").style.display = "none";
+    document.getElementById("multi-sort-panel").style.display = "none";
+    const url = new URL(window.location.href);
+    url.searchParams.delete("panel");
+    window.history.replaceState(null, "", url.toString());
+  }
+  function moveUp(btn) {
+    var row = btn.closest(".sort-row");
+    var k = row.dataset.key;
+    var st = stateByKey(k);
+    if (!st) {
+      return;
+    }
+    var ordered = sortState
+      .filter(function (s) {
+        return s.selected === st.selected;
+      })
+      .sort(function (a, b) {
+        return a.order - b.order;
+      });
+    var i = ordered.findIndex(function (s) {
+      return s.key === k;
+    });
+    if (i <= 0) {
+      return;
+    }
+    var oa = ordered[i].order;
+    ordered[i].order = ordered[i - 1].order;
+    ordered[i - 1].order = oa;
+    if (st.selected) {
+      renumberSelectedOrders();
+    } else {
+      renumberTailOrders();
+    }
+    renderSortList();
+  }
+  function moveDown(btn) {
+    var row = btn.closest(".sort-row");
+    var k = row.dataset.key;
+    var st = stateByKey(k);
+    if (!st) {
+      return;
+    }
+    var ordered = sortState
+      .filter(function (s) {
+        return s.selected === st.selected;
+      })
+      .sort(function (a, b) {
+        return a.order - b.order;
+      });
+    var i = ordered.findIndex(function (s) {
+      return s.key === k;
+    });
+    if (i < 0 || i >= ordered.length - 1) {
+      return;
+    }
+    var oa = ordered[i].order;
+    ordered[i].order = ordered[i + 1].order;
+    ordered[i + 1].order = oa;
+    if (st.selected) {
+      renumberSelectedOrders();
+    } else {
+      renumberTailOrders();
+    }
+    renderSortList();
+  }
+  function toggleDir(btn) {
+    var row = btn.closest(".sort-row");
+    var k = row.dataset.key;
+    var st = stateByKey(k);
+    if (!st) {
+      return;
+    }
+    st.dir = st.dir === "asc" ? "desc" : "asc";
+    btn.textContent = st.dir === "asc" ? "↑" : "↓";
+  }
+  function applySort() {
+    var params = new URLSearchParams();
+    params.set("q", "{{ q }}");
+    params.set("horse_id", "{{ selected_horse_id }}");
+    params.set("pp_preset_id", "{{ pp_active_preset_id }}");
+    if (typeof window.getCurrentPpShowCols === "function") {
+      var vis = window.getCurrentPpShowCols();
+      if (vis.length) {
+        params.set("pp_visible", vis.join(","));
+      }
+    }
+    var ordered = sortState
+      .filter(function (s) {
+        return s.selected;
+      })
+      .sort(function (a, b) {
+        return a.order - b.order;
+      });
+    var idx = 1;
+    for (var i = 0; i < ordered.length && idx <= 3; i++) {
+      params.set("sort" + idx, ordered[i].key);
+      params.set("dir" + idx, ordered[i].dir);
+      idx += 1;
+    }
+    if (idx === 1) {
+      params.set("sort1", "race_date");
+      params.set("dir1", "desc");
+    }
+    window.location.href = "{{ url_for('horses_list') }}?" + params.toString();
+  }
+  function resetSort() {
+    const params = new URLSearchParams();
+    params.set("q", "{{ q }}");
+    params.set("horse_id", "{{ selected_horse_id }}");
+    params.set("pp_preset_id", "{{ pp_active_preset_id }}");
+    var cur = new URLSearchParams(window.location.search);
+    var pv = cur.get("pp_visible");
+    if (pv) {
+      params.set("pp_visible", pv);
+    } else if (typeof window.getCurrentPpShowCols === "function") {
+      var vis = window.getCurrentPpShowCols();
+      if (vis.length) {
+        params.set("pp_visible", vis.join(","));
+      }
+    }
+    params.set("sort1", "race_date");
+    params.set("dir1", "desc");
+    window.location.href = "{{ url_for('horses_list') }}?" + params.toString();
+  }
+
+  // draggable panel (header only)
+  (function initPanelDrag() {
+    const panel = document.getElementById("multi-sort-panel");
+    const header = document.getElementById("multi-sort-panel-header");
+    if (!panel || !header) return;
+    let isDragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+    header.addEventListener("mousedown", function(e) {
+      isDragging = true;
+      const rect = panel.getBoundingClientRect();
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      panel.style.transform = "none";
+    });
+    document.addEventListener("mousemove", function(e) {
+      if (!isDragging) return;
+      e.preventDefault();
+      panel.style.left = (e.clientX - offsetX) + "px";
+      panel.style.top = (e.clientY - offsetY) + "px";
+      panel.style.position = "fixed";
+    });
+    document.addEventListener("mouseup", function() {
+      isDragging = false;
+    });
+  })();
+
+  (function keepPanelOpenAfterReload() {
+    if ("{{ panel_state }}" === "open") {
+      openSortPanel();
+    }
+  })();
+</script>
+{% endblock %}

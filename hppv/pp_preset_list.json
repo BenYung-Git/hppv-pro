@@ -1,0 +1,57 @@
+[
+  {
+    "id": "default",
+    "name": "系統預設",
+    "is_builtin": true,
+    "show_cols": [
+      "race_date",
+      "distance",
+      "draw",
+      "going",
+      "finish_pos",
+      "win_odds"
+    ],
+    "sort_seq": [
+      [
+        "race_date",
+        "desc"
+      ],
+      [
+        "distance",
+        "asc"
+      ],
+      [
+        "draw",
+        "asc"
+      ]
+    ]
+  },
+  {
+    "id": "1",
+    "name": "排序1",
+    "is_builtin": false,
+    "show_cols": [
+      "race_date",
+      "jockey",
+      "distance",
+      "win_odds",
+      "draw",
+      "finish_pos",
+      "going"
+    ],
+    "sort_seq": [
+      [
+        "race_date",
+        "desc"
+      ],
+      [
+        "jockey",
+        "asc"
+      ],
+      [
+        "distance",
+        "asc"
+      ]
+    ]
+  }
+]

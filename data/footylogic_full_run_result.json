@@ -1,0 +1,35 @@
+{
+  "report_txt": "C:\\Hppv\\footylogic_full_run_report_20261106.txt",
+  "backup": "C:\\Hppv\\data\\backup\\soccer_before_footylogic_full_20261106_090737.sqlite3",
+  "sha256": "1fed53470b4067436242b254c112fa1a1b4935e0497fc080a79d8b9cfb6a21ee",
+  "stats1": {
+    "attempted": 3996,
+    "completed": 3994,
+    "failed": 2,
+    "empty_ok": 0,
+    "upserted": 90389,
+    "quarantined": 1387,
+    "stopped": 0,
+    "chunks": 80
+  },
+  "stats2": {
+    "attempted": 4226,
+    "completed": 3993,
+    "failed": 233,
+    "empty_ok": 0,
+    "upserted": 90474,
+    "quarantined": 1387,
+    "stopped": 0,
+    "chunks": 88
+  },
+  "matches_after_first": 90473,
+  "matches_final": 90481,
+  "dedupe_ok": false,
+  "quarantine": 2774,
+  "soccer_daily": 62,
+  "daily_ok": true,
+  "failed_final": 5,
+  "per_comp_count": 150,
+  "seconds_first": 8094.5,
+  "seconds_dedupe": 10905.2
+}

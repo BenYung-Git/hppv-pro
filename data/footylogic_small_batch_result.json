@@ -1,0 +1,132 @@
+{
+  "generated_at_hkt": "2026-11-06T08:56:23+08:00",
+  "db_path": "C:\\Hppv\\data\\soccer.sqlite3",
+  "backup": {
+    "path": "C:\\Hppv\\data\\backup\\soccer_before_footylogic_20261106_085609.sqlite3",
+    "size_bytes": 102400,
+    "sha256": "466a05ccdb4f8ffbb06436c84712c91eebe4823fd3c9b8f0b1478d969648d1f5",
+    "source_sha256": "466a05ccdb4f8ffbb06436c84712c91eebe4823fd3c9b8f0b1478d969648d1f5"
+  },
+  "migration": {
+    "tables_added": [
+      "footylogic_jobs",
+      "footylogic_matches",
+      "footylogic_quarantine",
+      "footylogic_raw_months"
+    ],
+    "tables_before_had_footylogic": [],
+    "soccer_daily_before": 62,
+    "soccer_daily_after_migration": 62
+  },
+  "small_batch": {
+    "competition_ids": [
+      50071337,
+      50075119
+    ],
+    "months": [
+      "2026-06",
+      "2026-07",
+      "2026-08",
+      "2026-09",
+      "2026-10",
+      "2026-11"
+    ],
+    "jobs_seeded_new": 4,
+    "jobs_selected": 4,
+    "job_keys": [
+      "50071337:5302:2026-08",
+      "50071337:5302:2026-09",
+      "50071337:5302:2026-10",
+      "50071337:5302:2026-11"
+    ],
+    "first_run": {
+      "attempted": 4,
+      "completed": 4,
+      "failed": 0,
+      "empty_ok": 0,
+      "upserted": 90,
+      "quarantined": 0,
+      "stopped": 0
+    },
+    "rerun": {
+      "attempted": 4,
+      "completed": 4,
+      "failed": 0,
+      "empty_ok": 0,
+      "upserted": 90,
+      "quarantined": 0,
+      "stopped": 0
+    },
+    "job_status_after_first_run": {
+      "completed": 4
+    },
+    "failed_jobs": [],
+    "footylogic_matches": 90,
+    "footylogic_matches_has_score": 90,
+    "quarantine": 0,
+    "raw_months": 4,
+    "match_keys_before_rerun": 90,
+    "match_keys_after_rerun": 90,
+    "dedupe_ok": true,
+    "soccer_daily_unchanged": true,
+    "soccer_daily_final": 62,
+    "score_samples": [
+      {
+        "source_key": "fl|50071337|5302|50002252|50001138|2026-11-02T20:00:00.000Z",
+        "competition_id": "50071337",
+        "match_date_hkt": "2026-11-03",
+        "home_team_name": "紐卡素",
+        "away_team_name": "愛華頓",
+        "score_ft_home": 0,
+        "score_ft_away": 1,
+        "has_score": 1
+      },
+      {
+        "source_key": "fl|50071337|5302|50001928|50000240|2026-11-01T16:30:00.000Z",
+        "competition_id": "50071337",
+        "match_date_hkt": "2026-11-02",
+        "home_team_name": "利物浦",
+        "away_team_name": "阿仙奴",
+        "score_ft_home": 0,
+        "score_ft_away": 1,
+        "has_score": 1
+      },
+      {
+        "source_key": "fl|50071337|5302|50000249|50001320|2026-10-31T20:00:00.000Z",
+        "competition_id": "50071337",
+        "match_date_hkt": "2026-11-01",
+        "home_team_name": "阿士東維拉",
+        "away_team_name": "富咸",
+        "score_ft_home": 1,
+        "score_ft_away": 1,
+        "has_score": 1
+      },
+      {
+        "source_key": "fl|50071337|5302|50003099|50000905|2026-10-31T17:30:00.000Z",
+        "competition_id": "50071337",
+        "match_date_hkt": "2026-11-01",
+        "home_team_name": "熱刺",
+        "away_team_name": "水晶宮",
+        "score_ft_home": 2,
+        "score_ft_away": 0,
+        "has_score": 1
+      },
+      {
+        "source_key": "fl|50071337|5302|50001571|50001620|2026-10-31T15:00:00.000Z",
+        "competition_id": "50071337",
+        "match_date_hkt": "2026-10-31",
+        "home_team_name": "侯城",
+        "away_team_name": "葉士域治",
+        "score_ft_home": 2,
+        "score_ft_away": 2,
+        "has_score": 1
+      }
+    ]
+  },
+  "gaps": {
+    "cups": "tournament/competitions categoryId=2/4 empty; not in job list; defer until source exposes cups",
+    "friendlies": "no competition named 友誼/Friendly in catalog; not claimed covered",
+    "handling": "continue with league+international only; document as coverage limit; no fake cup/friendly rows"
+  },
+  "full_year_run": "NOT started; awaiting acceptance of this small batch"
+}

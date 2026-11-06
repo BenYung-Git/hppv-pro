@@ -1,0 +1,22 @@
+﻿# Soccer runtime DB (Phase I); do not commit
+data/soccer.sqlite3
+data/soccer.sqlite3-shm
+data/soccer.sqlite3-wal
+**/soccer.sqlite3
+**/soccer.sqlite3-shm
+**/soccer.sqlite3-wal
+
+# Local runtime / tooling noise
+__pycache__/
+*.pyc
+.pytest_cache/
+Thumbs.db
+data/hppv.sqlite3-shm
+data/hppv.sqlite3-wal
+data/backup/
+data/footylogic_full_run_console.log
+data/footylogic_full_run_progress.json
+_tmp_*.py
+_tmp_*.txt
+_tmp_*.json
+_recovery/

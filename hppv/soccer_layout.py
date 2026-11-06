@@ -1,0 +1,280 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+from copy import deepcopy
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from hppv.schema import SOCCER_LAYOUT_SETTINGS_TABLE, soccer_layout_settings_schema_sql
+from hppv.soccer_db import get_connection, table_exists
+
+LAYOUT_KEY_DAILY_MATCHES = "daily_matches"
+
+COLUMN_WIDTH_DEFAULT = 100
+COLUMN_WIDTH_MIN = 60
+COLUMN_WIDTH_MAX = 600
+
+SORT_EMPTY = ""
+SORT_ASC = "asc"
+SORT_DESC = "desc"
+ALLOWED_SORT = frozenset({SORT_EMPTY, SORT_ASC, SORT_DESC})
+
+# Display-field catalog for Tab 1.
+# score_* display keys are formatted from paired soccer_daily score_*_home/away columns.
+# ui_et is a layout-only placeholder until official ET meaning/columns are confirmed
+# (no score_et_* DB columns yet; values always display as —).
+COLUMN_CATALOG: tuple[dict[str, Any], ...] = (
+    {"key": "kickoff_hhmm", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_ASC},
+    {"key": "match_code", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "icon", "group": "basic", "default_visible": True, "default_width": 60, "default_sort": SORT_EMPTY},
+    {"key": "competition_code", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "competition_name_zh", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "home_team", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "away_team", "group": "basic", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "home_odds", "group": "odds", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "draw_odds", "group": "odds", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "away_odds", "group": "odds", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "score_ht", "group": "result", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "score_2h", "group": "result", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "score_ft", "group": "result", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "ui_et", "group": "result_pending", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "score_pen", "group": "result", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY},
+    {"key": "result_status", "group": "result", "default_visible": False, "default_width": 100, "default_sort": SORT_EMPTY},
+)
+
+# Rename legacy layout-only placeholder keys to current display keys.
+# ui_et is kept as-is (pending ET schema); never silently drop saved layout rows.
+LEGACY_LAYOUT_KEY_MAP: dict[str, str] = {
+    "ui_ht": "score_ht",
+    "ui_2h": "score_2h",
+    "ui_ft": "score_ft",
+    "ui_pen": "score_pen",
+}
+
+COLUMN_KEYS = frozenset(c["key"] for c in COLUMN_CATALOG)
+COLUMN_BY_KEY = {c["key"]: c for c in COLUMN_CATALOG}
+
+ZEBRA_COLORS: tuple[dict[str, str], ...] = (
+    {"id": "row_alt_gray", "css": "#f4f6f9"},
+    {"id": "row_alt_green", "css": "#eef7f1"},
+    {"id": "row_alt_blue", "css": "#eef3fb"},
+    {"id": "row_alt_sand", "css": "#f7f3ea"},
+)
+ZEBRA_COLOR_IDS = frozenset(c["id"] for c in ZEBRA_COLORS)
+ZEBRA_DEFAULT_ID = "row_alt_gray"
+
+
+class SoccerLayoutError(Exception):
+    def __init__(self, code: str, detail: str = "") -> None:
+        super().__init__(detail or code)
+        self.code = code
+        self.detail = detail
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def validate_column_width(raw: Any) -> int:
+    """Shared width rule: integer in [60, 600]. No silent clamp."""
+    if isinstance(raw, bool) or raw is None:
+        raise SoccerLayoutError("invalid_width", f"width invalid: {raw!r}")
+    if isinstance(raw, float) and not raw.is_integer():
+        raise SoccerLayoutError("invalid_width", f"width must be integer: {raw!r}")
+    try:
+        width = int(raw)
+    except (TypeError, ValueError) as e:
+        raise SoccerLayoutError("invalid_width", f"width must be integer: {raw!r}") from e
+    if isinstance(raw, str) and str(raw).strip() != str(width):
+        raise SoccerLayoutError("invalid_width", f"width must be integer: {raw!r}")
+    if width < COLUMN_WIDTH_MIN or width > COLUMN_WIDTH_MAX:
+        raise SoccerLayoutError(
+            "invalid_width",
+            f"width out of range [{COLUMN_WIDTH_MIN}, {COLUMN_WIDTH_MAX}]: {width}",
+        )
+    return width
+
+
+def default_layout_settings() -> dict[str, Any]:
+    columns = []
+    for c in COLUMN_CATALOG:
+        columns.append(
+            {
+                "key": c["key"],
+                "visible": bool(c["default_visible"]),
+                "width": int(c["default_width"]),
+                "sort": c["default_sort"],
+            }
+        )
+    return {
+        "zebra_enabled": True,
+        "zebra_color_id": ZEBRA_DEFAULT_ID,
+        "columns": columns,
+    }
+
+
+def _migrate_legacy_column_list(cols_raw: list[Any]) -> list[Any]:
+    """
+    Map legacy ui_ht/2h/ft/pen keys to score_*; keep ui_et and all other settings.
+    Preserves relative order, visible, width, and sort of existing rows.
+    Appends newly introduced catalog keys at the end only.
+    """
+    migrated: list[Any] = []
+    seen: set[str] = set()
+    for item in cols_raw:
+        if not isinstance(item, dict):
+            migrated.append(item)
+            continue
+        key = item.get("key")
+        new_key = LEGACY_LAYOUT_KEY_MAP.get(str(key), key)
+        if new_key in seen:
+            continue
+        copy = dict(item)
+        copy["key"] = new_key
+        migrated.append(copy)
+        seen.add(str(new_key))
+    for c in COLUMN_CATALOG:
+        if c["key"] in seen:
+            continue
+        migrated.append(
+            {
+                "key": c["key"],
+                "visible": bool(c["default_visible"]),
+                "width": int(c["default_width"]),
+                "sort": c["default_sort"],
+            }
+        )
+        seen.add(c["key"])
+    return migrated
+
+
+def _normalize_saved_settings(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise SoccerLayoutError("invalid_settings", "settings must be an object")
+    zebra_enabled = raw.get("zebra_enabled")
+    if not isinstance(zebra_enabled, bool):
+        raise SoccerLayoutError("invalid_settings", "zebra_enabled must be boolean")
+    zebra_color_id = raw.get("zebra_color_id")
+    if zebra_color_id not in ZEBRA_COLOR_IDS:
+        raise SoccerLayoutError("invalid_settings", f"unknown zebra_color_id: {zebra_color_id!r}")
+    cols_raw = raw.get("columns")
+    if not isinstance(cols_raw, list) or not cols_raw:
+        raise SoccerLayoutError("invalid_settings", "columns must be a non-empty array")
+    cols_raw = _migrate_legacy_column_list(cols_raw)
+
+    seen: set[str] = set()
+    columns: list[dict[str, Any]] = []
+    for item in cols_raw:
+        if not isinstance(item, dict):
+            raise SoccerLayoutError("invalid_settings", "column item must be object")
+        key = item.get("key")
+        if key not in COLUMN_KEYS:
+            raise SoccerLayoutError("invalid_settings", f"unknown column key: {key!r}")
+        if key in seen:
+            raise SoccerLayoutError("invalid_settings", f"duplicate column key: {key!r}")
+        seen.add(str(key))
+        visible = item.get("visible")
+        if not isinstance(visible, bool):
+            raise SoccerLayoutError("invalid_settings", f"visible must be boolean for {key}")
+        width = validate_column_width(item.get("width"))
+        sort = item.get("sort")
+        if sort not in ALLOWED_SORT:
+            raise SoccerLayoutError("invalid_settings", f"invalid sort for {key}: {sort!r}")
+        columns.append({"key": key, "visible": visible, "width": width, "sort": sort})
+
+    missing = COLUMN_KEYS - seen
+    if missing:
+        raise SoccerLayoutError("invalid_settings", f"missing columns: {sorted(missing)}")
+
+    return {
+        "zebra_enabled": zebra_enabled,
+        "zebra_color_id": zebra_color_id,
+        "columns": columns,
+    }
+
+
+def ensure_layout_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(soccer_layout_settings_schema_sql())
+    if not table_exists(conn, SOCCER_LAYOUT_SETTINGS_TABLE):
+        raise SoccerLayoutError("table_missing", "soccer_layout_settings missing after init")
+
+
+def get_layout_settings(db_path: Path, layout_key: str = LAYOUT_KEY_DAILY_MATCHES) -> dict[str, Any]:
+    if not db_path.is_file():
+        return default_layout_settings()
+    with get_connection(db_path) as conn:
+        if not table_exists(conn, SOCCER_LAYOUT_SETTINGS_TABLE):
+            return default_layout_settings()
+        row = conn.execute(
+            "SELECT settings_json FROM soccer_layout_settings WHERE layout_key = ?;",
+            (layout_key,),
+        ).fetchone()
+    if not row:
+        return default_layout_settings()
+    try:
+        parsed = json.loads(str(row["settings_json"]))
+    except json.JSONDecodeError as e:
+        raise SoccerLayoutError("invalid_stored_layout", "stored settings_json is not valid JSON") from e
+    return _normalize_saved_settings(parsed)
+
+
+def save_layout_settings(
+    db_path: Path,
+    settings: Any,
+    *,
+    layout_key: str = LAYOUT_KEY_DAILY_MATCHES,
+    now_utc: str | None = None,
+) -> dict[str, Any]:
+    if not db_path.is_file():
+        raise SoccerLayoutError("db_missing", f"database missing: {db_path}")
+    normalized = _normalize_saved_settings(settings)
+    stamp = now_utc or utc_now_iso()
+    payload = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
+    with get_connection(db_path) as conn:
+        ensure_layout_schema(conn)
+        conn.execute(
+            """
+            INSERT INTO soccer_layout_settings (layout_key, settings_json, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(layout_key) DO UPDATE SET
+                settings_json = excluded.settings_json,
+                updated_at = excluded.updated_at;
+            """,
+            (layout_key, payload, stamp),
+        )
+        conn.commit()
+    return normalized
+
+
+def zebra_css_for_id(color_id: str) -> str:
+    for item in ZEBRA_COLORS:
+        if item["id"] == color_id:
+            return item["css"]
+    raise SoccerLayoutError("invalid_settings", f"unknown zebra_color_id: {color_id!r}")
+
+
+def catalog_public() -> list[dict[str, Any]]:
+    """Column metadata for UI (no translations)."""
+    out = []
+    for c in COLUMN_CATALOG:
+        out.append(
+            {
+                "key": c["key"],
+                "group": c["group"],
+                "default_visible": c["default_visible"],
+                "default_width": c["default_width"],
+                "default_sort": c["default_sort"],
+            }
+        )
+    return out
+
+
+@dataclass(frozen=True, slots=True)
+class WidthLimits:
+    default: int = COLUMN_WIDTH_DEFAULT
+    minimum: int = COLUMN_WIDTH_MIN
+    maximum: int = COLUMN_WIDTH_MAX
+

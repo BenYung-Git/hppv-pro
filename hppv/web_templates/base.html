@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="{{ current_lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}HPPV Web{% endblock %}</title>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; font-family: "Microsoft JhengHei", Arial, sans-serif; background: #f5f7fb; color: #1d2a3a; }
+    header { background: #1f3d66; color: #fff; padding: 14px 20px; }
+    nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+    nav a { color: #fff; margin-right: 0; text-decoration: none; font-weight: 600; }
+    nav .lang-form { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; }
+    nav .lang-form label { font-size: 13px; font-weight: 600; }
+    nav .lang-form select {
+      font-size: 13px; padding: 4px 6px; border-radius: 4px; border: 1px solid rgba(255,255,255,.45);
+      background: rgba(255,255,255,.12); color: #fff;
+    }
+    nav .lang-form select option { color: #1d2a3a; }
+    main { padding: 18px 20px; }
+    .card { background: #fff; border: 1px solid #dbe3ef; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+    .card-link { color: inherit; text-decoration: none; display: block; }
+    .card-link .card {
+      transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .12s ease;
+    }
+    .card-link:hover .card {
+      background: #f3f7ff;
+      border-color: #9db4da;
+      box-shadow: 0 4px 14px rgba(31,61,102,.14);
+      transform: translateY(-1px);
+      cursor: pointer;
+    }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { border: 1px solid #dbe3ef; padding: 8px; font-size: 14px; text-align: left; }
+    th { background: #eef3fb; white-space: nowrap; }
+    .muted { color: #5a6878; font-size: 13px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    input, select, button { font-size: 14px; padding: 6px 8px; }
+    button { cursor: pointer; }
+    .build-badge {
+      margin-left: auto;
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      background: rgba(255, 255, 255, 0.18);
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <nav>
+      <a href="{{ url_for('index') }}">Dashboard</a>
+      <a href="{{ url_for('horses_list') }}">馬匹列表</a>
+      <a href="{{ url_for('rankings') }}">排位</a>
+      <a href="{{ url_for('soccer_daily') }}">{{ t('nav.soccer_daily') }}</a>
+      <a href="{{ url_for('settings_page') }}">{{ t('nav.system_settings') }}</a>
+      <form class="lang-form" method="post" action="{{ url_for('set_language') }}">
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <label for="nav-lang">{{ t('nav.language') }}</label>
+        <select id="nav-lang" name="lang" onchange="this.form.submit()">
+          <option value="zh-Hant" {% if current_lang == 'zh-Hant' %}selected{% endif %}>{{ t('lang.zh_hant') }}</option>
+          <option value="en" {% if current_lang == 'en' %}selected{% endif %}>{{ t('lang.en') }}</option>
+          <option value="zh-Hans" {% if current_lang == 'zh-Hans' %}selected{% endif %}>{{ t('lang.zh_hans') }}</option>
+        </select>
+      </form>
+      <span class="build-badge" title="確認是否已載入最新版本">Build: {{ web_build_tag }}</span>
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

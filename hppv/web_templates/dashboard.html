@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}HPPV Dashboard{% endblock %}
+{% block content %}
+<style>
+  .cards { display: flex; flex-direction: column; gap: 12px; max-width: 980px; }
+  .card-title { font-size: 12px; color: #5a6b85; }
+  .card-value { font-size: 22px; font-weight: 700; color: #1a3a6e; }
+  .cards .card-link .card { margin-bottom: 0; min-height: 92px; }
+  .link-hint { text-align: right; color: #1f3d66; font-size: 13px; font-weight: 600; margin-top: 6px; }
+  #carousel {
+    width: 100%;
+    max-width: 980px;
+    height: 320px;
+    margin-top: 8px;
+    margin-bottom: 24px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+  }
+  #carousel img { max-width: 100%; max-height: 100%; object-fit: contain; }
+</style>
+
+<h1>HPPV Dashboard</h1>
+
+<div id="carousel">
+  {% if images %}
+    <img id="carousel-img" src="" alt="message">
+  {% else %}
+    <span style="color:white;">沒有找到訊息板圖片（assets/message_board）</span>
+  {% endif %}
+</div>
+
+<div class="cards">
+  <a class="card-link" href="{{ url_for('horses_list') }}">
+    <div class="card">
+      <div class="card-title">現役馬匹總數</div>
+      <div class="card-value">{{ stats.active_horses }}</div>
+      <div class="link-hint">→ 往馬匹列表</div>
+    </div>
+  </a>
+
+  <a class="card-link" href="{{ url_for('rankings') }}">
+    <div class="card">
+      <div class="card-title">最新賽卡／排位</div>
+      <div class="card-value">{{ stats.race_date }}｜{{ stats.racecourse }}</div>
+      <div>場次：{{ stats.race_count }} 場</div>
+      <div class="link-hint">→ 查看排位</div>
+    </div>
+  </a>
+
+  <a class="card-link" href="{{ url_for('soccer_daily') }}">
+    <div class="card">
+      <div class="card-title">{{ t('soccer.daily.title') }}</div>
+      <div class="card-value">{{ t('soccer.daily.under_construction') }}</div>
+      <div class="link-hint">→ 進入</div>
+    </div>
+  </a>
+
+  <div class="card">
+    <div class="card-title">已存賽日數</div>
+    <div class="card-value">{{ stats.stored_meetings }}</div>
+  </div>
+</div>
+
+{% if images %}
+<script>
+  const images = {{ images|tojson }};
+  let idx = 0;
+  function showImage(i) {
+    const img = document.getElementById("carousel-img");
+    img.src = "{{ url_for('message_image', filename='') }}" + images[i];
+  }
+  function startCarousel() {
+    if (!images.length) return;
+    showImage(0);
+    setInterval(() => {
+      idx = (idx + 1) % images.length;
+      showImage(idx);
+    }, 4000);
+  }
+  window.onload = startCarousel;
+</script>
+{% endif %}
+{% endblock %}

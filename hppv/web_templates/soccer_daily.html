@@ -1,0 +1,1964 @@
+{% extends "base.html" %}
+{% block title %}{{ t('soccer.daily.title') }} - HPPV Web{% endblock %}
+{% block content %}
+<style>
+  .soccer-daily {
+    --soccer-green: #1b7a3d;
+    --soccer-green-bg: #e8f6ee;
+    --odds-home: #1a5fb4;
+    --odds-draw: #1a6b3a;
+    --odds-away: #c6461a;
+    --row-alt: #f4f6f9;
+    --card-border: #d5e0d9;
+  }
+  .soccer-daily .page-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: linear-gradient(90deg, var(--soccer-green-bg), #f5f7fb);
+    border: 1px solid #cfe6d7;
+  }
+  .soccer-daily .page-head h1 {
+    margin: 0;
+    color: var(--soccer-green);
+    font-size: 22px;
+  }
+  .soccer-icon {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .soccer-icon.sm { width: 18px; height: 18px; }
+  .soccer-daily .settings-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+    border-bottom: 1px solid #dbe3ef;
+    padding-bottom: 8px;
+  }
+  .soccer-daily .settings-tab {
+    padding: 8px 12px;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px 8px 0 0;
+    background: #eef3fb;
+    color: #1f3d66;
+    text-decoration: none;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .soccer-daily .settings-tab.active {
+    background: #fff;
+    border-bottom-color: #fff;
+  }
+  .soccer-daily .tab-panel { display: none; }
+  .soccer-daily .tab-panel.active { display: block; }
+  /* Matches tab: keep chrome (date/filter/pager) fixed; only list items scroll. */
+  .soccer-daily .tab-panel[data-panel="matches"].active {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 9.5rem);
+    min-height: 22rem;
+  }
+  .soccer-daily .matches-chrome {
+    flex: 0 0 auto;
+    background: #f5f7fb;
+    padding-bottom: 2px;
+    z-index: 5;
+  }
+  .soccer-daily .matches-chrome .disclaimer {
+    margin-bottom: 8px;
+  }
+  .soccer-daily .matches-chrome .mapping-note {
+    margin-bottom: 8px;
+  }
+  .soccer-daily .matches-list-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto; /* single scrollport so thead sticky works (x + y) */
+    overscroll-behavior: contain;
+    border: 1px solid #dbe3ef;
+    border-radius: 10px;
+    background: #fff;
+  }
+  .soccer-daily .matches-list-scroll .table-wrap {
+    overflow: visible; /* do not nest scroll — breaks position:sticky */
+    border: none;
+    border-radius: 0;
+    background: transparent;
+  }
+  .soccer-daily .matches-list-scroll .state-box {
+    border: none;
+    border-radius: 0;
+  }
+  .soccer-daily .matches-list-scroll .cards {
+    padding: 12px;
+  }
+  .soccer-daily .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .soccer-daily .toolbar-main {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .soccer-daily .pager {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    flex: 0 0 auto;
+  }
+  .soccer-daily .pager .icon-btn {
+    min-width: 36px;
+    justify-content: center;
+    padding: 7px 10px;
+    color: #1a1a1a;
+  }
+  .soccer-daily .pager .icon-btn:disabled {
+    opacity: .45;
+    color: #b0b0b0;
+    cursor: not-allowed;
+  }
+  .soccer-daily .pager-status {
+    min-width: 4.5em;
+    text-align: center;
+    font-weight: 600;
+    color: #333;
+    font-size: 13px;
+    padding: 0 4px;
+  }
+  .soccer-daily table.matches tbody tr.row-current {
+    outline: 2px solid #7aa2d6;
+    outline-offset: -2px;
+  }
+  .soccer-daily .date-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .soccer-daily .date-nav a,
+  .soccer-daily .date-nav button {
+    text-decoration: none;
+    color: #1f3d66;
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-weight: 600;
+  }
+  .soccer-daily .date-nav a:focus,
+  .soccer-daily .date-nav input:focus,
+  .soccer-daily .date-nav button:focus,
+  .soccer-daily .icon-btn:focus,
+  .soccer-daily select:focus,
+  .soccer-daily textarea:focus {
+    outline: 2px solid #7aa2d6;
+    outline-offset: 1px;
+  }
+  .soccer-daily .date-nav input[type="date"] {
+    min-width: 150px;
+  }
+  .soccer-daily .update-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .soccer-daily .update-wrap button:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+  }
+  .soccer-daily .disclaimer,
+  .soccer-daily .hint {
+    margin: 0 0 12px;
+  }
+  .soccer-daily .state-box {
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 10px;
+    padding: 18px 16px;
+  }
+  .soccer-daily .state-box.error {
+    border-color: #e2b6b6;
+    background: #fdeeee;
+  }
+  .soccer-daily .table-wrap {
+    overflow-x: auto;
+    border: 1px solid #dbe3ef;
+    border-radius: 10px;
+    background: #fff;
+  }
+  .soccer-daily table.matches {
+    width: 100%;
+    /* separate + spacing 0: sticky thead more reliable than collapse */
+    border-collapse: separate;
+    border-spacing: 0;
+    min-width: 860px;
+  }
+  .soccer-daily table.matches th,
+  .soccer-daily table.matches td {
+    border: 1px solid #d5deea;
+    padding: 8px 10px;
+    vertical-align: middle;
+  }
+  .soccer-daily table.matches thead th {
+    background: #eef3fb;
+    font-weight: 700;
+  }
+  /* Keep column headers visible while match rows scroll. */
+  .soccer-daily .matches-list-scroll table.matches thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #eef3fb;
+    box-shadow: inset 0 -1px 0 #d5deea;
+  }
+  /* Two-row SSR header: second row sticks below first. */
+  .soccer-daily .matches-list-scroll table.matches thead tr:nth-child(2) th {
+    top: var(--matches-thead-row1-height, 2.6rem);
+    z-index: 2;
+  }
+  .soccer-daily table.matches tbody tr:nth-child(even) {
+    background: var(--row-alt);
+  }
+  .soccer-daily table.matches tbody tr:nth-child(odd) {
+    background: #fff;
+  }
+  .soccer-daily .c-center { text-align: center; }
+  .soccer-daily .c-left { text-align: left; }
+  .soccer-daily .team-name,
+  .soccer-daily .comp-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .soccer-daily .odds-home { color: var(--odds-home); font-weight: 700; }
+  .soccer-daily .odds-draw { color: var(--odds-draw); font-weight: 700; }
+  .soccer-daily .odds-away { color: var(--odds-away); font-weight: 700; }
+  .soccer-daily .odds-empty { color: #8a96a6; font-weight: 600; }
+  .soccer-daily .cards { display: none; flex-direction: column; gap: 12px; }
+  .soccer-daily .match-card {
+    background: #fff;
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .soccer-daily .card-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .soccer-daily .card-comp {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    align-items: baseline;
+    flex: 1;
+  }
+  .soccer-daily .card-comp .code {
+    font-weight: 800;
+    color: var(--soccer-green);
+  }
+  .soccer-daily .card-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+    font-weight: 700;
+  }
+  .soccer-daily .card-teams {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .soccer-daily .card-teams .home { text-align: left; font-weight: 700; }
+  .soccer-daily .card-teams .away { text-align: right; font-weight: 700; }
+  .soccer-daily .card-teams .vs {
+    text-align: center;
+    color: #5a6878;
+    font-weight: 700;
+  }
+  .soccer-daily .card-odds {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .soccer-daily .card-odds .cell {
+    text-align: center;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 8px 6px;
+    background: #fbfcfe;
+  }
+  .soccer-daily .card-odds .label {
+    display: block;
+    font-size: 12px;
+    color: #5a6878;
+    margin-bottom: 4px;
+    font-weight: 700;
+  }
+  .soccer-daily .card-odds .value { font-size: 16px; }
+
+  /* Download tab */
+  .soccer-daily .request-type-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    align-items: flex-end;
+    margin-bottom: 14px;
+  }
+  .soccer-daily .request-type-row .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .soccer-daily .sync-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: var(--soccer-green-bg);
+    color: var(--soccer-green);
+    border: 1px solid #b7dfc4;
+    font-weight: 700;
+    font-size: 13px;
+    max-width: 100%;
+  }
+  .soccer-daily .task-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .soccer-daily .task-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    align-items: center;
+    padding: 14px 14px;
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 10px;
+  }
+  .soccer-daily .task-enable {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    color: #1f3d66;
+    min-width: 7.5rem;
+    cursor: pointer;
+  }
+  .soccer-daily .task-enable input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--soccer-green);
+    cursor: pointer;
+  }
+  .soccer-daily .task-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    align-items: center;
+    flex: 1 1 280px;
+  }
+  .soccer-daily .task-controls select {
+    min-width: 4.5rem;
+    padding: 7px 8px;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    background: #fff;
+    color: #1f3d66;
+    font-weight: 600;
+  }
+  .soccer-daily .task-time-label {
+    color: #4a5d73;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .soccer-daily .dl-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .soccer-daily .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    background: #fff;
+    color: #1f3d66;
+    padding: 8px 10px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .soccer-daily .icon-btn svg {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 auto;
+  }
+  .soccer-daily .icon-btn .btn-label {
+    font-size: 13px;
+  }
+  .soccer-daily .field-block {
+    margin-bottom: 14px;
+  }
+  .soccer-daily .field-block > label,
+  .soccer-daily .field-head {
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+    color: #2c3d52;
+    margin-bottom: 6px;
+  }
+  .soccer-daily .field-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .soccer-daily select#soccer-request-type {
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+  }
+  .soccer-daily .mono-box {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 180px;
+    max-height: 320px;
+    overflow: auto;
+    resize: vertical;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.45;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    padding: 10px;
+    background: #fff;
+    white-space: pre;
+  }
+  .soccer-daily textarea.mono-box {
+    white-space: pre;
+  }
+  .soccer-daily #soccer-status {
+    background: #f7f9fc;
+    color: #1d2a3a;
+  }
+  .soccer-daily .dl-note {
+    margin-top: 4px;
+  }
+  .soccer-daily .filter-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .soccer-daily .mapping-note {
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid #e2d3a8;
+    background: #fff8e8;
+    color: #6a5500;
+    font-size: 13px;
+  }
+  .soccer-daily .void-mark {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: #fdeeee;
+    color: #a32020;
+    border: 1px solid #e2b6b6;
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .soccer-daily .result-pending {
+    color: #6a5500;
+    font-size: 12px;
+  }
+  .soccer-daily .layout-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .soccer-daily .layout-head h2 {
+    margin: 0;
+    font-size: 18px;
+    color: #1f3d66;
+  }
+  .soccer-daily .layout-table-badge {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: var(--soccer-green-bg);
+    color: var(--soccer-green);
+    border: 1px solid #b7dfc4;
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .soccer-daily .layout-zebra-row,
+  .soccer-daily .layout-cols-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .soccer-daily .layout-zebra-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+  }
+  .soccer-daily .layout-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .soccer-daily .layout-table-wrap {
+    overflow-x: auto;
+    border: 1px solid #dbe3ef;
+    border-radius: 10px;
+    background: #fff;
+  }
+  .soccer-daily table.layout-cols {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 720px;
+  }
+  .soccer-daily table.layout-cols th,
+  .soccer-daily table.layout-cols td {
+    border: 1px solid #d5deea;
+    padding: 8px 10px;
+    vertical-align: middle;
+  }
+  .soccer-daily table.layout-cols thead th {
+    background: #eef3fb;
+    font-weight: 700;
+  }
+  .soccer-daily table.layout-cols tbody tr.layout-zebra {
+    background: var(--soccer-layout-zebra, #f4f6f9);
+  }
+  .soccer-daily .layout-width-input {
+    width: 72px;
+    padding: 6px 8px;
+    border: 1px solid #dbe3ef;
+    border-radius: 6px;
+  }
+  .soccer-daily .layout-width-input.invalid {
+    border-color: #c0392b;
+    background: #fdeeee;
+  }
+  .soccer-daily .drag-handle {
+    cursor: grab;
+    user-select: none;
+    color: #7a8aa0;
+    font-weight: 700;
+  }
+  .soccer-daily .icon-btn.layout-save {
+    border-color: #b7dfc4;
+    color: var(--soccer-green);
+  }
+
+  @media (max-width: 768px) {
+    .soccer-daily .table-wrap { display: none; }
+    .soccer-daily .cards { display: flex; }
+    .soccer-daily .page-head h1 { font-size: 20px; }
+    .soccer-daily .mono-box { min-height: 140px; max-height: 240px; }
+    .soccer-daily .pager {
+      margin-left: 0;
+      width: 100%;
+      justify-content: flex-end;
+    }
+    .soccer-daily .tab-panel[data-panel="matches"].active {
+      height: calc(100dvh - 8.5rem);
+      min-height: 18rem;
+    }
+  }
+</style>
+
+{% macro soccer_ball(size_class='') -%}
+<svg class="soccer-icon {{ size_class }}" viewBox="0 0 64 64" role="img" aria-label="{{ t('soccer.daily.icon_alt') }}">
+  <circle cx="32" cy="32" r="30" fill="#2ecc71" stroke="#1b7a3d" stroke-width="3"/>
+  <circle cx="32" cy="32" r="22" fill="none" stroke="#ffffff" stroke-width="2.5" opacity=".9"/>
+  <polygon points="32,18 38,28 32,26 26,28" fill="#ffffff"/>
+  <polygon points="20,34 28,32 26,40 18,42" fill="#ffffff"/>
+  <polygon points="44,34 46,42 38,40 36,32" fill="#ffffff"/>
+  <polygon points="28,44 32,38 36,44 32,50" fill="#ffffff"/>
+</svg>
+{%- endmacro %}
+
+{% macro icon_submit() -%}
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <path d="M8 32 L56 12 L40 52 L30 36 Z" fill="#1f3d66"/>
+  <path d="M30 36 L56 12" stroke="#7aa2d6" stroke-width="3"/>
+</svg>
+{%- endmacro %}
+
+{% macro icon_layout_save() -%}
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <rect x="10" y="14" width="44" height="36" rx="4" fill="#e8f6ee" stroke="#1b7a3d" stroke-width="3"/>
+  <path d="M18 22 h28 M18 30 h20 M18 38 h24" stroke="#1b7a3d" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="46" cy="44" r="10" fill="#1b7a3d"/>
+  <path d="M42 44 l3 3 l6 -7" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+{%- endmacro %}
+
+{% macro icon_layout_cancel() -%}
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <circle cx="32" cy="32" r="22" fill="#fff" stroke="#8a97a8" stroke-width="3"/>
+  <path d="M22 22 L42 42 M42 22 L22 42" stroke="#5c6b7e" stroke-width="4" stroke-linecap="round"/>
+</svg>
+{%- endmacro %}
+
+<div class="soccer-daily">
+  <div class="page-head">
+    {{ soccer_ball() }}
+    <h1>{{ t('soccer.daily.title') }}</h1>
+  </div>
+
+  <div class="settings-tabs" role="tablist" aria-label="{{ t('soccer.daily.title') }}">
+    <button type="button" class="settings-tab active" role="tab" id="tab-btn-matches"
+            aria-selected="true" aria-controls="tab-panel-matches" data-tab="matches">
+      {{ t('soccer.daily.tab.matches') }}
+    </button>
+    <button type="button" class="settings-tab" role="tab" id="tab-btn-download"
+            aria-selected="false" aria-controls="tab-panel-download" data-tab="download">
+      {{ t('soccer.daily.tab.download') }}
+    </button>
+    <button type="button" class="settings-tab" role="tab" id="tab-btn-tasks"
+            aria-selected="false" aria-controls="tab-panel-tasks" data-tab="tasks">
+      {{ t('soccer.daily.tab.tasks') }}
+    </button>
+    <button type="button" class="settings-tab" role="tab" id="tab-btn-layout"
+            aria-selected="false" aria-controls="tab-panel-layout" data-tab="layout">
+      {{ t('soccer.daily.tab.layout') }}
+    </button>
+  </div>
+
+  <div class="tab-panel active" role="tabpanel" id="tab-panel-matches" data-panel="matches">
+    {% set page_meta = page_meta if page_meta is defined else {
+      'n': 1, 'total_count': 0, 'q': '', 'status': 'prematch', 'status_filter_applied': false
+    } %}
+    <div class="matches-chrome">
+      <div class="toolbar">
+        <div class="toolbar-main">
+          <div class="date-nav">
+            {% if selected_date %}
+            <a href="{{ url_for('soccer_daily', date=prev_date) }}">‹ {{ t('soccer.daily.prev_day') }}</a>
+            <form method="get" action="{{ url_for('soccer_daily') }}" style="display:inline-flex; align-items:center; gap:6px;">
+              <label for="match-date">{{ t('soccer.daily.date') }}</label>
+              <input id="match-date" type="date" name="date" value="{{ selected_date }}"
+                     onchange="this.form.submit()">
+            </form>
+            <a href="{{ url_for('soccer_daily', date=next_date) }}">{{ t('soccer.daily.next_day') }} ›</a>
+            {% endif %}
+          </div>
+          <div class="filter-wrap">
+            <label for="match-status-filter">{{ t('soccer.daily.filter.status') }}</label>
+            <select id="match-status-filter">
+              <option value="results" {% if page_meta.status == 'results' %}selected{% endif %}>{{ t('soccer.daily.filter.results') }}</option>
+              <option value="prematch" {% if page_meta.status == 'prematch' or not page_meta.status %}selected{% endif %}>{{ t('soccer.daily.filter.prematch') }}</option>
+              <option value="inplay" {% if page_meta.status == 'inplay' %}selected{% endif %}>{{ t('soccer.daily.filter.inplay') }}</option>
+              <option value="void" {% if page_meta.status == 'void' %}selected{% endif %}>{{ t('soccer.daily.filter.void') }}</option>
+            </select>
+          </div>
+          <div class="filter-wrap">
+            <label for="match-search">{{ t('soccer.daily.search_label') }}</label>
+            <input id="match-search" type="search"
+                   placeholder="{{ t('soccer.daily.search_placeholder') }}"
+                   value="{{ page_meta.q }}"
+                   autocomplete="off">
+          </div>
+          <div class="update-wrap">
+            <button type="button" disabled aria-disabled="true">🔄 {{ t('soccer.daily.update') }}</button>
+            <span class="hint muted">{{ t('soccer.daily.update_disabled_hint') }}</span>
+          </div>
+        </div>
+        {% set _total = page_meta.get('total_count', 0) or 0 %}
+        {% set _n = (page_meta.get('n', 1) or 1) if _total else 0 %}
+        {% set _disable_all = _total <= 1 %}
+        {% set _at_first = _disable_all or _n <= 1 %}
+        {% set _at_last = _disable_all or _n >= _total %}
+        <nav class="pager" id="matches-pager" role="navigation"
+             aria-label="{{ t('soccer.daily.pager.nav') }}">
+          <button type="button" class="icon-btn" id="pager-first"
+                  title="{{ t('soccer.daily.pager.first') }}"
+                  aria-label="{{ t('soccer.daily.pager.first') }}"
+                  {% if _at_first %}disabled{% endif %}>≪</button>
+          <button type="button" class="icon-btn" id="pager-prev"
+                  title="{{ t('soccer.daily.pager.prev') }}"
+                  aria-label="{{ t('soccer.daily.pager.prev') }}"
+                  {% if _at_first %}disabled{% endif %}>‹</button>
+          <span class="pager-status" id="pager-status"
+                title="{{ t('soccer.daily.pager.status') }}"
+                aria-live="polite">{{ _n }} / {{ _total }}</span>
+          <button type="button" class="icon-btn" id="pager-next"
+                  title="{{ t('soccer.daily.pager.next') }}"
+                  aria-label="{{ t('soccer.daily.pager.next') }}"
+                  {% if _at_last %}disabled{% endif %}>›</button>
+          <button type="button" class="icon-btn" id="pager-last"
+                  title="{{ t('soccer.daily.pager.last') }}"
+                  aria-label="{{ t('soccer.daily.pager.last') }}"
+                  {% if _at_last %}disabled{% endif %}>≫</button>
+        </nav>
+      </div>
+      <p class="mapping-note" id="status-mapping-note">{{ t('soccer.daily.filter.mapping_pending') }}</p>
+      {% if not date_invalid and not load_error %}
+      <p class="disclaimer muted">{{ t('soccer.daily.odds_disclaimer') }}</p>
+      {% endif %}
+    </div>
+
+    <div class="matches-list-scroll" id="matches-list-scroll">
+    {% if date_invalid %}
+    <div class="state-box error" role="alert">
+      <p>{{ t('soccer.daily.invalid_date') }}</p>
+    </div>
+    {% elif load_error %}
+    <div class="state-box error" role="alert">
+      <p>{{ t('soccer.daily.read_error') }}</p>
+    </div>
+    {% else %}
+    <div id="matches-panel-body">
+    {% if not matches %}
+    <div class="state-box" id="matches-empty-box">
+      <p>{{ t('soccer.daily.empty') }}</p>
+      <p class="muted">{{ t('soccer.daily.sync_hint') }}</p>
+    </div>
+    {% else %}
+
+    <div class="table-wrap" aria-hidden="false">
+      <table class="matches">
+        <thead>
+          <tr>
+            <th class="c-center" rowspan="2">{{ t('soccer.daily.col.time') }}</th>
+            <th class="c-center" rowspan="2">{{ t('soccer.daily.col.match_code') }}</th>
+            <th class="c-center" rowspan="2">{{ t('soccer.daily.col.icon') }}</th>
+            <th class="c-left" rowspan="2">{{ t('soccer.daily.col.competition_code') }}</th>
+            <th class="c-left" rowspan="2">{{ t('soccer.daily.col.competition_name') }}</th>
+            <th class="c-left" rowspan="2">{{ t('soccer.daily.col.home') }}</th>
+            <th class="c-left" rowspan="2">{{ t('soccer.daily.col.away') }}</th>
+            <th class="c-center" colspan="3">{{ t('soccer.daily.odds_group') }}</th>
+          </tr>
+          <tr>
+            <th class="c-center">{{ t('soccer.daily.odds.home') }}</th>
+            <th class="c-center">{{ t('soccer.daily.odds.draw') }}</th>
+            <th class="c-center">{{ t('soccer.daily.odds.away') }}</th>
+          </tr>
+        </thead>
+        <tbody id="matches-table-body">
+          {% for m in matches %}
+          <tr{% if page_meta.get('n') == loop.index %} class="row-current"{% endif %}>
+            <td class="c-center">{{ m.kickoff_hhmm }}</td>
+            <td class="c-center">{{ m.match_code }}</td>
+            <td class="c-center">{{ soccer_ball('sm') }}</td>
+            <td class="c-left">{{ m.competition_code }}</td>
+            <td class="c-left comp-name">{{ m.competition_name_zh }}</td>
+            <td class="c-left team-name">{{ m.home_team }}</td>
+            <td class="c-left team-name">{{ m.away_team }}</td>
+            <td class="c-center {% if m.home_odds == '—' %}odds-empty{% else %}odds-home{% endif %}">{{ m.home_odds }}</td>
+            <td class="c-center {% if m.draw_odds == '—' %}odds-empty{% else %}odds-draw{% endif %}">{{ m.draw_odds }}</td>
+            <td class="c-center {% if m.away_odds == '—' %}odds-empty{% else %}odds-away{% endif %}">{{ m.away_odds }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cards" id="matches-cards">
+      {% for m in matches %}
+      <article class="match-card">
+        <div class="card-top">
+          {{ soccer_ball('sm') }}
+          <div class="card-comp">
+            <span class="code">{{ m.competition_code }}</span>
+            <span class="comp-name">{{ m.competition_name_zh }}</span>
+          </div>
+        </div>
+        <div class="card-meta">
+          <span>{{ m.kickoff_hhmm }}</span>
+          <span class="muted">{{ t('soccer.daily.col.match_code') }} {{ m.match_code }}</span>
+        </div>
+        <div class="card-teams">
+          <div class="home team-name">{{ m.home_team }}</div>
+          <div class="vs">{{ t('soccer.daily.vs') }}</div>
+          <div class="away team-name">{{ m.away_team }}</div>
+        </div>
+        <div class="card-odds">
+          <div class="cell">
+            <span class="label">{{ t('soccer.daily.odds.home') }}</span>
+            <span class="value {% if m.home_odds == '—' %}odds-empty{% else %}odds-home{% endif %}">{{ m.home_odds }}</span>
+          </div>
+          <div class="cell">
+            <span class="label">{{ t('soccer.daily.odds.draw') }}</span>
+            <span class="value {% if m.draw_odds == '—' %}odds-empty{% else %}odds-draw{% endif %}">{{ m.draw_odds }}</span>
+          </div>
+          <div class="cell">
+            <span class="label">{{ t('soccer.daily.odds.away') }}</span>
+            <span class="value {% if m.away_odds == '—' %}odds-empty{% else %}odds-away{% endif %}">{{ m.away_odds }}</span>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+
+    {% endif %}
+    </div>
+    {% endif %}
+    </div>
+  </div>
+
+  <div class="tab-panel" role="tabpanel" id="tab-panel-download" data-panel="download" hidden>
+    <div class="request-type-row">
+      <div class="field">
+        <label for="soccer-request-type">{{ t('soccer.daily.request_type') }}</label>
+        <select id="soccer-request-type">
+          <option value="matches_and_odds" selected>{{ t('soccer.daily.request_type.matches_odds') }}</option>
+          <option value="update_odds_and_results">{{ t('soccer.daily.request_type.update_odds_results') }}</option>
+          <option value="match_results">{{ t('soccer.daily.request_type.match_results') }}</option>
+          <option value="match_results_by_year">{{ t('soccer.daily.request_type.match_results_by_year') }}</option>
+        </select>
+      </div>
+      <div class="sync-badge" id="sync-badge" title="{{ t('soccer.daily.updated_at_label') }}">
+        <span id="sync-badge-label">{{ t('soccer.daily.updated_at_label') }}</span><span>：</span>
+        <span id="sync-badge-value">{% if sync_at_hkt %}{{ sync_at_hkt }}{% else %}{{ t('soccer.daily.updated_at_never') }}{% endif %}</span>
+      </div>
+    </div>
+
+    <div class="field-block">
+      <div class="field-head">
+        <span>{{ t('soccer.daily.request_label') }}</span>
+        <button type="button" class="icon-btn" id="btn-send-request"
+                title="{{ t('soccer.daily.send') }}"
+                aria-label="{{ t('soccer.daily.send') }}">
+          {{ icon_submit() }}
+          <span class="btn-label">{{ t('soccer.daily.send') }}</span>
+        </button>
+      </div>
+      <textarea id="soccer-request"
+                class="mono-box"
+                spellcheck="false"
+                placeholder="{{ t('soccer.daily.request_placeholder') }}"></textarea>
+    </div>
+
+    <div class="field-block">
+      <label for="soccer-status">{{ t('soccer.daily.status_label') }}</label>
+      <textarea id="soccer-status" class="mono-box" readonly spellcheck="false"></textarea>
+    </div>
+  </div>
+
+  <div class="tab-panel" role="tabpanel" id="tab-panel-tasks" data-panel="tasks" hidden>
+    <div class="task-list">
+      <div class="task-row" data-task="update_odds">
+        <label class="task-enable" for="task-odds-enabled">
+          <input type="checkbox" id="task-odds-enabled" checked>
+          <span>{{ t('soccer.daily.task.update_odds') }}</span>
+        </label>
+        <div class="task-controls">
+          <select id="task-odds-interval" aria-label="{{ t('soccer.daily.task.update_odds') }}">
+            {% for n in range(1, 11) %}
+            <option value="{{ n }}" {% if n == 1 %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+          <select id="task-odds-unit" aria-label="{{ t('soccer.daily.task.update_odds') }}">
+            <option value="mins" selected>{{ t('soccer.daily.task.unit.mins') }}</option>
+            <option value="hour">{{ t('soccer.daily.task.unit.hour') }}</option>
+            <option value="day">{{ t('soccer.daily.task.unit.day') }}</option>
+          </select>
+          <span class="task-time-label">{{ t('soccer.daily.task.last_updated') }}</span>
+          <span class="sync-badge" id="task-odds-last">{{ t('soccer.daily.updated_at_never') }}</span>
+          <span class="task-time-label">{{ t('soccer.daily.task.next_update') }}</span>
+          <span class="sync-badge" id="task-odds-next">{{ t('soccer.daily.task.not_scheduled') }}</span>
+        </div>
+      </div>
+
+      <div class="task-row" data-task="update_matches">
+        <label class="task-enable" for="task-matches-enabled">
+          <input type="checkbox" id="task-matches-enabled" checked>
+          <span>{{ t('soccer.daily.task.update_matches') }}</span>
+        </label>
+        <div class="task-controls">
+          <select id="task-matches-interval" aria-label="{{ t('soccer.daily.task.update_matches') }}">
+            {% for n in range(1, 11) %}
+            <option value="{{ n }}" {% if n == 1 %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+          <select id="task-matches-unit" aria-label="{{ t('soccer.daily.task.update_matches') }}">
+            <option value="mins" selected>{{ t('soccer.daily.task.unit.mins') }}</option>
+            <option value="hour">{{ t('soccer.daily.task.unit.hour') }}</option>
+            <option value="day">{{ t('soccer.daily.task.unit.day') }}</option>
+          </select>
+          <span class="task-time-label">{{ t('soccer.daily.task.last_updated') }}</span>
+          <span class="sync-badge" id="task-matches-last">{{ t('soccer.daily.updated_at_never') }}</span>
+          <span class="task-time-label">{{ t('soccer.daily.task.next_update') }}</span>
+          <span class="sync-badge" id="task-matches-next">{{ t('soccer.daily.task.not_scheduled') }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-panel" role="tabpanel" id="tab-panel-layout" data-panel="layout" hidden>
+    <div class="layout-head">
+      <h2>{{ t('soccer.daily.layout.title') }}</h2>
+      <div class="layout-table-badge">
+        <span>{{ t('soccer.daily.layout.table_name_label') }}</span>
+        <span>{{ t('soccer.daily.layout.table_name_value') }}</span>
+      </div>
+    </div>
+    <div class="layout-zebra-row">
+      <div class="layout-zebra-controls">
+        <span>{{ t('soccer.daily.layout.zebra_label') }}</span>
+        <select id="layout-zebra-color">
+          {% for c in layout_zebra_colors %}
+          <option value="{{ c.id }}" {% if layout_settings.zebra_color_id == c.id %}selected{% endif %}>{{ t('soccer.daily.layout.color.' ~ c.id) }}</option>
+          {% endfor %}
+        </select>
+        <label>
+          <input type="checkbox" id="layout-zebra-enable" {% if layout_settings.zebra_enabled %}checked{% endif %}>
+          {{ t('soccer.daily.layout.zebra_enable') }}
+        </label>
+      </div>
+    </div>
+    <div class="layout-cols-head">
+      <strong>{{ t('soccer.daily.layout.columns_title') }}</strong>
+      <div class="layout-actions">
+        <button type="button" class="icon-btn layout-save" id="btn-layout-save"
+                title="{{ t('soccer.daily.layout.save') }}"
+                aria-label="{{ t('soccer.daily.layout.save') }}">
+          {{ icon_layout_save() }}
+          <span class="btn-label">{{ t('soccer.daily.layout.save') }}</span>
+        </button>
+        <button type="button" class="icon-btn" id="btn-layout-cancel"
+                title="{{ t('soccer.daily.layout.cancel') }}"
+                aria-label="{{ t('soccer.daily.layout.cancel') }}">
+          {{ icon_layout_cancel() }}
+          <span class="btn-label">{{ t('soccer.daily.layout.cancel') }}</span>
+        </button>
+      </div>
+    </div>
+    <div class="layout-table-wrap">
+      <table class="layout-cols" id="layout-cols-table">
+        <thead>
+          <tr>
+            <th>{{ t('soccer.daily.layout.drag') }}</th>
+            <th>{{ t('soccer.daily.layout.col_visible') }}</th>
+            <th>{{ t('soccer.daily.layout.col_name') }}</th>
+            <th>{{ t('soccer.daily.layout.col_desc') }}</th>
+            <th>{{ t('soccer.daily.layout.col_width') }}</th>
+            <th>{{ t('soccer.daily.layout.col_sort') }}</th>
+            <th>{{ t('soccer.daily.layout.move_up') }} / {{ t('soccer.daily.layout.move_down') }}</th>
+          </tr>
+        </thead>
+        <tbody id="layout-cols-body"></tbody>
+      </table>
+    </div>
+    <p class="hint muted" id="layout-status-msg"></p>
+  </div>
+</div>
+
+<script>
+(() => {
+  const MSG = {
+    loading: {{ t('soccer.daily.load_preset_loading')|tojson }},
+    loadSuccess: {{ t('soccer.daily.load_preset_success')|tojson }},
+    emptyQuery: {{ t('soccer.daily.load_preset_empty_query')|tojson }},
+    fileMissing: {{ t('soccer.daily.load_preset_file_missing')|tojson }},
+    invalidJson: {{ t('soccer.daily.load_preset_invalid_json')|tojson }},
+    invalidFields: {{ t('soccer.daily.load_preset_invalid_fields')|tojson }},
+    unsupported: {{ t('soccer.daily.load_preset_unsupported')|tojson }},
+    failed: {{ t('soccer.daily.load_preset_failed')|tojson }},
+    sending: {{ t('soccer.daily.sending')|tojson }},
+    sendComplete: {{ t('soccer.daily.send_complete')|tojson }},
+    sendPartial: {{ t('soccer.daily.send_partial_errors')|tojson }},
+    sendGraphqlErrors: {{ t('soccer.daily.send_graphql_errors')|tojson }},
+    sendHttpError: {{ t('soccer.daily.send_http_error')|tojson }},
+    sendNonJson: {{ t('soccer.daily.send_non_json')|tojson }},
+    sendTimeout: {{ t('soccer.daily.send_timeout')|tojson }},
+    sendConnFail: {{ t('soccer.daily.send_connection_failed')|tojson }},
+    sendRateLimited: {{ t('soccer.daily.send_rate_limited')|tojson }},
+    sendInvalidJson: {{ t('soccer.daily.send_invalid_json')|tojson }},
+    sendInvalidPayload: {{ t('soccer.daily.send_invalid_payload')|tojson }},
+    sendOpNotAllowed: {{ t('soccer.daily.send_operation_not_allowed')|tojson }},
+    sendTooLarge: {{ t('soccer.daily.send_payload_too_large')|tojson }},
+    sendNoMatches: {{ t('soccer.daily.send_no_matches')|tojson }},
+    labelResult: {{ t('soccer.daily.status_result')|tojson }},
+    labelHttp: {{ t('soccer.daily.status_http')|tojson }},
+    labelElapsed: {{ t('soccer.daily.status_elapsed')|tojson }},
+    labelBody: {{ t('soccer.daily.status_body')|tojson }},
+    truncated: {{ t('soccer.daily.status_truncated')|tojson }},
+    requestResult: {{ t('soccer.daily.request_result')|tojson }},
+    ingestSection: {{ t('soccer.daily.ingest_section')|tojson }},
+    ingestSuccess: {{ t('soccer.daily.ingest_success')|tojson }},
+    ingestFailed: {{ t('soccer.daily.ingest_failed')|tojson }},
+    ingestSkipped: {{ t('soccer.daily.ingest_skipped')|tojson }},
+    ingestProcessed: {{ t('soccer.daily.ingest_processed')|tojson }},
+    ingestInserted: {{ t('soccer.daily.ingest_inserted')|tojson }},
+    ingestUpdated: {{ t('soccer.daily.ingest_updated')|tojson }},
+    ingestHadOk: {{ t('soccer.daily.ingest_had_ok')|tojson }},
+    ingestHadMissing: {{ t('soccer.daily.ingest_had_missing')|tojson }},
+    ingestEmpty: {{ t('soccer.daily.ingest_empty')|tojson }},
+    ingestStructure: {{ t('soccer.daily.ingest_structure')|tojson }},
+    ingestTruncated: {{ t('soccer.daily.ingest_truncated')|tojson }},
+    ingestGraphqlErrors: {{ t('soccer.daily.ingest_graphql_errors')|tojson }},
+    ingestValidation: {{ t('soccer.daily.ingest_validation')|tojson }},
+    ingestInitRequired: {{ t('soccer.daily.ingest_init_required')|tojson }},
+    updatedAtLabel: {{ t('soccer.daily.updated_at_label')|tojson }},
+    updatedAtNever: {{ t('soccer.daily.updated_at_never')|tojson }},
+    emptyMsg: {{ t('soccer.daily.empty')|tojson }},
+    syncHint: {{ t('soccer.daily.sync_hint')|tojson }},
+    colMatchCode: {{ t('soccer.daily.col.match_code')|tojson }},
+    vs: {{ t('soccer.daily.vs')|tojson }},
+    oddsHome: {{ t('soccer.daily.odds.home')|tojson }},
+    oddsDraw: {{ t('soccer.daily.odds.draw')|tojson }},
+    oddsAway: {{ t('soccer.daily.odds.away')|tojson }},
+    iconAlt: {{ t('soccer.daily.icon_alt')|tojson }},
+    ingestOddsSection: {{ t('soccer.daily.ingest_odds_section')|tojson }},
+    ingestResultsSection: {{ t('soccer.daily.ingest_results_section')|tojson }},
+    ingestResultsPending: {{ t('soccer.daily.ingest_results_pending')|tojson }},
+    ingestSkippedMissing: {{ t('soccer.daily.ingest_skipped_missing')|tojson }},
+    ingestSkippedStatus: {{ t('soccer.daily.ingest_skipped_status')|tojson }},
+    ingestSkippedUnconfirmed: {{ t('soccer.daily.ingest_skipped_unconfirmed')|tojson }},
+    ingestSkippedInsufficient: {{ t('soccer.daily.ingest_skipped_insufficient')|tojson }},
+    ingestHistoryInserted: {{ t('soccer.daily.ingest_history_inserted')|tojson }},
+    ingestHtApplied: {{ t('soccer.daily.ingest_ht_applied')|tojson }},
+    ingestFtApplied: {{ t('soccer.daily.ingest_ft_applied')|tojson }},
+    ingestShApplied: {{ t('soccer.daily.ingest_sh_applied')|tojson }},
+    ingestMatchNumTotal: {{ t('soccer.daily.ingest_match_num_total')|tojson }},
+    ingestMatchesReturned: {{ t('soccer.daily.ingest_matches_returned')|tojson }},
+    ingestNoExisting: {{ t('soccer.daily.ingest_no_existing')|tojson }},
+    ingestDateRange: {{ t('soccer.daily.ingest_date_range')|tojson }},
+    ingestCompletenessFull: {{ t('soccer.daily.ingest_completeness_full')|tojson }},
+    ingestCompletenessPage: {{ t('soccer.daily.ingest_completeness_page')|tojson }},
+    ingestCompletenessIncomplete: {{ t('soccer.daily.ingest_completeness_incomplete')|tojson }},
+    ingestRangeHint: {{ t('soccer.daily.ingest_range_hint')|tojson }},
+    ingestDownloadVsSaved: {{ t('soccer.daily.ingest_download_vs_saved')|tojson }},
+    syncOddsLabel: {{ t('soccer.daily.sync_odds_label')|tojson }},
+    syncResultsLabel: {{ t('soccer.daily.sync_results_label')|tojson }},
+    resultNotConnected: {{ t('soccer.daily.result.not_connected')|tojson }},
+    resultVoidMark: {{ t('soccer.daily.result.void_mark')|tojson }},
+    searchNoMatch: {{ t('soccer.daily.search_no_match')|tojson }},
+    pagerFirst: {{ t('soccer.daily.pager.first')|tojson }},
+    pagerPrev: {{ t('soccer.daily.pager.prev')|tojson }},
+    pagerNext: {{ t('soccer.daily.pager.next')|tojson }},
+    pagerLast: {{ t('soccer.daily.pager.last')|tojson }},
+    layoutSaveOk: {{ t('soccer.daily.layout.saved')|tojson }},
+    layoutSaveFail: {{ t('soccer.daily.layout.save_failed')|tojson }},
+    layoutWidthInvalid: {{ t('soccer.daily.layout.width_invalid')|tojson }},
+    layoutSortEmpty: {{ t('soccer.daily.layout.sort_empty')|tojson }},
+    layoutSortAsc: {{ t('soccer.daily.layout.sort_asc')|tojson }},
+    layoutSortDesc: {{ t('soccer.daily.layout.sort_desc')|tojson }},
+    layoutMoveUp: {{ t('soccer.daily.layout.move_up')|tojson }},
+    layoutMoveDown: {{ t('soccer.daily.layout.move_down')|tojson }},
+    overwriteConfirm: {{ t('soccer.daily.load_preset_overwrite_confirm')|tojson }},
+  };
+  const COL_LABEL = {
+    kickoff_hhmm: {{ t('soccer.daily.col.time')|tojson }},
+    match_code: {{ t('soccer.daily.col.match_code')|tojson }},
+    icon: {{ t('soccer.daily.col.icon')|tojson }},
+    competition_code: {{ t('soccer.daily.col.competition_code')|tojson }},
+    competition_name_zh: {{ t('soccer.daily.col.competition_name')|tojson }},
+    home_team: {{ t('soccer.daily.col.home')|tojson }},
+    away_team: {{ t('soccer.daily.col.away')|tojson }},
+    home_odds: {{ t('soccer.daily.odds.home')|tojson }},
+    draw_odds: {{ t('soccer.daily.odds.draw')|tojson }},
+    away_odds: {{ t('soccer.daily.odds.away')|tojson }},
+    score_ht: {{ t('soccer.daily.col.ht')|tojson }},
+    score_2h: {{ t('soccer.daily.col.2h')|tojson }},
+    score_ft: {{ t('soccer.daily.col.ft')|tojson }},
+    ui_et: {{ t('soccer.daily.col.et')|tojson }},
+    score_pen: {{ t('soccer.daily.col.pen')|tojson }},
+    result_status: {{ t('soccer.daily.col.result_status')|tojson }},
+  };
+  const COL_DESC = {
+    kickoff_hhmm: {{ t('soccer.daily.col.desc.kickoff_hhmm')|tojson }},
+    match_code: {{ t('soccer.daily.col.desc.match_code')|tojson }},
+    icon: {{ t('soccer.daily.col.desc.icon')|tojson }},
+    competition_code: {{ t('soccer.daily.col.desc.competition_code')|tojson }},
+    competition_name_zh: {{ t('soccer.daily.col.desc.competition_name_zh')|tojson }},
+    home_team: {{ t('soccer.daily.col.desc.home_team')|tojson }},
+    away_team: {{ t('soccer.daily.col.desc.away_team')|tojson }},
+    home_odds: {{ t('soccer.daily.col.desc.home_odds')|tojson }},
+    draw_odds: {{ t('soccer.daily.col.desc.draw_odds')|tojson }},
+    away_odds: {{ t('soccer.daily.col.desc.away_odds')|tojson }},
+    score_ht: {{ t('soccer.daily.col.desc.score_ht')|tojson }},
+    score_2h: {{ t('soccer.daily.col.desc.score_2h')|tojson }},
+    score_ft: {{ t('soccer.daily.col.desc.score_ft')|tojson }},
+    ui_et: {{ t('soccer.daily.col.desc.ui_et')|tojson }},
+    score_pen: {{ t('soccer.daily.col.desc.score_pen')|tojson }},
+    result_status: {{ t('soccer.daily.col.desc.result_status')|tojson }},
+  };
+  const EMPTY_CELL = "—";
+  const ZEBRA_COLORS = {{ layout_zebra_colors|tojson }};
+  const WIDTH_MIN = {{ layout_width_min|tojson }};
+  const WIDTH_MAX = {{ layout_width_max|tojson }};
+  const LOAD_ERR = {
+    empty_query: MSG.emptyQuery,
+    file_missing: MSG.fileMissing,
+    invalid_json: MSG.invalidJson,
+    invalid_fields: MSG.invalidFields,
+    unsupported_type: MSG.unsupported,
+    read_failed: MSG.failed,
+  };
+  const SEND_ERR = {
+    invalid_json: MSG.sendInvalidJson,
+    invalid_fields: MSG.sendInvalidPayload,
+    invalid_graphql: MSG.sendInvalidPayload,
+    empty_query: MSG.emptyQuery,
+    operation_not_allowed: MSG.sendOpNotAllowed,
+    payload_too_large: MSG.sendTooLarge,
+    rate_limited: MSG.sendRateLimited,
+    timeout: MSG.sendTimeout,
+    connection_failed: MSG.sendConnFail,
+    read_failed: MSG.failed,
+    unsupported_type: MSG.unsupported,
+  };
+
+  const buttons = Array.from(document.querySelectorAll(".soccer-daily .settings-tab"));
+  const panels = Array.from(document.querySelectorAll(".soccer-daily .tab-panel"));
+  const requestBox = document.getElementById("soccer-request");
+  const statusBox = document.getElementById("soccer-status");
+  const requestType = document.getElementById("soccer-request-type");
+  const btnSend = document.getElementById("btn-send-request");
+  const statusFilter = document.getElementById("match-status-filter");
+  const searchInput = document.getElementById("match-search");
+  let autoLoadStarted = false;
+  let userEditedRequest = false;
+  let loadingPreset = false;
+  let sending = false;
+  let listFetchSeq = 0;
+  let currentMatches = {{ matches|tojson }};
+  let layoutSaved = {{ layout_settings|tojson }};
+  let layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+  let layoutCatalog = {{ layout_catalog|tojson }};
+  const pageMetaInit = {{ page_meta|tojson }};
+  // Committed filter: date (form) + status + search. Cursor n must not use draft text.
+  let committedQ = String(pageMetaInit.q || "");
+  let committedStatus = String(pageMetaInit.status || "prematch");
+  let listN = Number(pageMetaInit.n) || 1;
+  let listTotalCount = Number(pageMetaInit.total_count) || 0;
+
+  requestBox.addEventListener("input", () => { userEditedRequest = true; });
+
+  function activateTab(name) {
+    for (const btn of buttons) {
+      const on = btn.dataset.tab === name;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    }
+    for (const panel of panels) {
+      const on = panel.dataset.panel === name;
+      panel.classList.toggle("active", on);
+      if (on) panel.removeAttribute("hidden");
+      else panel.setAttribute("hidden", "hidden");
+    }
+    if (name === "download") maybeAutoLoadPreset();
+    if (name === "layout") renderLayoutEditor();
+  }
+
+  for (const btn of buttons) {
+    btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+  }
+  activateTab("matches");
+
+  function maybeAutoLoadPreset() {
+    if (autoLoadStarted) return;
+    if (userEditedRequest) return;
+    if (requestBox.value.trim() !== "") return;
+    autoLoadStarted = true;
+    loadPreset();
+  }
+
+  async function loadPreset() {
+    if (loadingPreset) return;
+    const presetId = requestType.value || "matches_and_odds";
+    const previousRequest = requestBox.value;
+    loadingPreset = true;
+    statusBox.value = MSG.loading;
+    try {
+      const resp = await fetch("/api/soccer/request-presets/" + encodeURIComponent(presetId), {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+      });
+      let data = null;
+      try { data = await resp.json(); } catch (_e) { data = null; }
+      if (!resp.ok || !data || !data.ok) {
+        const code = data && data.error ? data.error : "read_failed";
+        statusBox.value = LOAD_ERR[code] || MSG.failed;
+        requestBox.value = previousRequest;
+        return;
+      }
+      if (userEditedRequest || requestBox.value !== previousRequest) {
+        if (statusBox.value === MSG.loading) statusBox.value = "";
+        return;
+      }
+      requestBox.value = data.display || "";
+      userEditedRequest = false;
+      statusBox.value = MSG.loadSuccess;
+      await refreshSyncBadgeForRequest(presetId);
+    } catch (_e) {
+      statusBox.value = MSG.failed;
+      requestBox.value = previousRequest;
+    } finally {
+      loadingPreset = false;
+    }
+  }
+
+  requestType.addEventListener("change", async () => {
+    if (userEditedRequest && requestBox.value.trim() !== "") {
+      if (!window.confirm(MSG.overwriteConfirm)) {
+        return;
+      }
+      userEditedRequest = false;
+    }
+    autoLoadStarted = false;
+    requestBox.value = "";
+    await loadPreset();
+  });
+
+  function syncBadgeLabelFor(requestKey) {
+    const label = document.getElementById("sync-badge-label");
+    if (!label) return;
+    if (requestKey === "update_odds_and_results") {
+      label.textContent = MSG.syncOddsLabel;
+    } else if (requestKey === "match_results" || requestKey === "match_results_by_year") {
+      label.textContent = MSG.syncResultsLabel;
+    } else {
+      label.textContent = MSG.updatedAtLabel;
+    }
+  }
+
+  function isOfficialResultsKey(requestKey) {
+    return requestKey === "match_results" || requestKey === "match_results_by_year";
+  }
+
+  function readRequestBoxVariables() {
+    try {
+      const obj = JSON.parse(requestBox.value || "");
+      if (!obj || typeof obj !== "object") return null;
+      const vars = obj.variables;
+      if (!vars || typeof vars !== "object") return null;
+      return vars;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function resultsCompletenessLabel(ing, vars) {
+    if (!ing) return MSG.ingestCompletenessIncomplete;
+    if (ing.code === "incomplete_results" || ing.code === "truncated" || ing.status === "failed") {
+      return MSG.ingestCompletenessIncomplete;
+    }
+    const endIndex = vars && Object.prototype.hasOwnProperty.call(vars, "endIndex") ? vars.endIndex : null;
+    if (endIndex === 0) {
+      if (
+        ing.status === "success" &&
+        ing.code === "success" &&
+        ing.matches_returned != null &&
+        ing.match_num_total != null &&
+        ing.matches_returned === ing.match_num_total
+      ) {
+        return MSG.ingestCompletenessFull;
+      }
+      return MSG.ingestCompletenessIncomplete;
+    }
+    if (typeof endIndex === "number" && endIndex >= 1 && endIndex <= 20) {
+      return MSG.ingestCompletenessPage;
+    }
+    return MSG.ingestCompletenessIncomplete;
+  }
+
+  async function refreshSyncBadgeForRequest(requestKey) {
+    syncBadgeLabelFor(requestKey);
+    const resp = await fetch("/api/soccer/sync-state?request_key=" + encodeURIComponent(requestKey));
+    const data = await resp.json();
+    if (!resp.ok || !data || !data.ok) return;
+    updateSyncBadge(data.last_success_at_hkt || null);
+  }
+
+  function ingestReason(ing) {
+    if (!ing) return MSG.ingestSkipped;
+    const code = ing.code || "";
+    if (ing.status === "success" && code === "success") return MSG.ingestSuccess;
+    if (code === "skipped_empty") return MSG.ingestEmpty;
+    if (code === "skipped_no_existing") return MSG.ingestNoExisting;
+    if (code === "truncated") return MSG.ingestTruncated;
+    if (code === "structure_mismatch") return MSG.ingestStructure;
+    if (code === "graphql_errors" || code === "partial_errors" || code === "http_error" || code === "non_json") {
+      return MSG.ingestGraphqlErrors;
+    }
+    if (
+      code === "invalid_match" ||
+      code === "duplicate_id" ||
+      code === "had_ambiguous" ||
+      code === "invalid_result" ||
+      code === "result_conflict" ||
+      code === "incomplete_results"
+    ) {
+      return MSG.ingestValidation;
+    }
+    if (code === "table_missing") return MSG.ingestInitRequired;
+    if (ing.status === "failed") return MSG.ingestFailed;
+    return MSG.ingestSkipped + (code ? "（" + code + "）" : "");
+  }
+
+  function formatStatus(data) {
+    const outcome = (() => {
+      if (data.outcome === "success") {
+        if (data.match_count === 0) return MSG.sendNoMatches;
+        return MSG.sendComplete;
+      }
+      if (data.outcome === "partial_errors") return MSG.sendPartial;
+      if (data.outcome === "graphql_errors") return MSG.sendGraphqlErrors;
+      if (data.outcome === "http_error") return MSG.sendHttpError;
+      if (data.outcome === "non_json") return MSG.sendNonJson;
+      return MSG.sendComplete;
+    })();
+    const httpDisp = (data.http_status === null || data.http_status === undefined) ? "—" : String(data.http_status);
+    const ing = data.ingest || {};
+    const isOddsUpdate = ing.request_key === "update_odds_and_results";
+    const isResults = isOfficialResultsKey(ing.request_key);
+    const reqVars = readRequestBoxVariables();
+    let text =
+      MSG.requestResult + "：" + outcome + "\n" +
+      MSG.labelHttp + "：" + httpDisp + "\n" +
+      MSG.labelElapsed + "：" + (data.elapsed_ms || 0) + " ms\n\n";
+    if (isOddsUpdate) {
+      text += MSG.ingestOddsSection + "：" + ingestReason(ing) + "\n";
+    } else if (isResults) {
+      text += MSG.ingestResultsSection + "：" + ingestReason(ing) + "\n";
+      if (reqVars) {
+        text +=
+          MSG.ingestDateRange + "：" +
+          String(reqVars.startDate || "—") + " ～ " + String(reqVars.endDate || "—") + "\n";
+      }
+      text += resultsCompletenessLabel(ing, reqVars) + "\n";
+      text += MSG.ingestRangeHint + "\n";
+    } else {
+      text += MSG.ingestSection + "：" + ingestReason(ing) + "\n";
+    }
+    if ((ing.status === "success" && ing.code === "success") || ing.code === "skipped_no_existing") {
+      if (isResults) {
+        const savedCount = (ing.updated || 0) + (ing.inserted || 0);
+        text +=
+          MSG.ingestDownloadVsSaved + "：" +
+          (ing.matches_returned == null ? "—" : String(ing.matches_returned)) +
+          " / " + savedCount + "\n" +
+          MSG.ingestProcessed + "：" + (ing.processed || 0) + "\n" +
+          MSG.ingestHistoryInserted + "：" + (ing.inserted || 0) + "\n" +
+          MSG.ingestUpdated + "：" + (ing.updated || 0) + "\n" +
+          MSG.ingestHtApplied + "：" + (ing.ht_applied || 0) + "\n" +
+          MSG.ingestFtApplied + "：" + (ing.ft_applied || 0) + "\n" +
+          MSG.ingestShApplied + "：" + (ing.sh_applied || 0) + "\n" +
+          MSG.ingestSkippedMissing + "：" + (ing.skipped_missing || 0) + "\n" +
+          MSG.ingestSkippedStatus + "：" + (ing.skipped_status || 0) + "\n" +
+          MSG.ingestSkippedUnconfirmed + "：" + (ing.skipped_unconfirmed || 0) + "\n" +
+          MSG.ingestSkippedInsufficient + "：" + (ing.skipped_insufficient || 0) + "\n" +
+          MSG.ingestMatchesReturned + "：" + (ing.matches_returned == null ? "—" : String(ing.matches_returned)) + "\n" +
+          MSG.ingestMatchNumTotal + "：" + (ing.match_num_total == null ? "—" : String(ing.match_num_total)) + "\n";
+        if (ing.detail) {
+          text += "detail：" + String(ing.detail) + "\n";
+        }
+        if (ing.status === "success") {
+          text += MSG.syncResultsLabel + "：" + (ing.last_success_at_hkt || MSG.updatedAtNever) + "\n";
+        } else if (ing.code === "skipped_no_existing") {
+          text += MSG.ingestNoExisting + "\n";
+        }
+      } else {
+        text +=
+          MSG.ingestProcessed + "：" + (ing.processed || 0) + "\n" +
+          MSG.ingestInserted + "：" + (ing.inserted || 0) + "\n" +
+          MSG.ingestUpdated + "：" + (ing.updated || 0) + "\n" +
+          MSG.ingestHadOk + "：" + (ing.had_complete || 0) + "\n" +
+          MSG.ingestHadMissing + "：" + (ing.had_incomplete || 0) + "\n";
+        if (isOddsUpdate) {
+          text += MSG.ingestSkippedMissing + "：" + (ing.skipped_missing || 0) + "\n";
+          text += MSG.ingestResultsPending + "\n";
+          text += MSG.syncOddsLabel + "：" + (ing.last_success_at_hkt || MSG.updatedAtNever) + "\n";
+        } else if (ing.status === "success") {
+          text += MSG.updatedAtLabel + "：" + (ing.last_success_at_hkt || MSG.updatedAtNever) + "\n";
+        }
+      }
+    }
+    text += "\n" + MSG.labelBody + "：\n" + (data.body || "");
+    if (data.truncated) text += "\n\n" + MSG.truncated;
+    return text;
+  }
+
+  function updateSyncBadge(hkt) {
+    const el = document.getElementById("sync-badge-value");
+    if (!el) return;
+    el.textContent = hkt || MSG.updatedAtNever;
+  }
+
+  function oddsClass(v, kind) {
+    if (v === "—") return "odds-empty";
+    return kind;
+  }
+
+  function soccerBallSvg() {
+    return '<svg class="soccer-icon sm" viewBox="0 0 64 64" role="img" aria-label="' + MSG.iconAlt + '">' +
+      '<circle cx="32" cy="32" r="30" fill="#2ecc71" stroke="#1b7a3d" stroke-width="3"/>' +
+      '<circle cx="32" cy="32" r="22" fill="none" stroke="#ffffff" stroke-width="2.5" opacity=".9"/>' +
+      '<polygon points="32,18 38,28 32,26 26,28" fill="#ffffff"/>' +
+      '<polygon points="20,34 28,32 26,40 18,42" fill="#ffffff"/>' +
+      '<polygon points="44,34 46,42 38,40 36,32" fill="#ffffff"/>' +
+      '<polygon points="28,44 32,38 36,44 32,50" fill="#ffffff"/>' +
+      '</svg>';
+  }
+
+  function appliedColumns() {
+    // Daily list + search use saved (applied) layout only — not unsaved draft.
+    // Status Filter does not hide columns.
+    return layoutSaved.columns.filter((c) => c.visible);
+  }
+
+  function cellValue(m, key) {
+    if (key === "icon") return "";
+    if (key === "ui_et") return EMPTY_CELL;
+    const v = m[key];
+    return v == null || v === "" ? EMPTY_CELL : String(v);
+  }
+
+  function currentSortParam() {
+    const parts = [];
+    for (const c of layoutSaved.columns || []) {
+      if (c.sort === "asc" || c.sort === "desc") parts.push(c.key + ":" + c.sort);
+    }
+    return parts.join(",");
+  }
+
+  function updatePagerControls() {
+    const statusEl = document.getElementById("pager-status");
+    const btnFirst = document.getElementById("pager-first");
+    const btnPrev = document.getElementById("pager-prev");
+    const btnNext = document.getElementById("pager-next");
+    const btnLast = document.getElementById("pager-last");
+    const total = listTotalCount > 0 ? listTotalCount : 0;
+    const n = total > 0 ? listN : 0;
+    if (statusEl) statusEl.textContent = n + " / " + total;
+    const disableAll = total <= 1;
+    const atFirst = disableAll || listN <= 1;
+    const atLast = disableAll || listN >= total;
+    if (btnFirst) btnFirst.disabled = atFirst;
+    if (btnPrev) btnPrev.disabled = atFirst;
+    if (btnNext) btnNext.disabled = atLast;
+    if (btnLast) btnLast.disabled = atLast;
+  }
+
+  function syncListUrl() {
+    const dateInput = document.getElementById("match-date");
+    if (!dateInput || !dateInput.value) return;
+    const params = new URLSearchParams();
+    params.set("date", dateInput.value);
+    params.set("n", String(listN));
+    if (committedQ) params.set("q", committedQ);
+    if (committedStatus) params.set("status", committedStatus);
+    const sort = currentSortParam();
+    if (sort) params.set("sort", sort);
+    window.history.replaceState(null, "", window.location.pathname + "?" + params.toString());
+  }
+
+  function highlightCurrentRow() {
+    const rows = document.querySelectorAll("#matches-table-body tr");
+    rows.forEach((tr, idx) => {
+      const on = listTotalCount > 0 && idx === listN - 1;
+      tr.classList.toggle("row-current", on);
+      if (on) {
+        // Scroll within matches-list-scroll only; keep toolbar/pager fixed.
+        try { tr.scrollIntoView({ block: "nearest", behavior: "smooth", inline: "nearest" }); } catch (_e) { /* ignore */ }
+      }
+    });
+  }
+
+  async function fetchMatchesList(n) {
+    const dateInput = document.getElementById("match-date");
+    if (!dateInput || !dateInput.value) return false;
+    const seq = ++listFetchSeq;
+    const prev = {
+      matches: currentMatches,
+      n: listN,
+      totalCount: listTotalCount,
+    };
+    try {
+      const params = new URLSearchParams();
+      params.set("date", dateInput.value);
+      params.set("n", String(n));
+      if (committedQ) params.set("q", committedQ);
+      if (committedStatus) params.set("status", committedStatus);
+      const sort = currentSortParam();
+      if (sort) params.set("sort", sort);
+      const resp = await fetch("/api/soccer/daily-matches?" + params.toString());
+      const data = await resp.json();
+      if (seq !== listFetchSeq) return false;
+      if (!resp.ok || !data || !data.ok) return false;
+      currentMatches = data.matches || [];
+      listN = Number(data.n) || 1;
+      listTotalCount = Number(data.total_count) || 0;
+      if (typeof data.q === "string") committedQ = data.q;
+      if (typeof data.status === "string" && data.status) committedStatus = data.status;
+      syncListUrl();
+      updatePagerControls();
+      renderMatches();
+      return true;
+    } catch (_e) {
+      if (seq !== listFetchSeq) return false;
+      currentMatches = prev.matches;
+      listN = prev.n;
+      listTotalCount = prev.totalCount;
+      updatePagerControls();
+      return false;
+    }
+  }
+
+  function submitListCriteria({ n = 1 } = {}) {
+    // Filter = status + search (+ date from form). Changing filter resets cursor to 1.
+    if (searchInput) committedQ = (searchInput.value || "").trim();
+    if (statusFilter) committedStatus = statusFilter.value || "prematch";
+    return fetchMatchesList(n);
+  }
+
+  function moveRecordCursor(n) {
+    // Full list already loaded; only move N / total_count without re-fetch when possible.
+    if (listTotalCount <= 0) return;
+    let next = Number(n) || 1;
+    if (next < 1) next = 1;
+    if (next > listTotalCount) next = listTotalCount;
+    listN = next;
+    syncListUrl();
+    updatePagerControls();
+    highlightCurrentRow();
+  }
+
+  function applyZebraCss() {
+    const root = document.querySelector(".soccer-daily");
+    if (!root) return;
+    if (!layoutSaved.zebra_enabled) {
+      root.style.removeProperty("--soccer-layout-zebra");
+      return;
+    }
+    const found = ZEBRA_COLORS.find((c) => c.id === layoutSaved.zebra_color_id);
+    if (found) root.style.setProperty("--soccer-layout-zebra", found.css);
+  }
+
+  function syncTheadStickyOffsets() {
+    const scroller = document.getElementById("matches-list-scroll");
+    const firstRow = document.querySelector("#matches-panel-body table.matches thead tr");
+    if (!scroller || !firstRow) return;
+    const h = Math.ceil(firstRow.getBoundingClientRect().height);
+    if (h > 0) scroller.style.setProperty("--matches-thead-row1-height", h + "px");
+  }
+
+  function renderMatches(matches) {
+    if (matches) currentMatches = matches;
+    applyZebraCss();
+    updatePagerControls();
+    const panel = document.getElementById("matches-panel-body");
+    if (!panel) return;
+    // Server already applied current filter (date + q + status when mapped); full list.
+    if (!currentMatches.length) {
+      panel.innerHTML = '<div class="state-box" id="matches-empty-box"><p></p><p class="muted"></p></div>';
+      panel.querySelector("p").textContent = committedQ ? MSG.searchNoMatch : MSG.emptyMsg;
+      panel.querySelector(".muted").textContent = MSG.syncHint;
+      return;
+    }
+    const cols = appliedColumns();
+    const listRows = currentMatches;
+    let head = "<tr>";
+    for (const c of cols) {
+      const arrow = c.sort === "asc" ? " ↑" : (c.sort === "desc" ? " ↓" : "");
+      head += '<th class="c-center" data-col="' + c.key + '" style="min-width:' + c.width + 'px;width:' + c.width + 'px">' +
+        (COL_LABEL[c.key] || c.key) + arrow + "</th>";
+    }
+    head += "</tr>";
+    panel.innerHTML =
+      "<div class='table-wrap'><table class='matches' id='matches-table'><thead>" + head +
+      "</thead><tbody id='matches-table-body'></tbody></table></div>" +
+      "<div class='cards' id='matches-cards'></div>";
+    const tbody = document.getElementById("matches-table-body");
+    const cardsEl = document.getElementById("matches-cards");
+    listRows.forEach((m, rowIdx) => {
+      const tr = document.createElement("tr");
+      if (listTotalCount > 0 && rowIdx === listN - 1) tr.classList.add("row-current");
+      if (layoutSaved.zebra_enabled && rowIdx % 2 === 1) {
+        tr.style.background = getComputedStyle(document.querySelector(".soccer-daily")).getPropertyValue("--soccer-layout-zebra") || "#f4f6f9";
+      }
+      for (const c of cols) {
+        const td = document.createElement("td");
+        td.className = "c-center";
+        td.style.width = c.width + "px";
+        if (c.key === "icon") td.innerHTML = soccerBallSvg();
+        else if (c.key === "home_odds") {
+          td.className = "c-center " + oddsClass(m.home_odds, "odds-home");
+          td.textContent = m.home_odds;
+        } else if (c.key === "draw_odds") {
+          td.className = "c-center " + oddsClass(m.draw_odds, "odds-draw");
+          td.textContent = m.draw_odds;
+        } else if (c.key === "away_odds") {
+          td.className = "c-center " + oddsClass(m.away_odds, "odds-away");
+          td.textContent = m.away_odds;
+        } else {
+          if (c.key === "competition_name_zh") td.classList.add("comp-name");
+          if (c.key === "home_team" || c.key === "away_team") {
+            td.className = "c-left team-name";
+          }
+          const text = cellValue(m, c.key);
+          td.textContent = text;
+          if ((c.key.indexOf("score_") === 0 || c.key === "result_status" || c.key === "ui_et") && text === EMPTY_CELL) {
+            td.title = MSG.resultNotConnected;
+          }
+        }
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+
+      const art = document.createElement("article");
+      art.className = "match-card";
+      let extras = '<div class="card-odds">';
+      for (const c of cols) {
+        if (c.key === "icon" || c.key === "kickoff_hhmm" || c.key === "match_code" ||
+            c.key === "competition_code" || c.key === "competition_name_zh" ||
+            c.key === "home_team" || c.key === "away_team") continue;
+        const label = COL_LABEL[c.key] || c.key;
+        const val = cellValue(m, c.key);
+        let cls = "value";
+        if (c.key === "home_odds") cls = "value " + oddsClass(m.home_odds, "odds-home");
+        if (c.key === "draw_odds") cls = "value " + oddsClass(m.draw_odds, "odds-draw");
+        if (c.key === "away_odds") cls = "value " + oddsClass(m.away_odds, "odds-away");
+        extras += '<div class="cell"><span class="label">' + label + '</span><span class="' + cls + '"></span></div>';
+      }
+      extras += "</div>";
+      art.innerHTML =
+        '<div class="card-top">' + soccerBallSvg() + '<div class="card-comp"><span class="code"></span><span class="comp-name"></span></div></div>' +
+        '<div class="card-meta"><span class="ko"></span><span class="muted mc"></span></div>' +
+        '<div class="card-teams"><div class="home team-name"></div><div class="vs">' + MSG.vs + '</div><div class="away team-name"></div></div>' +
+        extras;
+      art.querySelector(".code").textContent = m.competition_code;
+      art.querySelector(".comp-name").textContent = m.competition_name_zh;
+      art.querySelector(".ko").textContent = m.kickoff_hhmm;
+      art.querySelector(".mc").textContent = MSG.colMatchCode + " " + m.match_code;
+      art.querySelector(".home").textContent = m.home_team;
+      art.querySelector(".away").textContent = m.away_team;
+      const valueEls = art.querySelectorAll(".card-odds .cell .value, .card-odds .cell [class^='value']");
+      let vi = 0;
+      for (const c of cols) {
+        if (c.key === "icon" || c.key === "kickoff_hhmm" || c.key === "match_code" ||
+            c.key === "competition_code" || c.key === "competition_name_zh" ||
+            c.key === "home_team" || c.key === "away_team") continue;
+        const el = valueEls[vi++];
+        if (!el) continue;
+        el.textContent = cellValue(m, c.key);
+      }
+      cardsEl.appendChild(art);
+    });
+
+    panel.querySelectorAll("thead th[data-col]").forEach((th) => {
+      th.style.cursor = "pointer";
+      th.addEventListener("click", () => cycleHeaderSort(th.getAttribute("data-col")));
+    });
+    highlightCurrentRow();
+    syncTheadStickyOffsets();
+  }
+
+  function cycleHeaderSort(key) {
+    // Session sort on applied layout; sync draft so layout editor stays consistent.
+    const colSaved = layoutSaved.columns.find((c) => c.key === key);
+    const colDraft = layoutDraft.columns.find((c) => c.key === key);
+    if (!colSaved) return;
+    if (colSaved.sort === "desc") colSaved.sort = "";
+    else if (colSaved.sort === "") colSaved.sort = "asc";
+    else colSaved.sort = "desc";
+    if (colDraft) colDraft.sort = colSaved.sort;
+    renderLayoutEditor();
+    submitListCriteria({ n: 1 });
+  }
+
+  if (statusFilter) {
+    // Status is part of current filter; changing it reloads and resets N to 1.
+    statusFilter.addEventListener("change", () => submitListCriteria({ n: 1 }));
+  }
+  if (searchInput) {
+    let searchTimer = null;
+    const commitSearch = () => submitListCriteria({ n: 1 });
+    searchInput.addEventListener("input", () => {
+      if (searchTimer) window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(commitSearch, 200);
+    });
+    searchInput.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        if (searchTimer) window.clearTimeout(searchTimer);
+        commitSearch();
+      }
+    });
+    searchInput.addEventListener("search", () => {
+      if (searchTimer) window.clearTimeout(searchTimer);
+      commitSearch();
+    });
+  }
+
+  function bindPager() {
+    const btnFirst = document.getElementById("pager-first");
+    const btnPrev = document.getElementById("pager-prev");
+    const btnNext = document.getElementById("pager-next");
+    const btnLast = document.getElementById("pager-last");
+    if (btnFirst) btnFirst.addEventListener("click", () => { if (!btnFirst.disabled) moveRecordCursor(1); });
+    if (btnPrev) btnPrev.addEventListener("click", () => { if (!btnPrev.disabled) moveRecordCursor(listN - 1); });
+    if (btnNext) btnNext.addEventListener("click", () => { if (!btnNext.disabled) moveRecordCursor(listN + 1); });
+    if (btnLast) btnLast.addEventListener("click", () => { if (!btnLast.disabled) moveRecordCursor(listTotalCount); });
+  }
+  bindPager();
+  updatePagerControls();
+
+  async function refreshMatchesPanel() {
+    await fetchMatchesList(listN);
+  }
+
+  async function sendRequest() {
+    if (sending) return;
+    const raw = requestBox.value;
+    try {
+      JSON.parse(raw);
+    } catch (_e) {
+      statusBox.value = MSG.requestResult + "：" + MSG.sendInvalidJson;
+      return;
+    }
+    sending = true;
+    btnSend.disabled = true;
+    statusBox.value = MSG.sending;
+    try {
+      const resp = await fetch("/api/soccer/graphql/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({
+          payload: raw,
+          request_key: requestType.value || "matches_and_odds",
+        }),
+      });
+      let data = null;
+      try { data = await resp.json(); } catch (_e) { data = null; }
+      if (!resp.ok || !data || !data.ok) {
+        const code = data && data.error ? data.error : "read_failed";
+        statusBox.value = MSG.requestResult + "：" + (SEND_ERR[code] || MSG.failed);
+        return;
+      }
+      statusBox.value = formatStatus(data);
+      if (data.ingest && data.ingest.last_success_at_hkt) {
+        syncBadgeLabelFor(data.ingest.request_key || requestType.value);
+        updateSyncBadge(data.ingest.last_success_at_hkt);
+      }
+      if (data.ingest && data.ingest.status === "success" && data.ingest.code === "success") {
+        await refreshMatchesPanel();
+      }
+    } catch (_e) {
+      statusBox.value = MSG.requestResult + "：" + MSG.sendConnFail;
+    } finally {
+      sending = false;
+      btnSend.disabled = false;
+    }
+  }
+
+  btnSend.addEventListener("click", () => { sendRequest(); });
+
+  function orderedDraftColumns() {
+    const visible = layoutDraft.columns.filter((c) => c.visible);
+    const hidden = layoutDraft.columns
+      .filter((c) => !c.visible)
+      .slice()
+      .sort((a, b) => String(COL_LABEL[a.key] || a.key).localeCompare(String(COL_LABEL[b.key] || b.key), "zh-Hant"));
+    return visible.concat(hidden);
+  }
+
+  function setDraftOrderFromUi(orderedKeys) {
+    const map = {};
+    for (const c of layoutDraft.columns) map[c.key] = c;
+    layoutDraft.columns = orderedKeys.map((k) => map[k]);
+  }
+
+  function renderLayoutEditor() {
+    const tbody = document.getElementById("layout-cols-body");
+    if (!tbody) return;
+    applyZebraCss();
+    const ordered = orderedDraftColumns();
+    setDraftOrderFromUi(ordered.map((c) => c.key));
+    tbody.innerHTML = "";
+    layoutDraft.columns.forEach((col, idx) => {
+      const tr = document.createElement("tr");
+      if (layoutDraft.zebra_enabled && idx % 2 === 1) tr.classList.add("layout-zebra");
+      tr.draggable = true;
+      tr.dataset.key = col.key;
+      tr.innerHTML =
+        '<td class="drag-handle">☰</td>' +
+        '<td><input type="checkbox" class="lay-vis"' + (col.visible ? " checked" : "") + "></td>" +
+        "<td></td><td></td>" +
+        '<td><input type="number" class="layout-width-input lay-width" min="' + WIDTH_MIN + '" max="' + WIDTH_MAX + '" step="1"></td>' +
+        "<td><select class='lay-sort'>" +
+        '<option value="">' + MSG.layoutSortEmpty + "</option>" +
+        '<option value="asc">' + MSG.layoutSortAsc + "</option>" +
+        '<option value="desc">' + MSG.layoutSortDesc + "</option>" +
+        "</select></td>" +
+        "<td>" +
+        '<button type="button" class="icon-btn lay-up" title="' + MSG.layoutMoveUp + '">↑</button> ' +
+        '<button type="button" class="icon-btn lay-down" title="' + MSG.layoutMoveDown + '">↓</button>' +
+        "</td>";
+      tr.children[2].textContent = COL_LABEL[col.key] || col.key;
+      tr.children[3].textContent = COL_DESC[col.key] || "";
+      const widthInput = tr.querySelector(".lay-width");
+      widthInput.value = String(col.width);
+      const sortSel = tr.querySelector(".lay-sort");
+      sortSel.value = col.sort || "";
+      const upBtn = tr.querySelector(".lay-up");
+      const downBtn = tr.querySelector(".lay-down");
+      upBtn.disabled = idx === 0;
+      downBtn.disabled = idx === layoutDraft.columns.length - 1;
+      tr.querySelector(".lay-vis").addEventListener("change", (e) => {
+        const on = e.target.checked;
+        col.visible = on;
+        if (on) {
+          const keys = layoutDraft.columns.map((c) => c.key).filter((k) => k !== col.key);
+          const lastVis = layoutDraft.columns.filter((c) => c.visible && c.key !== col.key).pop();
+          const insertAt = lastVis ? keys.indexOf(lastVis.key) + 1 : 0;
+          keys.splice(insertAt, 0, col.key);
+          setDraftOrderFromUi(keys);
+        }
+        // Draft only until Save; do not change daily list / search scope.
+        renderLayoutEditor();
+      });
+      widthInput.addEventListener("change", () => {
+        const n = Number(widthInput.value);
+        if (!Number.isInteger(n) || n < WIDTH_MIN || n > WIDTH_MAX) {
+          widthInput.classList.add("invalid");
+          document.getElementById("layout-status-msg").textContent = MSG.layoutWidthInvalid;
+          return;
+        }
+        widthInput.classList.remove("invalid");
+        col.width = n;
+        document.getElementById("layout-status-msg").textContent = "";
+        renderLayoutEditor();
+      });
+      sortSel.addEventListener("change", () => {
+        col.sort = sortSel.value;
+        renderLayoutEditor();
+      });
+      upBtn.addEventListener("click", () => {
+        if (idx === 0) return;
+        const arr = layoutDraft.columns;
+        const tmp = arr[idx - 1];
+        arr[idx - 1] = arr[idx];
+        arr[idx] = tmp;
+        renderLayoutEditor();
+      });
+      downBtn.addEventListener("click", () => {
+        const arr = layoutDraft.columns;
+        if (idx >= arr.length - 1) return;
+        const tmp = arr[idx + 1];
+        arr[idx + 1] = arr[idx];
+        arr[idx] = tmp;
+        renderLayoutEditor();
+      });
+      tr.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("text/plain", col.key);
+      });
+      tr.addEventListener("dragover", (e) => e.preventDefault());
+      tr.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const fromKey = e.dataTransfer.getData("text/plain");
+        const toKey = col.key;
+        if (!fromKey || fromKey === toKey) return;
+        const keys = layoutDraft.columns.map((c) => c.key);
+        const from = keys.indexOf(fromKey);
+        const to = keys.indexOf(toKey);
+        if (from < 0 || to < 0) return;
+        keys.splice(to, 0, keys.splice(from, 1)[0]);
+        setDraftOrderFromUi(keys);
+        renderLayoutEditor();
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  const zebraColor = document.getElementById("layout-zebra-color");
+  const zebraEnable = document.getElementById("layout-zebra-enable");
+  if (zebraColor) {
+    zebraColor.addEventListener("change", () => {
+      layoutDraft.zebra_color_id = zebraColor.value;
+      renderLayoutEditor();
+    });
+  }
+  if (zebraEnable) {
+    zebraEnable.addEventListener("change", () => {
+      layoutDraft.zebra_enabled = zebraEnable.checked;
+      renderLayoutEditor();
+    });
+  }
+
+  document.getElementById("btn-layout-save").addEventListener("click", async () => {
+    const msg = document.getElementById("layout-status-msg");
+    for (const c of layoutDraft.columns) {
+      if (!Number.isInteger(c.width) || c.width < WIDTH_MIN || c.width > WIDTH_MAX) {
+        msg.textContent = MSG.layoutWidthInvalid;
+        return;
+      }
+    }
+    const resp = await fetch("/api/soccer/layout/daily-matches", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ settings: layoutDraft }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data || !data.ok) {
+      msg.textContent = MSG.layoutSaveFail + (data && data.error ? "（" + data.error + "）" : "");
+      return;
+    }
+    layoutSaved = data.settings;
+    layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+    msg.textContent = MSG.layoutSaveOk;
+    renderLayoutEditor();
+    renderMatches(currentMatches);
+  });
+
+  document.getElementById("btn-layout-cancel").addEventListener("click", () => {
+    layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+    if (zebraColor) zebraColor.value = layoutDraft.zebra_color_id;
+    if (zebraEnable) zebraEnable.checked = layoutDraft.zebra_enabled;
+    document.getElementById("layout-status-msg").textContent = "";
+    renderLayoutEditor();
+    renderMatches(currentMatches);
+  });
+
+  renderMatches(currentMatches);
+  window.addEventListener("resize", syncTheadStickyOffsets);
+})();
+</script>
+{% endblock %}
+
+

@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}排位 - HPPV Web{% endblock %}
+{% block content %}
+<style>
+  .race-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+  .race-jump.card-link .card { min-width: 170px; margin-bottom: 0; }
+  .jump-hint { text-align: right; color: #1f3d66; font-size: 12px; font-weight: 600; margin-top: 6px; }
+  .race-card { margin-bottom: 14px; }
+  .race-card h3 { margin: 0 0 10px 0; font-size: 18px; }
+  .small { font-size: 13px; color: #5a6878; }
+  .race-table tbody tr:nth-child(odd) { background-color: #ffffff; }
+  .race-table tbody tr:nth-child(even) { background-color: #f7f9fc; }
+  .racecard-row { cursor: pointer; transition: background-color .12s ease; }
+  .racecard-row:hover { background-color: #f0f7ff; }
+  .racecard-row.selected { background-color: #cfe3ff; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(22, 33, 52, .45); display: none; z-index: 999; }
+  .modal-box { width: min(1120px, 94vw); max-height: 82vh; margin: 7vh auto; background: #fff; border-radius: 8px; box-shadow: 0 16px 36px rgba(0, 0, 0, .28); overflow: hidden; display: flex; flex-direction: column; }
+  .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid #e6edf6; }
+  .modal-close { border: 0; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; color: #38527a; }
+  .modal-body { padding: 10px 14px 14px; overflow: auto; }
+  #horse-form-table { width: 100%; border-collapse: collapse; }
+  #horse-form-table th, #horse-form-table td { border: 1px solid #e6edf6; padding: 6px 8px; font-size: 13px; white-space: nowrap; }
+  #horse-form-empty { color: #4f617b; padding: 8px 2px; }
+  .build-stamp {
+    margin: 10px 0 6px;
+    padding: 8px 12px;
+    background: #e8f2ff;
+    border: 1px solid #b8d4f0;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #0d3a66;
+    font-weight: 600;
+  }
+</style>
+
+<div class="card">
+  <h1>排位（只讀）</h1>
+  <p class="small">賽日：{{ payload.race_date }}｜場地：{{ payload.racecourse }}｜場次：{{ payload.race_count }}</p>
+  <div class="build-stamp" title="與程式／模板修改時間連動；有變代表已載入新版本">
+    Build：<code style="font-size: 13px;">{{ web_build_tag }}</code>
+    <span class="small" style="margin-left:8px;">（UI {{ ui_version }}）</span>
+  </div>
+  <p class="small" style="color:#8b0000;font-weight:600;margin-top:6px;">
+    正確新版應同時見到「UI rankings-ui-v3」與「Build：web-…」。若仍只見 v2.1 而無淺藍區塊：請 Ctrl+F5，並確認已重啟 <code>python -m hppv.web_app</code>。
+  </p>
+  <details class="small" style="margin-top:8px;color:#333;">
+    <summary style="cursor:pointer;font-weight:600;">診斷：此頁由邊個檔案 render（仍舊版請對照路徑）</summary>
+    <pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;background:#f4f6f9;padding:8px;border-radius:6px;margin-top:6px;">web_app: {{ debug_web_app_py }}
+rankings.html: {{ debug_rankings_html }}</pre>
+    <p class="small">另可開：<a href="{{ url_for('api_debug_web_app_info') }}">/api/debug/web_app_info</a>（JSON）</p>
+  </details>
+  <p class="small" id="rankings-ui-version" style="display:none;">版本：{{ ui_version }}</p>
+  <p class="small" id="rankings-ui-js-status">JS 狀態：尚未初始化</p>
+</div>
+
+{% if payload.races %}
+<div class="race-grid">
+  {% for race in payload.races %}
+  <a class="race-jump card-link" href="#race-{{ race.race_no }}">
+    <div class="card">
+      <div class="card-title">第 {{ race.race_no }} 場</div>
+      <div class="card-value">{{ race.rows|length }}</div>
+      <div class="small">匹馬</div>
+      <div class="jump-hint">→ 跳到第 {{ race.race_no }} 場</div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+{% for race in payload.races %}
+<div id="race-{{ race.race_no }}" class="card race-card">
+  <h3>{{ race.title }}</h3>
+  <table class="race-table">
+    <thead>
+      <tr>
+        <th>馬號</th>
+        <th>馬名</th>
+        <th>檔位</th>
+        <th>騎師</th>
+        <th>練馬師</th>
+        <th>評分</th>
+        <th>負磅</th>
+        <th>後備</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in race.rows %}
+      <tr class="racecard-row"
+          data-horse-id="{{ row.horse_id }}"
+          data-horse-name="{{ row.horse_name }}">
+        <td>{{ row.horse_no }}</td>
+        <td>{{ row.horse_name }}</td>
+        <td>{{ row.draw }}</td>
+        <td>{{ row.jockey }}</td>
+        <td>{{ row.trainer }}</td>
+        <td>{{ row.rating }}</td>
+        <td>{{ row.handicap }}</td>
+        <td>{{ row.reserve }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% else %}
+<div class="card">目前沒有可顯示的排位資料。</div>
+{% endif %}
+
+<div id="horse-form-modal" class="modal-overlay" aria-hidden="true">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="horse-form-title">往績</h3>
+      <button id="horse-form-close" class="modal-close" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <table id="horse-form-table">
+        <thead>
+          <tr>
+            <th>日期</th>
+            <th>場地</th>
+            <th>場次</th>
+            <th>路程</th>
+            <th>班次</th>
+            <th>檔位</th>
+            <th>名次</th>
+            <th>評分</th>
+            <th>騎師</th>
+            <th>練馬師</th>
+            <th>時間</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div id="horse-form-empty" style="display:none;">沒有往績資料</div>
+    </div>
+  </div>
+</div>
+<script>
+  (function initRacecardFormModal() {
+    var statusEl = document.getElementById("rankings-ui-js-status");
+    var modal = document.getElementById("horse-form-modal");
+    var modalTitle = document.getElementById("horse-form-title");
+    var closeBtn = document.getElementById("horse-form-close");
+    var tableBody = document.querySelector("#horse-form-table tbody");
+    var emptyMsg = document.getElementById("horse-form-empty");
+    var rows = Array.from(document.querySelectorAll(".racecard-row"));
+    if (statusEl) {
+      statusEl.textContent = "JS 狀態：初始化中";
+    }
+    if (!modal || !modalTitle || !closeBtn || !tableBody || !emptyMsg) {
+      if (statusEl) {
+        statusEl.textContent = "JS 狀態：初始化失敗（modal 元件缺失）";
+      }
+      return;
+    }
+
+    function closeModal() {
+      modal.style.display = "none";
+      modal.setAttribute("aria-hidden", "true");
+    }
+    function openModal() {
+      modal.style.display = "block";
+      modal.setAttribute("aria-hidden", "false");
+    }
+    function cell(v) {
+      var td = document.createElement("td");
+      td.textContent = v || "";
+      return td;
+    }
+
+    function renderRows(records) {
+      tableBody.innerHTML = "";
+      if (!records || !records.length) {
+        emptyMsg.textContent = "沒有往績資料";
+        emptyMsg.style.display = "block";
+        return;
+      }
+      emptyMsg.style.display = "none";
+      records.forEach(function (r) {
+        var tr = document.createElement("tr");
+        tr.appendChild(cell(r.race_date));
+        tr.appendChild(cell(r.venue));
+        tr.appendChild(cell(r.race_no));
+        tr.appendChild(cell(r.distance || r.course));
+        tr.appendChild(cell(r.class_band));
+        tr.appendChild(cell(r.draw));
+        tr.appendChild(cell(r.finish_pos));
+        tr.appendChild(cell(r.rating));
+        tr.appendChild(cell(r.jockey));
+        tr.appendChild(cell(r.trainer));
+        tr.appendChild(cell(r.time));
+        tableBody.appendChild(tr);
+      });
+    }
+
+    rows.forEach(function (row) {
+      row.addEventListener("click", function () {
+        Array.from(document.querySelectorAll(".racecard-row.selected")).forEach(function (it) {
+          it.classList.remove("selected");
+        });
+        row.classList.add("selected");
+        var horseId = String(row.getAttribute("data-horse-id") || "").trim();
+        var horseName = String(row.getAttribute("data-horse-name") || "").trim();
+        if (!horseId) {
+          return;
+        }
+        modalTitle.textContent = (horseName ? horseName + "（" + horseId + "）" : horseId) + " 最近往績";
+        emptyMsg.textContent = "";
+        emptyMsg.style.display = "none";
+        tableBody.innerHTML = "";
+        fetch("/api/horse/" + encodeURIComponent(horseId) + "/recent_form?limit=10")
+          .then(function (resp) {
+            if (!resp.ok) {
+              throw new Error("network");
+            }
+            return resp.json();
+          })
+          .then(function (data) {
+            renderRows(data && data.records ? data.records : []);
+            openModal();
+          })
+          .catch(function () {
+            renderRows([]);
+            emptyMsg.textContent = "載入往績時發生錯誤";
+            openModal();
+          });
+      });
+    });
+    if (statusEl) {
+      statusEl.textContent = "JS 狀態：已啟用（可點擊列數 " + rows.length + "）";
+    }
+    console.log("[rankings] ui ready", {
+      version: document.getElementById("rankings-ui-version")?.textContent || "",
+      rowCount: rows.length
+    });
+
+    closeBtn.addEventListener("click", closeModal);
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal) {
+        closeModal();
+      }
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && modal.style.display === "block") {
+        closeModal();
+      }
+    });
+  })();
+</script>
+{% endblock %}

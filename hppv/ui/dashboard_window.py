@@ -161,6 +161,20 @@ class DashboardWindow(QMainWindow):
         self._message_size_combo.setMinimumWidth(180)
         self._message_size_combo.setToolTip("調整上方「最新訊息圖像」顯示區高度；圖像會自動等比縮放。")
         bar.addWidget(self._message_size_combo)
+        bar.addSpacing(12)
+        bar.addWidget(QLabel("菜單效果："))
+        self._menu_style_combo = QComboBox()
+        self._menu_style_combo.addItems(
+            [
+                "經典（白底深字）",
+                "深色（夜間）",
+                "極簡（細邊）",
+                "高對比（藍底白字）",
+                "圓角（卡片感）",
+            ]
+        )
+        self._menu_style_combo.setMinimumWidth(190)
+        bar.addWidget(self._menu_style_combo)
         bar.addStretch()
         root.addLayout(bar)
 
@@ -180,10 +194,12 @@ class DashboardWindow(QMainWindow):
 
         self._style_combo.currentIndexChanged.connect(self._stack.setCurrentIndex)
         self._message_size_combo.currentIndexChanged.connect(self._apply_message_board_size)
+        self._menu_style_combo.currentIndexChanged.connect(self._apply_menu_style)
         root.addWidget(self._stack, 2)
         self._apply_message_board_size(0)
 
         # 選單列樣式（含置中用 spacer 底色）；版面樣式下拉已移除「菜單顏色」時仍套用經典選單列
+        self._menu_style_combo.setCurrentIndex(0)
         self._apply_menu_style(0)
         self.statusBar().showMessage("已就緒：請從『賽事』選單開啟項目。")
 
@@ -414,53 +430,57 @@ class DashboardWindow(QMainWindow):
         return w
 
     def _apply_menu_style(self, idx: int) -> None:
-        """切換選單列視覺效果（僅 UI 展示）。"""
-        if idx == 1:  # 深色
+        """根據下拉選單切換 QMenuBar / QMenu 視覺風格。"""
+        if idx == 1:  # 深色（夜間）
             qss = """
-QMenuBar { background: #1d1f27; color: #f2f4f8; border-bottom: 1px solid #34384a; }
-QMenuBar::item { background: transparent; padding: 6px 12px; }
-QMenuBar::item:selected { background: #2f3b56; border-radius: 4px; }
-QWidget#menuBarBalanceSpacer { background: #1d1f27; }
-QMenu { background: #252938; color: #f2f4f8; border: 1px solid #3b4359; }
-QMenu::item:selected { background: #3a4b76; }
+QMenuBar { background-color: #333333; color: #f0f0f0; border-bottom: 1px solid #555555; }
+QMenuBar::item { padding: 4px 10px; background: transparent; }
+QMenuBar::item:selected { background: #555555; }
+QMenuBar::item:pressed { background: #444444; }
+QWidget#menuBarBalanceSpacer { background-color: #333333; }
+QMenu { background-color: #2b2b2b; color: #f0f0f0; border: 1px solid #555555; }
+QMenu::item:selected { background-color: #3daee9; color: #ffffff; }
 """
-        elif idx == 2:  # 極簡
+        elif idx == 2:  # 極簡（細邊）
             qss = """
-QMenuBar { background: #ffffff; color: #222; border-bottom: 1px solid #e6e6e6; }
-QMenuBar::item { padding: 4px 10px; margin: 0px 2px; }
-QMenuBar::item:selected { background: #f3f3f3; }
-QWidget#menuBarBalanceSpacer { background: #ffffff; }
-QMenu { background: #ffffff; color: #222; border: 1px solid #dcdcdc; }
-QMenu::item { padding: 6px 18px; }
-QMenu::item:selected { background: #f1f4f8; color: #111; }
+QMenuBar { background-color: #ffffff; color: #333333; border-bottom: 1px solid #dddddd; }
+QMenuBar::item { padding: 3px 8px; background: transparent; }
+QMenuBar::item:selected { background: #f5f5f5; }
+QWidget#menuBarBalanceSpacer { background-color: #ffffff; }
+QMenu { background-color: #ffffff; color: #333333; border: 1px solid #dddddd; }
+QMenu::item { padding: 3px 16px; }
+QMenu::item:selected { background-color: #f0f0f0; }
 """
-        elif idx == 3:  # 高對比
+        elif idx == 3:  # 高對比（藍底白字）
             qss = """
-QMenuBar { background: #0d47a1; color: #ffffff; border-bottom: 1px solid #08357a; font-weight: 600; }
-QMenuBar::item { padding: 6px 12px; }
-QMenuBar::item:selected { background: #1565c0; }
-QWidget#menuBarBalanceSpacer { background: #0d47a1; }
-QMenu { background: #ffffff; color: #0d47a1; border: 1px solid #0d47a1; }
-QMenu::item:selected { background: #e3f2fd; color: #0b3c85; }
+QMenuBar { background-color: #0052cc; color: #ffffff; border-bottom: 1px solid #003f99; }
+QMenuBar::item { padding: 4px 10px; background: transparent; }
+QMenuBar::item:selected { background: #0066ff; border-radius: 2px; }
+QMenuBar::item:pressed { background: #0044aa; }
+QWidget#menuBarBalanceSpacer { background-color: #0052cc; }
+QMenu { background-color: #0052cc; color: #ffffff; border: 1px solid #003f99; }
+QMenu::item:selected { background-color: #0066ff; color: #ffffff; }
 """
-        elif idx == 4:  # 圓角
+        elif idx == 4:  # 圓角（卡片感）
             qss = """
-QMenuBar { background: #f7f8fb; color: #334; border-bottom: 1px solid #d8dce6; }
-QMenuBar::item { padding: 6px 12px; margin: 3px 4px; border-radius: 8px; }
-QMenuBar::item:selected { background: #e7ebf5; }
-QWidget#menuBarBalanceSpacer { background: #f7f8fb; }
-QMenu { background: #ffffff; color: #334; border: 1px solid #d8dce6; border-radius: 8px; padding: 4px; }
-QMenu::item { padding: 7px 16px; border-radius: 6px; }
-QMenu::item:selected { background: #edf1fa; }
+QMenuBar { background-color: #f5f7fb; color: #333333; border-bottom: 1px solid #d0d7e2; }
+QMenuBar::item { padding: 4px 10px; background: transparent; border-radius: 6px; }
+QMenuBar::item:selected { background: #ffffff; border: 1px solid #d0d7e2; }
+QMenuBar::item:pressed { background: #e5ebf5; }
+QWidget#menuBarBalanceSpacer { background-color: #f5f7fb; }
+QMenu { background-color: #ffffff; color: #333333; border: 1px solid #d0d7e2; border-radius: 6px; }
+QMenu::item { padding: 4px 16px; border-radius: 4px; }
+QMenu::item:selected { background-color: #e6f0ff; color: #000000; }
 """
-        else:  # 經典
+        else:  # 經典（白底深字）
             qss = """
-QMenuBar { background: #ffffff; color: #1f2d3d; border-bottom: 1px solid #cfd6e4; }
-QMenuBar::item { padding: 5px 10px; }
-QMenuBar::item:selected { background: #e9eff9; }
-QWidget#menuBarBalanceSpacer { background: #ffffff; }
-QMenu { background: #ffffff; color: #1f2d3d; border: 1px solid #cfd6e4; }
-QMenu::item:selected { background: #e9eff9; }
+QMenuBar { background-color: #ffffff; color: #222222; border-bottom: 1px solid #cccccc; }
+QMenuBar::item { padding: 4px 10px; background: transparent; }
+QMenuBar::item:selected { background: #e6f0ff; color: #000000; }
+QMenuBar::item:pressed { background: #cbdfff; }
+QWidget#menuBarBalanceSpacer { background-color: #ffffff; }
+QMenu { background-color: #ffffff; color: #222222; border: 1px solid #cccccc; }
+QMenu::item:selected { background-color: #e6f0ff; color: #000000; }
 """
         self.menuBar().setStyleSheet(qss)
 

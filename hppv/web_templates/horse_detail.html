@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}馬匹詳情 - {{ horse["horse_id"] }}{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>馬匹詳情：{{ horse["horse_id"] }}</h1>
+  <p><a href="{{ url_for('horses_list') }}">返回馬匹列表</a></p>
+  <div class="row">
+    <div><strong>HorseId：</strong>{{ horse["horse_id"] }}</div>
+    <div><strong>Brand No.：</strong>{{ horse["brand_no"] or "" }}</div>
+    <div><strong>Name EN：</strong>{{ horse["name_en"] or "" }}</div>
+    <div><strong>Name ZH：</strong>{{ horse["name_zh"] or "" }}</div>
+    <div><strong>Status：</strong>{{ status or "" }}</div>
+    <div><strong>賽績筆數：</strong>{{ records_total }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Race Date</th>
+        <th>Venue</th>
+        <th>Race No.</th>
+        <th>Course</th>
+        <th>Distance</th>
+        <th>Going</th>
+        <th>Class</th>
+        <th>Draw</th>
+        <th>Rating</th>
+        <th>Jockey</th>
+        <th>Trainer</th>
+        <th>Finish Pos</th>
+        <th>Running Pos</th>
+        <th>Win Odds</th>
+        <th>Time</th>
+        <th>Prize</th>
+        <th>Flag</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td>{{ r["race_date"] }}</td>
+        <td>{{ r["venue"] }}</td>
+        <td>{{ r["race_no"] }}</td>
+        <td>{{ r["course"] }}</td>
+        <td>{{ r["distance"] }}</td>
+        <td>{{ r["going"] }}</td>
+        <td>{{ r["class_band"] }}</td>
+        <td>{{ r["draw"] }}</td>
+        <td>{{ r["rating"] }}</td>
+        <td>{{ r["jockey"] }}</td>
+        <td>{{ r["trainer"] }}</td>
+        <td>{{ r["finish_pos"] }}</td>
+        <td>{{ r["running_pos"] }}</td>
+        <td>{{ r["win_odds"] }}</td>
+        <td>{{ r["time"] }}</td>
+        <td>{{ r["prize"] }}</td>
+        <td>{{ r["flag"] }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="17">目前沒有賽績資料。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

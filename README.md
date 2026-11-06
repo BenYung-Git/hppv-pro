@@ -31,6 +31,18 @@ python -m hppv
 .\.venv\Scripts\python.exe -m hppv
 ```
 
+啟動只讀 Web 版（不抓資料、不排程、不寫入 DB）：
+
+```bash
+python -m hppv.web_app
+```
+
+或（使用 uvicorn 啟動）：
+
+```bash
+uvicorn hppv.web_app:app --port 800
+```
+
 資料庫會建立在：
 
 - `data/hppv.sqlite3`

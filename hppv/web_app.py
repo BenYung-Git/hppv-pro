@@ -1,26 +1,1396 @@
 
-from flask import Flask, render_template, request
+
+from __future__ import annotations
+print(">>> USING WEB_APP FROM:", __file__)
+
+from pathlib import Path
+from typing import Any
+import io
+import json
+import logging
+import re
+from urllib.parse import urlencode
+from datetime import date, datetime
+
+import pandas as pd
+from flask import (
+    Flask,
+    abort,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    send_from_directory,
+    session,
+    url_for,
+)
+
+from hppv import reports
+
 from hppv.config import default_config
-from hppv import db, scraper
+from hppv.db import (
+    count_horses,
+    count_race_records,
+    fetch_horse_by_id,
+    fetch_horses,
+    fetch_race_records,
+    get_recent_form_for_horse,
+    get_horse_status,
+    get_connection,
+    init_db,
+    sqlite3,
+    search_horses_by_keyword,
+)
+from hppv.pp_preset import (
+    find_preset,
+    load_pp_preset_list,
+    save_pp_preset_default,
+    save_pp_preset_list,
+    slug_preset_id,
+)
+from hppv.soccer_db import SoccerSchemaMismatchError, init_soccer_db
+from hppv.soccer_matches import (
+    DEFAULT_STATUS_FILTER,
+    STATUS_FILTER_MAPPING_CONNECTED,
+    SoccerDataError,
+    fetch_matches_filtered,
+    normalize_status_filter,
+    parse_requested_date,
+    parse_sort_param,
+    search_keys_from_layout,
+    shift_date,
+    sort_specs_from_layout,
+)
+from hppv.soccer_graphql import (
+    SoccerGraphQLSendError,
+    parse_and_validate_send_payload,
+    send_soccer_graphql,
+)
+from hppv.soccer_ingest import (
+    REQUEST_KEY_MATCHES_AND_ODDS,
+    REQUEST_KEY_MATCH_RESULTS,
+    REQUEST_KEY_MATCH_RESULTS_BY_YEAR,
+    REQUEST_KEY_UPDATE_ODDS_AND_RESULTS,
+    SoccerIngestError,
+    format_hkt_display,
+    get_last_success_at,
+    ingest_matches_and_odds,
+    ingest_official_match_results,
+    update_odds_for_existing_matches,
+)
+from hppv.soccer_layout import (
+    LAYOUT_KEY_DAILY_MATCHES,
+    SoccerLayoutError,
+    ZEBRA_COLORS,
+    catalog_public,
+    default_layout_settings,
+    get_layout_settings,
+    save_layout_settings,
+    zebra_css_for_id,
+    COLUMN_WIDTH_DEFAULT,
+    COLUMN_WIDTH_MAX,
+    COLUMN_WIDTH_MIN,
+)
+from hppv.soccer_requests import (
+    SOCCER_REQUEST_PRESETS,
+    SoccerRequestPresetError,
+    ensure_placeholder_preset_files,
+    load_soccer_request_preset,
+)
+from hppv.translations import (
+    DEFAULT_LANG,
+    SUPPORTED_LANGS,
+    TranslationError,
+    create_translation,
+    list_translations,
+    load_active_text_map,
+    normalize_lang,
+    set_translation_disabled,
+    translate,
+    update_translation,
+)
+from hppv.web_utils import format_race_date_display, race_date_sort_key
 
-app = Flask(__name__)
+BASE_DIR = Path(__file__).resolve().parent
+
+
+
+# 與 horses_list 往績 sorters 欄位一致（save_pp_preset 驗證用）
+HORSES_RECORD_SORT_KEYS: frozenset[str] = frozenset(
+    {
+        "race_date",
+        "venue",
+        "race_no",
+        "course",
+        "distance",
+        "going",
+        "class_band",
+        "draw",
+        "rating",
+        "jockey",
+        "trainer",
+        "finish_pos",
+        "running_pos",
+        "win_odds",
+        "time",
+        "prize",
+        "flag",
+    }
+)
+TEMPLATE_DIR = BASE_DIR / "web_templates"
+
+app = Flask(__name__, template_folder=str(TEMPLATE_DIR))
+# 開發時改模板後不必手動重啟（仍建議重啟以避免多程序混淆）
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+# Session for language preference only (no user accounts).
+app.secret_key = "hppv-web-session-key"
 cfg = default_config()
+DB_PATH = cfg.db_path
+SOCCER_DB_PATH = cfg.soccer_db_path
+SOCCER_REQUESTS_DIR = cfg.soccer_requests_dir
+RANKINGS_UI_VERSION = "rankings-ui-v3"
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    records = []
-    horse_id = ""
-    if request.method == "POST":
-        horse_id = request.form.get("horse_id", "").strip()
-        if horse_id:
-            # 先抓並寫入 DB
-            result = scraper.scrape_horse_past_performance(
-                horse_id, cfg.hkjc_horse_url_template
+# One-time process init for soccer DB / translations seed (not per-request DDL).
+try:
+    init_soccer_db(SOCCER_DB_PATH)
+except SoccerSchemaMismatchError as _soccer_schema_err:
+    print(">>> SOCCER DB SCHEMA MISMATCH:", _soccer_schema_err)
+
+try:
+    ensure_placeholder_preset_files(SOCCER_REQUESTS_DIR)
+except OSError as _soccer_req_err:
+    print(">>> SOCCER REQUEST PRESET INIT FAILED:", _soccer_req_err)
+
+@app.get("/ping")
+def ping():
+    return "pong"
+
+
+
+def _compute_web_build_tag() -> str:
+    """
+    產生可見版本戳記：
+    - 任何 web_app.py / web_templates/*.html 更新後，標記會改變
+    - 方便前端快速判斷是否載入新版本
+    """
+    targets = [Path(__file__), *TEMPLATE_DIR.glob("*.html")]
+    latest_ts = 0.0
+    for p in targets:
+        try:
+            ts = p.stat().st_mtime
+        except OSError:
+            continue
+        if ts > latest_ts:
+            latest_ts = ts
+    if latest_ts <= 0:
+        return "web-unknown"
+    return "web-" + datetime.fromtimestamp(latest_ts).strftime("%Y%m%d-%H%M%S")
+
+
+WEB_BUILD_TAG = _compute_web_build_tag()
+
+
+@app.get("/api/debug/web_app_info")
+def api_debug_web_app_info() -> Any:
+    """診斷：確認目前 process 載入嘅 web_app / 模板係邊個檔案（排查仍見舊版）。"""
+    rankings_path = TEMPLATE_DIR / "rankings.html"
+    has_stamp = False
+    try:
+        has_stamp = "build-stamp" in rankings_path.read_text(encoding="utf-8")
+    except OSError:
+        pass
+    return jsonify(
+        {
+            "ok": True,
+            "web_app_py": str(Path(__file__).resolve()),
+            "template_dir": str(TEMPLATE_DIR.resolve()),
+            "rankings_html": str(rankings_path.resolve()),
+            "rankings_template_has_build_stamp": has_stamp,
+            "RANKINGS_UI_VERSION": RANKINGS_UI_VERSION,
+            "WEB_BUILD_TAG": WEB_BUILD_TAG,
+            "db_path": str(DB_PATH),
+        }
+    )
+
+
+@app.context_processor
+def inject_web_build_tag() -> dict[str, str]:
+    return {"web_build_tag": WEB_BUILD_TAG}
+
+
+@app.context_processor
+def inject_translations() -> dict[str, Any]:
+    lang = normalize_lang(session.get("lang"))
+    try:
+        text_map = load_active_text_map(SOCCER_DB_PATH, lang)
+    except Exception:
+        text_map = {}
+
+    def t(key: str) -> str:
+        return translate(text_map, key)
+
+    return {
+        "t": t,
+        "current_lang": lang,
+        "supported_langs": SUPPORTED_LANGS,
+    }
+
+
+@app.after_request
+def add_version_header(resp):
+    resp.headers["X-HPPV-Web-Build"] = WEB_BUILD_TAG
+    return resp
+
+
+def _race_meeting_snapshot() -> dict[str, Any]:
+    race_date = "—"
+    racecourse_code = "—"
+    race_count = 0
+    stored_meetings = 0
+
+    try:
+        with get_connection(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            meta_rows = conn.execute(
+                """
+                SELECT key, value FROM racecard_meta
+                WHERE key IN (
+                    'last_source_race_date',
+                    'last_source_racecourse_code'
+                );
+                """
+            ).fetchall()
+    except Exception:
+        meta_rows = []
+
+    meta = {str(r["key"]): str(r["value"]) for r in meta_rows}
+    race_date = meta.get("last_source_race_date", "—").strip() or "—"
+    racecourse_code = meta.get("last_source_racecourse_code", "—").strip() or "—"
+
+    try:
+        with get_connection(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            if race_date != "—" and racecourse_code != "—":
+                row = conn.execute(
+                    """
+                    SELECT COUNT(DISTINCT race_no) AS c
+                    FROM racecard_starters
+                    WHERE race_date = ? AND racecourse = ?;
+                    """,
+                    (race_date, racecourse_code),
+                ).fetchone()
+                race_count = int(row["c"]) if row else 0
+
+            row2 = conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM (
+                    SELECT race_date, racecourse
+                    FROM racecard_starters
+                    GROUP BY race_date, racecourse
+                ) x;
+                """
+            ).fetchone()
+            stored_meetings = int(row2["c"]) if row2 else 0
+    except Exception:
+        pass
+
+    return {
+        "race_date": race_date,
+        "racecourse": racecourse_code,
+        "race_count": race_count,
+        "stored_meetings": stored_meetings,
+    }
+
+
+def _racecourse_display(code: str) -> str:
+    mapping = {"ST": "沙田", "HV": "跑馬地", "FC": "從化"}
+    c = str(code or "").strip().upper()
+    return mapping.get(c, c or "—")
+
+
+def _message_board_images() -> list[str]:
+    assets_dir = BASE_DIR / "assets" / "message_board"
+    if not assets_dir.is_dir():
+        return []
+    files = [
+        p.name for p in assets_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".gif")
+    ]
+    files.sort()
+    return files
+
+
+def _latest_rankings_payload() -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "race_date": "—",
+        "racecourse": "—",
+        "race_count": 0,
+        "races": [],
+    }
+    try:
+        with get_connection(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            meeting = conn.execute(
+                """
+                SELECT race_date, racecourse
+                FROM racecard_starters
+                GROUP BY race_date, racecourse
+                ORDER BY race_date DESC, racecourse ASC
+                LIMIT 1;
+                """
+            ).fetchone()
+            if not meeting:
+                return payload
+
+            race_date = str(meeting["race_date"] or "")
+            racecourse = str(meeting["racecourse"] or "")
+            rows = conn.execute(
+                """
+                SELECT
+                    race_no,
+                    horse_id,
+                    "馬號" AS horse_no,
+                    "馬名" AS horse_name,
+                    "檔位" AS draw,
+                    "騎師" AS jockey,
+                    "練馬師" AS trainer,
+                    "評分" AS rating,
+                    "負磅" AS handicap,
+                    "後備" AS reserve
+                FROM racecard_starters
+                WHERE race_date = ? AND racecourse = ?
+                ORDER BY race_no ASC, CAST("馬號" AS INTEGER) ASC, "馬號" ASC;
+                """,
+                (race_date, racecourse),
+            ).fetchall()
+    except Exception:
+        return payload
+
+    races_map: dict[int, list[dict[str, str]]] = {}
+    for row in rows:
+        race_no = int(row["race_no"] or 0)
+        races_map.setdefault(race_no, []).append(
+            {
+                "horse_id": str(row["horse_id"] or ""),
+                "horse_no": str(row["horse_no"] or ""),
+                "horse_name": str(row["horse_name"] or ""),
+                "draw": str(row["draw"] or ""),
+                "jockey": str(row["jockey"] or ""),
+                "trainer": str(row["trainer"] or ""),
+                "rating": str(row["rating"] or ""),
+                "handicap": str(row["handicap"] or ""),
+                "reserve": str(row["reserve"] or ""),
+            }
+        )
+
+    races = [
+        {
+            "race_no": race_no,
+            "title": f"第 {race_no} 場｜{_racecourse_display(racecourse)}｜距離：—｜班次：—",
+            "rows": races_map[race_no],
+        }
+        for race_no in sorted(races_map.keys())
+    ]
+    return {
+        "race_date": race_date,
+        "racecourse": _racecourse_display(racecourse),
+        "race_count": len(races),
+        "races": races,
+    }
+
+
+@app.get("/assets/message_board/<path:filename>")
+def message_image(filename: str):
+    folder = BASE_DIR / "assets" / "message_board"
+    return send_from_directory(str(folder), filename)
+
+
+@app.get("/")
+def index() -> str:
+    init_db(DB_PATH)
+    try:
+        with get_connection(DB_PATH) as conn:
+            row = conn.execute("SELECT COUNT(*) AS c FROM race_records;").fetchone()
+            race_records_total = int(row["c"]) if row else 0
+    except Exception:
+        race_records_total = 0
+    snap = _race_meeting_snapshot()
+    stats = {
+        "active_horses": count_horses(DB_PATH),
+        "race_records_total": race_records_total,
+        "race_date": snap["race_date"],
+        "racecourse": _racecourse_display(snap["racecourse"]),
+        "race_count": snap["race_count"],
+        "stored_meetings": snap["stored_meetings"],
+    }
+    return render_template(
+        "dashboard.html",
+        stats=stats,
+        images=_message_board_images(),
+        db_path=str(DB_PATH),
+    )
+
+
+def _layout_context() -> dict[str, Any]:
+    layout_error = ""
+    try:
+        layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_DAILY_MATCHES)
+    except SoccerLayoutError as e:
+        layout = default_layout_settings()
+        layout_error = e.code
+        logging.getLogger(__name__).warning("soccer layout load failed: %s %s", e.code, e.detail)
+    zebra_css = zebra_css_for_id(layout["zebra_color_id"]) if layout.get("zebra_enabled") else ""
+    return {
+        "layout_settings": layout,
+        "layout_catalog": catalog_public(),
+        "layout_zebra_colors": list(ZEBRA_COLORS),
+        "layout_zebra_css": zebra_css,
+        "layout_error": layout_error,
+        "layout_width_default": COLUMN_WIDTH_DEFAULT,
+        "layout_width_min": COLUMN_WIDTH_MIN,
+        "layout_width_max": COLUMN_WIDTH_MAX,
+        "status_filter_mapping_connected": STATUS_FILTER_MAPPING_CONNECTED,
+    }
+
+
+def _soccer_list_query_state(layout_settings: dict[str, Any]) -> dict[str, Any]:
+    """Parse list filter from URL: n / q / status / sort (date handled separately)."""
+    q = (request.args.get("q") or "").strip()
+    status = normalize_status_filter(request.args.get("status"))
+    # Prefer n= (record cursor); accept legacy page= as the same cursor value.
+    n_raw = request.args.get("n")
+    if n_raw is None or str(n_raw).strip() == "":
+        n_raw = request.args.get("page")
+    sort_raw = request.args.get("sort")
+    parsed_sort = parse_sort_param(sort_raw)
+    sort_specs = (
+        parsed_sort if parsed_sort is not None else sort_specs_from_layout(layout_settings)
+    )
+    return {
+        "q": q,
+        "status": status,
+        "n_raw": n_raw,
+        "sort_specs": sort_specs,
+        "search_keys": search_keys_from_layout(layout_settings),
+    }
+
+
+@app.get("/soccer/daily")
+def soccer_daily() -> str:
+    """Soccer daily matches UI (read-only from soccer_daily)."""
+    selected, date_invalid = parse_requested_date(request.args.get("date"))
+    matches: list[dict[str, str]] = []
+    load_error = False
+    prev_date = ""
+    next_date = ""
+    selected_date = ""
+    page_meta = {
+        "n": 1,
+        "total_count": 0,
+        "q": "",
+        "status": DEFAULT_STATUS_FILTER,
+        "status_filter_applied": False,
+    }
+    sync_at = get_last_success_at(SOCCER_DB_PATH, REQUEST_KEY_MATCHES_AND_ODDS)
+    sync_at_hkt = None
+    if sync_at:
+        try:
+            sync_at_hkt = format_hkt_display(sync_at)
+        except Exception:
+            sync_at_hkt = None
+    layout_ctx = _layout_context()
+    list_state = _soccer_list_query_state(layout_ctx["layout_settings"])
+
+    if date_invalid:
+        return render_template(
+            "soccer_daily.html",
+            date_invalid=True,
+            load_error=False,
+            matches=[],
+            selected_date="",
+            prev_date="",
+            next_date="",
+            sync_at_hkt=sync_at_hkt,
+            page_meta=page_meta,
+            **layout_ctx,
+        )
+
+    assert selected is not None
+    selected_date = selected.isoformat()
+    prev_date = shift_date(selected, -1).isoformat()
+    next_date = shift_date(selected, 1).isoformat()
+    try:
+        # Full current-filter list (no 20/page). n = cursor for "N / total_count".
+        result = fetch_matches_filtered(
+            SOCCER_DB_PATH,
+            selected,
+            n=list_state["n_raw"],
+            q=list_state["q"],
+            status=list_state["status"],
+            sort_specs=list_state["sort_specs"],
+            search_keys=list_state["search_keys"],
+        )
+        matches = result.matches
+        page_meta = {
+            "n": result.n,
+            "total_count": result.total_count,
+            "q": result.q,
+            "status": result.status,
+            "status_filter_applied": result.status_filter_applied,
+        }
+    except SoccerDataError as e:
+        load_error = True
+        logging.getLogger(__name__).exception("soccer daily read failed: %s", e)
+
+    return render_template(
+        "soccer_daily.html",
+        date_invalid=False,
+        load_error=load_error,
+        matches=matches,
+        selected_date=selected_date,
+        prev_date=prev_date,
+        next_date=next_date,
+        sync_at_hkt=sync_at_hkt,
+        page_meta=page_meta,
+        **layout_ctx,
+    )
+
+
+@app.post("/lang")
+def set_language():
+    """Remember UI language in the browser session (POST only)."""
+    lang = normalize_lang(request.form.get("lang") or DEFAULT_LANG)
+    session["lang"] = lang
+    next_url = (request.form.get("next") or "").strip() or url_for("index")
+    if not next_url.startswith("/"):
+        next_url = url_for("index")
+    return redirect(next_url)
+
+
+@app.get("/api/soccer/request-presets/<preset_id>")
+def api_soccer_request_preset(preset_id: str) -> Any:
+    """Load a registered soccer GraphQL preset into the client (read-only; no network)."""
+    try:
+        _payload, display = load_soccer_request_preset(SOCCER_REQUESTS_DIR, preset_id)
+    except SoccerRequestPresetError as e:
+        logging.getLogger(__name__).warning(
+            "soccer request preset load failed id=%s code=%s detail=%s",
+            preset_id,
+            e.code,
+            e.detail,
+        )
+        return jsonify({"ok": False, "error": e.code}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("soccer request preset unexpected error: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+    return jsonify({"ok": True, "display": display})
+
+
+@app.post("/api/soccer/graphql/send")
+def api_soccer_graphql_send() -> Any:
+    """
+    Validate Request-box payload, POST to HKJC GraphQL, and ingest matches/odds
+    into soccer_daily when the response is a complete matches payload.
+    No login/auth (same as other Web APIs).
+    """
+    raw = request.get_data(as_text=True) or ""
+    # Prefer JSON body field `payload` (string) or raw JSON object.
+    data = request.get_json(silent=True)
+    request_key = REQUEST_KEY_MATCHES_AND_ODDS
+    if isinstance(data, dict):
+        rk = data.get("request_key")
+        if isinstance(rk, str) and rk.strip():
+            request_key = rk.strip()
+        if request_key not in SOCCER_REQUEST_PRESETS:
+            return jsonify({"ok": False, "error": "unsupported_type"}), 400
+        if isinstance(data.get("payload"), str):
+            raw = data["payload"]
+        elif "query" in data:
+            raw = json.dumps(
+                {k: data[k] for k in ("query", "variables", "operationName") if k in data},
+                ensure_ascii=False,
             )
-            db.upsert_race_records(cfg.db_path, result.records)
-            # 再從 DB 讀出顯示
-            records = db.get_history_by_horse_id(cfg.db_path, horse_id)
-    return render_template("index.html", horse_id=horse_id, records=records)
+
+    try:
+        payload = parse_and_validate_send_payload(raw)
+        result = send_soccer_graphql(payload)
+    except SoccerGraphQLSendError as e:
+        logging.getLogger(__name__).warning(
+            "soccer graphql send rejected/failed code=%s detail=%s",
+            e.code,
+            e.detail,
+        )
+        status = 429 if e.code == "rate_limited" else 400
+        return jsonify({"ok": False, "error": e.code}), status
+    except Exception as e:
+        logging.getLogger(__name__).exception("soccer graphql send unexpected: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+
+    ingest: dict[str, Any] = {
+        "status": "not_attempted",
+        "code": "",
+        "processed": 0,
+        "inserted": 0,
+        "updated": 0,
+        "had_complete": 0,
+        "had_incomplete": 0,
+        "skipped_missing": 0,
+        "results_applied": False,
+        "request_key": request_key,
+        "ht_applied": 0,
+        "ft_applied": 0,
+        "sh_applied": 0,
+        "skipped_status": 0,
+        "skipped_unconfirmed": 0,
+        "skipped_insufficient": 0,
+        "match_num_total": None,
+        "matches_returned": None,
+        "last_success_at": get_last_success_at(SOCCER_DB_PATH, request_key),
+        "last_success_at_hkt": None,
+        "detail": "",
+    }
+    if ingest["last_success_at"]:
+        try:
+            ingest["last_success_at_hkt"] = format_hkt_display(str(ingest["last_success_at"]))
+        except Exception:
+            ingest["last_success_at_hkt"] = None
+
+    # Ingest only from backend-validated complete JSON object (never truncated text).
+    if result.truncated:
+        ingest["status"] = "skipped"
+        ingest["code"] = "truncated"
+        ingest["detail"] = "response truncated"
+    elif result.outcome != "success":
+        ingest["status"] = "skipped"
+        ingest["code"] = result.outcome
+        ingest["detail"] = "response not eligible for ingest"
+    else:
+        try:
+            response_obj = json.loads(result.body_text)
+            if request_key in (REQUEST_KEY_MATCH_RESULTS, REQUEST_KEY_MATCH_RESULTS_BY_YEAR):
+                # Only year preset may INSERT missing historical rows; short match_results stays update-only.
+                ing = ingest_official_match_results(
+                    SOCCER_DB_PATH,
+                    response_obj,
+                    request_key=request_key,
+                    variables=payload.variables,
+                    allow_insert=(request_key == REQUEST_KEY_MATCH_RESULTS_BY_YEAR),
+                )
+            elif request_key == REQUEST_KEY_UPDATE_ODDS_AND_RESULTS:
+                ing = update_odds_for_existing_matches(
+                    SOCCER_DB_PATH, response_obj, request_key=request_key
+                )
+            else:
+                ing = ingest_matches_and_odds(
+                    SOCCER_DB_PATH, response_obj, request_key=request_key
+                )
+            ingest.update(
+                {
+                    "status": "success" if ing.code == "success" else "skipped",
+                    "code": ing.code,
+                    "processed": ing.processed,
+                    "inserted": ing.inserted,
+                    "updated": ing.updated,
+                    "had_complete": ing.had_complete,
+                    "had_incomplete": ing.had_incomplete,
+                    "skipped_missing": ing.skipped_missing,
+                    "results_applied": ing.results_applied,
+                    "request_key": ing.request_key,
+                    "ht_applied": ing.ht_applied,
+                    "ft_applied": ing.ft_applied,
+                    "sh_applied": ing.sh_applied,
+                    "skipped_status": ing.skipped_status,
+                    "skipped_unconfirmed": ing.skipped_unconfirmed,
+                    "skipped_insufficient": ing.skipped_insufficient,
+                    "match_num_total": ing.match_num_total,
+                    "matches_returned": ing.matches_returned,
+                    "last_success_at": ing.last_success_at
+                    or get_last_success_at(SOCCER_DB_PATH, request_key),
+                    "detail": ing.detail,
+                }
+            )
+            if ingest["last_success_at"]:
+                ingest["last_success_at_hkt"] = format_hkt_display(
+                    str(ingest["last_success_at"])
+                )
+        except SoccerIngestError as e:
+            logging.getLogger(__name__).warning(
+                "soccer ingest failed code=%s detail=%s", e.code, e.detail
+            )
+            ingest["status"] = "failed"
+            ingest["code"] = e.code
+            ingest["detail"] = e.detail
+        except Exception as e:
+            logging.getLogger(__name__).exception("soccer ingest unexpected: %s", e)
+            ingest["status"] = "failed"
+            ingest["code"] = "transaction_failed"
+            ingest["detail"] = "unexpected ingest error"
+
+    return jsonify(
+        {
+            "ok": True,
+            "outcome": result.outcome,
+            "http_status": result.http_status,
+            "elapsed_ms": result.elapsed_ms,
+            "body": result.body_text,
+            "truncated": result.truncated,
+            "match_count": result.match_count,
+            "has_had_odds": result.has_had_odds,
+            "ingest": ingest,
+        }
+    )
+
+
+@app.get("/api/soccer/sync-state")
+def api_soccer_sync_state() -> Any:
+    key = (request.args.get("request_key") or REQUEST_KEY_MATCHES_AND_ODDS).strip()
+    ts = get_last_success_at(SOCCER_DB_PATH, key)
+    hkt = None
+    if ts:
+        try:
+            hkt = format_hkt_display(ts)
+        except Exception:
+            hkt = None
+    return jsonify({"ok": True, "request_key": key, "last_success_at": ts, "last_success_at_hkt": hkt})
+
+
+@app.get("/api/soccer/daily-matches")
+def api_soccer_daily_matches() -> Any:
+    selected, invalid = parse_requested_date(request.args.get("date"))
+    if invalid or selected is None:
+        return jsonify({"ok": False, "error": "invalid_date"}), 400
+    try:
+        layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_DAILY_MATCHES)
+    except SoccerLayoutError:
+        layout = default_layout_settings()
+    list_state = _soccer_list_query_state(layout)
+    try:
+        result = fetch_matches_filtered(
+            SOCCER_DB_PATH,
+            selected,
+            n=list_state["n_raw"],
+            q=list_state["q"],
+            status=list_state["status"],
+            sort_specs=list_state["sort_specs"],
+            search_keys=list_state["search_keys"],
+        )
+    except SoccerDataError as e:
+        logging.getLogger(__name__).exception("soccer daily-matches api failed: %s", e)
+        return jsonify({"ok": False, "error": "read_error", "detail": str(e)}), 500
+    return jsonify(
+        {
+            "ok": True,
+            "date": selected.isoformat(),
+            "matches": result.matches,
+            "n": result.n,
+            "total_count": result.total_count,
+            "q": result.q,
+            "status": result.status,
+            "status_filter_applied": result.status_filter_applied,
+            "status_filter_mapping": {
+                "connected": STATUS_FILTER_MAPPING_CONNECTED,
+                "reason": (
+                    None
+                    if STATUS_FILTER_MAPPING_CONNECTED
+                    else "source_status_map_unverified"
+                ),
+            },
+        }
+    )
+
+
+@app.get("/api/soccer/layout/daily-matches")
+def api_soccer_layout_get() -> Any:
+    try:
+        settings = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_DAILY_MATCHES)
+    except SoccerLayoutError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    return jsonify(
+        {
+            "ok": True,
+            "layout_key": LAYOUT_KEY_DAILY_MATCHES,
+            "settings": settings,
+            "catalog": catalog_public(),
+            "zebra_colors": list(ZEBRA_COLORS),
+            "width": {
+                "default": COLUMN_WIDTH_DEFAULT,
+                "min": COLUMN_WIDTH_MIN,
+                "max": COLUMN_WIDTH_MAX,
+            },
+        }
+    )
+
+
+@app.post("/api/soccer/layout/daily-matches")
+def api_soccer_layout_save() -> Any:
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or "settings" not in data:
+        return jsonify({"ok": False, "error": "invalid_settings"}), 400
+    try:
+        saved = save_layout_settings(
+            SOCCER_DB_PATH, data["settings"], layout_key=LAYOUT_KEY_DAILY_MATCHES
+        )
+    except SoccerLayoutError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("soccer layout save failed: %s", e)
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+    return jsonify({"ok": True, "settings": saved})
+
+
+
+@app.get("/settings")
+def settings_page() -> str:
+    """System settings shell; Phase I only exposes Interface Text tab."""
+    return render_template("settings.html")
+
+
+@app.get("/api/translations")
+def api_translations_list() -> Any:
+    q = (request.args.get("q") or "").strip()
+    status_raw = (request.args.get("status") or "all").strip()
+    status = status_raw if status_raw in {"all", "active", "disabled"} else "all"
+    try:
+        items = list_translations(SOCCER_DB_PATH, q=q, status=status)  # type: ignore[arg-type]
+    except Exception as e:
+        return jsonify({"ok": False, "error": "db_error", "detail": str(e)}), 500
+    return jsonify({"ok": True, "items": items})
+
+
+@app.post("/api/translations")
+def api_translations_create() -> Any:
+    data = request.get_json(silent=True) or {}
+    try:
+        item = create_translation(
+            SOCCER_DB_PATH,
+            text_key=str(data.get("text_key") or ""),
+            zh_hant=str(data.get("zh_hant") or ""),
+            en=str(data.get("en") or ""),
+            zh_hans=str(data.get("zh_hans") or ""),
+        )
+    except TranslationError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": "db_error", "detail": str(e)}), 500
+    return jsonify({"ok": True, "item": item})
+
+
+@app.post("/api/translations/<int:tx_id>/update")
+def api_translations_update(tx_id: int) -> Any:
+    data = request.get_json(silent=True) or {}
+    try:
+        item = update_translation(
+            SOCCER_DB_PATH,
+            tx_id,
+            zh_hant=str(data.get("zh_hant") or ""),
+            en=str(data.get("en") or ""),
+            zh_hans=str(data.get("zh_hans") or ""),
+        )
+    except TranslationError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": "db_error", "detail": str(e)}), 500
+    return jsonify({"ok": True, "item": item})
+
+
+@app.post("/api/translations/<int:tx_id>/toggle")
+def api_translations_toggle(tx_id: int) -> Any:
+    data = request.get_json(silent=True) or {}
+    disabled = bool(data.get("isDisable"))
+    try:
+        item = set_translation_disabled(SOCCER_DB_PATH, tx_id, disabled)
+    except TranslationError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": "db_error", "detail": str(e)}), 500
+    return jsonify({"ok": True, "item": item})
+
+
+@app.get("/rankings")
+def rankings() -> str:
+    init_db(DB_PATH)
+    payload = _latest_rankings_payload()
+    rankings_path = (TEMPLATE_DIR / "rankings.html").resolve()
+    html = render_template(
+        "rankings.html",
+        payload=payload,
+        ui_version=RANKINGS_UI_VERSION,
+        debug_web_app_py=str(Path(__file__).resolve()),
+        debug_rankings_html=str(rankings_path),
+    )
+    resp = make_response(html)
+    # 避免瀏覽器長期快取排位頁，導致仍顯示舊版（無 Build 區塊）
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
+@app.get("/api/horse/<horse_id>/recent_form")
+def api_horse_recent_form(horse_id: str):
+    init_db(DB_PATH)
+    limit_raw = (request.args.get("limit") or "").strip()
+    try:
+        limit = int(limit_raw) if limit_raw else 10
+    except ValueError:
+        limit = 10
+    if limit <= 0 or limit > 50:
+        limit = 10
+    # 排位彈窗往績固定用「最新在前」：race_date DESC
+    sort_seq_for_recent: list[tuple[str, str]] = [("race_date", "desc")]
+    try:
+        rows = get_recent_form_for_horse(
+            DB_PATH,
+            horse_id,
+            limit=limit,
+            sort_seq=sort_seq_for_recent,
+        )
+    except Exception as e:
+        return jsonify({"ok": False, "error": "db_error", "detail": str(e)}), 500
+    records: list[dict[str, str]] = []
+    for r in rows:
+        records.append(
+            {
+                "race_date": str(r["race_date"] or ""),
+                "venue": str(r["venue"] or ""),
+                "race_no": str(r["race_no"] or ""),
+                "course": str(r["course"] or ""),
+                "distance": str(r["distance"] or ""),
+                "going": str(r["going"] or ""),
+                "class_band": str(r["class_band"] or ""),
+                "draw": str(r["draw"] or ""),
+                "rating": str(r["rating"] or ""),
+                "jockey": str(r["jockey"] or ""),
+                "trainer": str(r["trainer"] or ""),
+                "finish_pos": str(r["finish_pos"] or ""),
+                "running_pos": str(r["running_pos"] or ""),
+                "win_odds": str(r["win_odds"] or ""),
+                "time": str(r["time"] or ""),
+                "prize": str(r["prize"] or ""),
+            }
+        )
+    return jsonify({"ok": True, "records": records})
+
+
+@app.get("/reports/export")
+def export_report():
+    report_code = (request.args.get("report") or "").strip()
+    if not report_code:
+        abort(400, description="missing report code")
+    try:
+        report_def = reports.get_report_definition(report_code)
+    except KeyError:
+        abort(404, description=f"unknown report: {report_code}")
+    df, filename_prefix = report_def.generate()
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        df.to_excel(writer, index=False, sheet_name=report_def.sheet_name)
+    output.seek(0)
+    today_str = date.today().strftime("%Y%m%d")
+    filename = f"{filename_prefix}-{today_str}.xlsx"
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.get("/horses")
+def horses_list() -> str:
+    init_db(DB_PATH)
+    q = (request.args.get("q") or "").strip()
+    horse_id_query = (request.args.get("horse_id") or "").strip()
+    panel_state = (request.args.get("panel") or "").strip().lower()
+    def _to_number(text: str) -> float:
+        t = str(text or "").strip()
+        if not t:
+            return float("-inf")
+        m = re.search(r"-?\d+(?:\.\d+)?", t.replace(",", ""))
+        return float(m.group(0)) if m else float("-inf")
+
+    sorters = {
+        "race_date": ("Race Date", lambda x: race_date_sort_key(x["race_date"])),
+        "venue": ("Venue", lambda x: str(x["venue"] or "").lower()),
+        "race_no": ("Race No.", lambda x: _to_number(x["race_no"])),
+        "course": ("Course", lambda x: str(x["course"] or "").lower()),
+        "distance": ("Distance", lambda x: _to_number(x["distance"])),
+        "going": ("Going", lambda x: str(x["going"] or "").lower()),
+        "class_band": ("Class", lambda x: str(x["class_band"] or "").lower()),
+        "draw": ("Draw", lambda x: _to_number(x["draw"])),
+        "rating": ("Rating", lambda x: _to_number(x["rating"])),
+        "jockey": ("Jockey", lambda x: str(x["jockey"] or "").lower()),
+        "trainer": ("Trainer", lambda x: str(x["trainer"] or "").lower()),
+        "finish_pos": ("Finish Pos", lambda x: _to_number(x["finish_pos"])),
+        "running_pos": ("Running Pos", lambda x: _to_number(x["running_pos"])),
+        "win_odds": ("Win Odds", lambda x: _to_number(x["win_odds"])),
+        "time": ("Time", lambda x: str(x["time"] or "")),
+        "prize": ("Prize", lambda x: _to_number(x["prize"])),
+        "flag": ("Flag", lambda x: str(x["flag"] or "").lower()),
+    }
+
+    pp_presets = load_pp_preset_list()
+    pp_preset_id_param = (request.args.get("pp_preset_id") or "").strip()
+    active_preset = find_preset(pp_presets, pp_preset_id_param) or pp_presets[0]
+    pp_active_preset_id = str(active_preset["id"])
+    active_sort_source = [
+        (sk, dk)
+        for sk, dk in (active_preset.get("sort_seq") or [])
+        if sk in sorters and dk in ("asc", "desc")
+    ][:3]
+    active_show_source = [k for k in (active_preset.get("show_cols") or []) if k in sorters]
+    pp_visible_request = (request.args.get("pp_visible") or "").strip()
+
+    raw_seq: list[tuple[str, str]] = []
+    for i in (1, 2, 3):
+        sk = (request.args.get(f"sort{i}") or "").strip()
+        dk = (request.args.get(f"dir{i}") or "asc").strip().lower()
+        if dk not in ("asc", "desc"):
+            dk = "asc"
+        if sk and sk in sorters:
+            raw_seq.append((sk, dk))
+    # dedupe keys, keep first occurrence, max 3 keys
+    seen: set[str] = set()
+    sort_seq: list[tuple[str, str]] = []
+    for key, direction in raw_seq:
+        if key in seen:
+            continue
+        seen.add(key)
+        sort_seq.append((key, direction))
+        if len(sort_seq) >= 3:
+            break
+    if not sort_seq:
+        seen_pp: set[str] = set()
+        for sk, dk in active_sort_source:
+            if sk not in sorters or dk not in ("asc", "desc"):
+                continue
+            if sk in seen_pp:
+                continue
+            seen_pp.add(sk)
+            sort_seq.append((sk, dk))
+            if len(sort_seq) >= 3:
+                break
+        if not sort_seq:
+            sort_seq = [("race_date", "desc")]
+
+    clicked_col = (request.args.get("clicked_col") or "").strip()
+    selected_col = (request.args.get("selected_col") or (sort_seq[0][0] if sort_seq else "")).strip()
+    if clicked_col and clicked_col in sorters:
+        idx = next((i for i, (k, _d) in enumerate(sort_seq) if k == clicked_col), -1)
+        if idx != -1:
+            k, d = sort_seq[idx]
+            sort_seq[idx] = (k, "desc" if d == "asc" else "asc")
+        else:
+            default_dir = "desc" if clicked_col == "race_date" else "asc"
+            # 新欄位接在排序鍵列表**末尾**（先點的欄位維持在較前），避免「永遠插在主鍵後面」
+            # 把先前點的副鍵（如 jockey）擠到後面。
+            insert_pos = len(sort_seq)
+            sort_seq.insert(insert_pos, (clicked_col, default_dir))
+            # 最多 3 鍵：保留主鍵 sort_seq[0]，超出則從索引 1 開始移除最舊的副鍵
+            while len(sort_seq) > 3:
+                sort_seq.pop(1)
+
+    rows = fetch_horses(DB_PATH, limit=None)
+
+    def _resolve_query_to_horse_id(keyword: str) -> str:
+        kw = keyword.strip()
+        if not kw:
+            return ""
+        kw_up = kw.upper()
+        # 優先：HorseId / Brand No. 精準匹配
+        for r in rows:
+            hid = str(r["horse_id"] or "").strip()
+            brand = str(r["brand_no"] or "").strip()
+            if hid.upper() == kw_up:
+                return hid
+            if brand.upper() == kw_up:
+                return hid
+        # 次優先：中文名包含
+        for r in rows:
+            zh = str(r["name_zh"] or "").strip()
+            if kw and kw in zh:
+                return str(r["horse_id"] or "")
+        # 次優先：英文名包含（不分大小寫）
+        for r in rows:
+            en = str(r["name_en"] or "").strip().upper()
+            if kw_up and kw_up in en:
+                return str(r["horse_id"] or "")
+        # 最後 fallback：沿用既有搜尋函式的第一筆
+        hit = search_horses_by_keyword(DB_PATH, kw, limit=1)
+        if hit:
+            return str(hit[0]["horse_id"] or "")
+        return ""
+
+    selected_horse_id = ""
+    if rows:
+        valid_ids = {str(r["horse_id"] or "") for r in rows}
+        resolved_by_q = _resolve_query_to_horse_id(q) if q else ""
+        # 有輸入關鍵字時，優先用 q 定位；找不到才回退到 horse_id 參數。
+        if resolved_by_q and resolved_by_q in valid_ids:
+            selected_horse_id = resolved_by_q
+        elif horse_id_query and horse_id_query in valid_ids:
+            selected_horse_id = horse_id_query
+        else:
+            selected_horse_id = str(rows[0]["horse_id"] or "")
+
+    records_view: list[dict[str, str]] = []
+    selected_status = ""
+    if selected_horse_id:
+        selected_status = get_horse_status(DB_PATH, selected_horse_id)
+        selected_records = fetch_race_records(DB_PATH, selected_horse_id)
+        rows_unsorted = [
+            {
+                "race_date": format_race_date_display(r.race_date),
+                "venue": r.venue,
+                "race_no": r.race_no,
+                "course": r.course,
+                "distance": r.distance,
+                "going": r.going,
+                "class_band": r.class_band,
+                "draw": r.draw,
+                "rating": r.rating,
+                "jockey": r.jockey,
+                "trainer": r.trainer,
+                "finish_pos": r.finish_pos,
+                "running_pos": r.running_pos,
+                "win_odds": r.win_odds,
+                "time": r.time,
+                "prize": r.prize,
+                "flag": selected_status,
+            }
+            for r in selected_records
+        ]
+        records_view = list(rows_unsorted)
+        # stable multi-key sort: apply from lowest priority to highest
+        for key, direction in reversed(sort_seq):
+            records_view.sort(key=sorters[key][1], reverse=(direction == "desc"))
+
+    base_header_params: dict[str, str] = {"q": q, "horse_id": selected_horse_id}
+    if pp_active_preset_id:
+        base_header_params["pp_preset_id"] = pp_active_preset_id
+    if panel_state == "open":
+        base_header_params["panel"] = "open"
+    if sort_seq:
+        base_header_params["selected_col"] = sort_seq[0][0]
+    for idx, (sk, dk) in enumerate(sort_seq, start=1):
+        base_header_params[f"sort{idx}"] = sk
+        base_header_params[f"dir{idx}"] = dk
+    sort_labels = {k: v[0] for k, v in sorters.items()}
+    sort_summary = "  ".join(
+        [f"{i+1}. {sort_labels[k]}({'↑' if d == 'asc' else '↓'})" for i, (k, d) in enumerate(sort_seq)]
+    )
+    sort_state: dict[str, dict[str, Any]] = {}
+    for i, (k, d) in enumerate(sort_seq, start=1):
+        sort_state[k] = {"order": i, "dir": d, "selected": True}
+    for k in sorters.keys():
+        if k not in sort_state:
+            sort_state[k] = {"order": 999, "dir": "asc", "selected": False}
+
+    pp_show_cols_default = list(active_show_source)
+    if not pp_show_cols_default:
+        pp_show_cols_default = list(sorters.keys())
+    if pp_visible_request:
+        parsed_vis: list[str] = []
+        seen_vis: set[str] = set()
+        for part in pp_visible_request.split(","):
+            vk = part.strip()
+            if vk in sorters and vk not in seen_vis:
+                seen_vis.add(vk)
+                parsed_vis.append(vk)
+        if parsed_vis:
+            pp_show_cols_default = parsed_vis
+    pp_sort_seq_default = [
+        (sk, dk)
+        for sk, dk in active_sort_source
+        if sk in sorters and dk in ("asc", "desc")
+    ][:3]
+
+    pp_presets_meta = [{"id": p["id"], "name": p["name"]} for p in pp_presets]
+
+    pp_visible_param = ""
+    if set(pp_show_cols_default) != set(active_show_source):
+        pp_visible_param = ",".join(pp_show_cols_default)
+    if pp_visible_param:
+        base_header_params["pp_visible"] = pp_visible_param
+    base_header_qs = urlencode(base_header_params)
+
+    return render_template(
+        "horses_list.html",
+        horses=rows,
+        q=q,
+        selected_horse_id=selected_horse_id,
+        selected_status=selected_status,
+        records=records_view,
+        sort_seq=sort_seq,
+        sort_labels=sort_labels,
+        sort_summary=sort_summary,
+        sort_state=sort_state,
+        base_header_qs=base_header_qs,
+        panel_state=panel_state,
+        pp_presets_meta=pp_presets_meta,
+        pp_active_preset_id=pp_active_preset_id,
+        pp_visible_param=pp_visible_param,
+        pp_show_cols_default=pp_show_cols_default,
+        pp_sort_seq_default=pp_sort_seq_default,
+        sortable_fields=[
+            ("race_date", "Race Date"),
+            ("jockey", "Jockey"),
+            ("trainer", "Trainer"),
+            ("class_band", "Class"),
+            ("rating", "Rating"),
+            ("win_odds", "Odds"),
+            ("draw", "Draw"),
+            ("race_no", "Race No."),
+            ("distance", "Distance"),
+            ("finish_pos", "Finish Pos"),
+            ("running_pos", "Running Pos"),
+            ("time", "Time"),
+            ("prize", "Prize"),
+            ("venue", "Venue"),
+            ("course", "Course"),
+            ("going", "Going"),
+            ("flag", "Flag"),
+        ],
+    )
+
+
+@app.post("/horses/save_pp_preset")
+def save_pp_preset() -> tuple[Any, int] | Any:
+    """建立／更新往績 preset 列表；無 mode 時相容第 2 階段（覆寫 default）。"""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_json"}), 400
+    show_raw = data.get("show_cols")
+    sort_raw = data.get("sort_seq")
+    if not isinstance(show_raw, list):
+        show_raw = []
+    if not isinstance(sort_raw, list):
+        sort_raw = []
+
+    show_cols: list[str] = []
+    seen_show: set[str] = set()
+    for k in show_raw:
+        if not isinstance(k, str) or k not in HORSES_RECORD_SORT_KEYS:
+            continue
+        if k in seen_show:
+            continue
+        seen_show.add(k)
+        show_cols.append(k)
+
+    sort_seq_tuples: list[tuple[str, str]] = []
+    seen_sort: set[str] = set()
+    for item in sort_raw[:10]:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        sk = str(item[0]).strip()
+        dk = str(item[1]).strip().lower()
+        if sk not in HORSES_RECORD_SORT_KEYS or dk not in ("asc", "desc"):
+            continue
+        if sk in seen_sort:
+            continue
+        seen_sort.add(sk)
+        sort_seq_tuples.append((sk, dk))
+        if len(sort_seq_tuples) >= 3:
+            break
+
+    if not show_cols:
+        return jsonify({"ok": False, "error": "no_show_cols"}), 400
+    if not sort_seq_tuples:
+        sort_seq_tuples = [("race_date", "desc")]
+
+    mode = str(data.get("mode") or "").lower()
+
+    try:
+        if mode == "create":
+            name = (data.get("name") or "").strip()
+            if not name:
+                return jsonify({"ok": False, "error": "name_required"}), 400
+            presets = load_pp_preset_list()
+            existing_ids = {str(p["id"]) for p in presets}
+            new_id = slug_preset_id(name, existing_ids)
+            presets.append(
+                {
+                    "id": new_id,
+                    "name": name,
+                    "is_builtin": False,
+                    "show_cols": list(show_cols),
+                    "sort_seq": list(sort_seq_tuples),
+                }
+            )
+            save_pp_preset_list(presets)
+            return jsonify({"ok": True, "id": new_id})
+
+        if mode == "update":
+            preset_id = (data.get("id") or "").strip()
+            if not preset_id:
+                return jsonify({"ok": False, "error": "id_required"}), 400
+            presets = load_pp_preset_list()
+            target = find_preset(presets, preset_id)
+            if target is None:
+                return jsonify({"ok": False, "error": "preset_not_found"}), 404
+            target["show_cols"] = list(show_cols)
+            target["sort_seq"] = list(sort_seq_tuples)
+            if preset_id == "default":
+                save_pp_preset_default(
+                    {"show_cols": list(show_cols), "sort_seq": list(sort_seq_tuples)}
+                )
+            else:
+                save_pp_preset_list(presets)
+            return jsonify({"ok": True, "id": preset_id})
+
+        save_pp_preset_default(
+            {"show_cols": list(show_cols), "sort_seq": list(sort_seq_tuples)}
+        )
+    except OSError as e:
+        return jsonify({"ok": False, "error": "write_failed", "detail": str(e)}), 500
+    return jsonify({"ok": True})
+
+
+@app.get("/horses/<horse_id>")
+def horse_detail(horse_id: str) -> str:
+    init_db(DB_PATH)
+    horse = fetch_horse_by_id(DB_PATH, horse_id)
+    if horse is None:
+        abort(404)
+
+    records = fetch_race_records(DB_PATH, horse_id)
+    status = get_horse_status(DB_PATH, horse_id)
+    records_view = [
+        {
+            "race_date": format_race_date_display(r.race_date),
+            "venue": r.venue,
+            "race_no": r.race_no,
+            "course": r.course,
+            "distance": r.distance,
+            "going": r.going,
+            "class_band": r.class_band,
+            "draw": r.draw,
+            "rating": r.rating,
+            "jockey": r.jockey,
+            "trainer": r.trainer,
+            "finish_pos": r.finish_pos,
+            "running_pos": r.running_pos,
+            "win_odds": r.win_odds,
+            "time": r.time,
+            "prize": r.prize,
+            "flag": status,
+        }
+        for r in records
+    ]
+    return render_template(
+        "horse_detail.html",
+        horse=horse,
+        status=status,
+        records=records_view,
+        records_total=count_race_records(DB_PATH, horse_id),
+    )
+
+
+def main() -> None:
+    app.run(host="0.0.0.0", port=800, debug=False)
+
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=False)
+    main()

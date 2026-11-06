@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -29,7 +30,11 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import AppConfig, default_config
-from ..db import get_connection, init_db
+from ..db import fetch_horse_by_id, get_connection, get_recent_form_for_horse, init_db
+from ..schema import (
+    ensure_racecard_starters_columns,
+    racecard_base_schema_sql,
+)
 
 
 RACECARD_BASE_URL = "https://racing.hkjc.com/zh-hk/local/information/racecard"
@@ -914,104 +919,16 @@ def init_racecard_db(db_path: Path) -> None:
     conn = get_connection(db_path)
     try:
         conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS racecard_meta (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            );
-            """
+        # Schema is centrally managed in hppv.schema; UI only ensures DB is initialized.
+        conn.executescript(racecard_base_schema_sql(RACECARD_RACE_INFO_TABLE))
+        # racecard_starters 欄位定義與兼容修復集中在 hppv.schema。
+        ensure_racecard_starters_columns(
+            conn=conn,
+            starters_table="racecard_starters",
+            display_fields=RACECARD_DISPLAY_FIELDS,
+            predicted_odds_col=RACECARD_PREDICTED_ODDS_COLUMN,
+            immediate_odds_col=RACECARD_IMMEDIATE_ODDS_COLUMN,
         )
-
-        conn.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS {RACECARD_RACE_INFO_TABLE} (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                race_date TEXT NOT NULL,
-                racecourse TEXT NOT NULL,
-                race_no INTEGER NOT NULL,
-                event_name TEXT,
-                calendar_date TEXT,
-                weekday TEXT,
-                meeting_venue TEXT,
-                post_time TEXT,
-                race_course_area TEXT,
-                track_name TEXT,
-                distance TEXT,
-                prize_money TEXT,
-                rating_range TEXT,
-                race_class TEXT,
-                UNIQUE(race_date, racecourse, race_no)
-            );
-            """
-        )
-        conn.execute(
-            f"""
-            CREATE INDEX IF NOT EXISTS idx_racecard_race_info_meeting
-            ON {RACECARD_RACE_INFO_TABLE}(race_date, racecourse, race_no);
-            """
-        )
-
-        # Keep only the fields needed by the "出馬表 table" UI.
-        # If existing DB has extra/unexpected columns, rebuild the table.
-        allowed_cols = {
-            "id",
-            "race_date",
-            "racecourse",
-            "race_no",
-            "後備",
-            RACECARD_HIDDEN_HORSE_ID_COLUMN,
-            *RACECARD_DISPLAY_FIELDS,
-            RACECARD_PREDICTED_ODDS_COLUMN,
-            RACECARD_IMMEDIATE_ODDS_COLUMN,
-        }
-
-        desired_cols = allowed_cols
-
-        try:
-            actual_cols = {
-                row["name"]
-                for row in conn.execute("PRAGMA table_info(racecard_starters);").fetchall()
-            }
-        except sqlite3.OperationalError:
-            actual_cols = set()
-
-        unexpected = actual_cols - allowed_cols
-        if actual_cols and unexpected:
-            conn.execute("DROP TABLE IF EXISTS racecard_starters;")
-            actual_cols = set()
-
-        if not actual_cols:
-            conn.executescript(
-                f"""
-                CREATE TABLE racecard_starters (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    race_date TEXT NOT NULL,
-                    racecourse TEXT NOT NULL,
-                    race_no INTEGER NOT NULL,
-                    後備 TEXT NOT NULL DEFAULT '否',
-                    horse_id TEXT,
-                    "馬號" TEXT,
-                    "馬名" TEXT,
-                    "檔位" TEXT,
-                    "騎師" TEXT,
-                    "練馬師" TEXT,
-                    "負磅" TEXT,
-                    "評分" TEXT,
-                    "馬匹體重" TEXT,
-                    "配備" TEXT,
-                    "{RACECARD_PREDICTED_ODDS_COLUMN}" TEXT,
-                    "{RACECARD_IMMEDIATE_ODDS_COLUMN}" TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_racecard_starters_meeting
-                  ON racecard_starters(race_date, racecourse, race_no);
-                """
-            )
-        else:
-            # Add missing columns without destroying existing rows.
-            missing = desired_cols - actual_cols
-            for col in missing:
-                conn.execute(f'ALTER TABLE racecard_starters ADD COLUMN "{col}" TEXT;')
     finally:
         conn.close()
 
@@ -1600,7 +1517,7 @@ class RacecardPanel(QWidget):
             conn.close()
 
     def _on_table_item_double_clicked(self, item: QTableWidgetItem) -> None:
-        """雙擊排位列：發出對應 horse_id，讓主畫面可切去該馬往績。"""
+        """雙擊排位中的馬匹：查詢 race_records 並即時顯示往績。"""
         if item is None:
             return
         table = item.tableWidget()
@@ -1612,7 +1529,62 @@ class RacecardPanel(QWidget):
         horse_id = str(first.data(Qt.UserRole) or "").strip()
         if not horse_id:
             return
+        self._show_recent_form_dialog(horse_id)
+        # 保留既有事件，讓主畫面仍可在需要時切至該馬往績。
         self.horse_double_clicked.emit(horse_id)
+
+    def _show_recent_form_dialog(self, horse_id: str, limit: int = 10) -> None:
+        """顯示指定馬匹最近往績（簡化版）。"""
+        rows = get_recent_form_for_horse(self._config.db_path, horse_id, limit=limit)
+        horse_name = ""
+        if rows:
+            horse_name = str(rows[0]["name_zh"] or rows[0]["name_en"] or "").strip()
+        if not horse_name:
+            hr = fetch_horse_by_id(self._config.db_path, horse_id)
+            if hr is not None:
+                horse_name = str(hr["name_zh"] or hr["name_en"] or "").strip()
+
+        title_name = f"{horse_name}（{horse_id}）" if horse_name else horse_id
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"{title_name}｜最近往績")
+        dlg.resize(980, 360)
+        layout = QVBoxLayout(dlg)
+
+        if not rows:
+            layout.addWidget(QLabel("暫無往績。"))
+            dlg.exec()
+            return
+
+        cols: list[tuple[str, str]] = [
+            ("race_date", "日期"),
+            ("venue", "場地"),
+            ("race_no", "場次"),
+            ("distance", "途程"),
+            ("class_band", "班次"),
+            ("draw", "檔位"),
+            ("finish_pos", "名次"),
+            ("rating", "評分"),
+            ("jockey", "騎師"),
+            ("trainer", "練馬師"),
+            ("time", "時間"),
+        ]
+        table = QTableWidget(dlg)
+        table.setColumnCount(len(cols))
+        table.setHorizontalHeaderLabels([c[1] for c in cols])
+        table.setRowCount(len(rows))
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setSelectionMode(QTableWidget.SingleSelection)
+        for r_idx, row in enumerate(rows):
+            for c_idx, (k, _label) in enumerate(cols):
+                val = row[k] if k in row.keys() else ""
+                item = QTableWidgetItem("" if val is None else str(val))
+                if c_idx in (1, 2, 5, 6, 7):
+                    item.setTextAlignment(Qt.AlignCenter)
+                table.setItem(r_idx, c_idx, item)
+        table.resizeColumnsToContents()
+        layout.addWidget(table, 1)
+        dlg.exec()
 
 
 class RacecardRankWindow(QMainWindow):

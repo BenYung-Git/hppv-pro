@@ -1,0 +1,124 @@
+Footylogic 五年歷史賽果 — 範圍／方案／測試報告
+產生時間（HKT）：2026-11-06 08:37:38 +0800
+編碼：UTF-8
+狀態：第一階段完成（清單＋方案＋測試 DB 驗證）。正式 DB migration／小批量／全量待用戶確認。
+
+========================================================================
+0. 正式目標 DB 路徑（尚未寫入）
+========================================================================
+生產 soccer DB：C:\Hppv\data\soccer.sqlite3
+本輪測試僅使用臨時測試 DB；未對生產庫 migration／寫入。
+
+========================================================================
+1. 賽事／球季／月份任務清單
+========================================================================
+清單檔：C:\Hppv\data\footylogic_jobs_manifest.json
+目錄檔：C:\Hppv\data\footylogic_catalog_competitions.json
+日期範圍（HKT 含首尾）：2021-11-05 ～ 2026-11-05
+月份緩衝（UTC/HKT 跨日）：另含 2021-10，止於 2026-11
+可發現賽事（competition）數：154
+球季列（season rows）數：1194
+有落入範圍月份的球季數：664
+去重後月份任務數：3998
+球季發現請求失敗：0
+任務依 browse_category：{'league': 3848, 'international': 150}
+任務依年份（month 前綴）：{'2021': 164, '2022': 554, '2023': 749, '2024': 848, '2025': 888, '2026': 795}
+有任務的 competition 數：150
+目錄有但零任務 competition 數：4
+發現來源：tournament/competitions(categoryId=1 league, 3 international) → fixtures-seasons → fixtureRange∩範圍月份
+任務鍵：{competitionId}:{seasonId}:{YYYY-MM}
+
+========================================================================
+2. 涵蓋範圍及缺口（友誼賽／歷史賽事）
+========================================================================
+目錄 browse_category 分佈：{'league': 133, 'international': 21}
+已納入：現行目錄中的聯賽（含女子）與國際賽（含部分青年／女足國際賽）。
+名稱含『女』：39；名稱含青年/U2x：2
+名稱含友誼/Friendly：0 → 無
+缺口／限制：
+- tournament/competitions categoryId=2(cup)／4(other)：competitions 陣列為空 → 盃賽目錄本次無法展開。
+- common/competitions?tabId=2（英格蘭樣本）回傳資料庫 ERROR → 不能當可靠盃賽來源。
+- 現行目錄未必含已停辦／更名歷史賽事 → 無法宣稱全世界或 Footylogic 全部五年賽果。
+- home/games 非歷史目錄，未用作清單來源。
+- 友誼賽：現行公開目錄未發現以『友誼/Friendly』命名之 competition；若來源把友誼賽掛在其他名稱下，本次無法單憑名稱證明已覆蓋。
+
+========================================================================
+3. 預計請求量
+========================================================================
+已完成發現請求：fixtures-seasons × 154 （約 1.05s 間隔，已完成、errors=0）
+待下載請求：fixtures-results × 3998 （序列、預設間隔 1.05s）
+粗估全量下載時間：約 1.2 小時（未計重試／限流）
+另含：清單已去重；重跑只打 pending/failed。
+
+========================================================================
+4. soccer.sqlite3 入庫方案、去重、備份
+========================================================================
+方案選擇：新建 Footylogic 來源表（不塞入 soccer_daily）。
+理由：避免冒充 HKJC match_id、不覆寫 HKJC 比分／賠率、來源可分開查詢。
+新表（migration 待確認後才對正式庫執行）：
+- footylogic_matches：解析後場次（source_key PK）
+- footylogic_jobs：月份任務與斷點狀態
+- footylogic_raw_months：原始月份 JSON
+- footylogic_quarantine：歧義／異常隔離
+內部 ID：fl|{competitionId}|{seasonId}|{homeTeamId|-|{awayTeamId|-}|{kickoff_utc}
+- 非 Racing EPL-*；非 HKJC match_id／FBxxxx
+- 雙方 team id 皆缺 → 隔離，不以中文隊名唯一鍵
+- rownumber 不用作 ID
+去重／更新：
+- 同 source_key upsert；重跑不重複建檔
+- 新比分為 NULL 時不清空舊有效比分
+- has_score 僅在 FT 兩邊齊備且無異常時為 1；確認狀態固定 source_score_unconfirmed
+備份／恢復（建議，待確認後執行）：
+1) 複製 C:\Hppv\data\soccer.sqlite3 → data/backup/soccer_before_footylogic_YYYYMMDD_HHMMSS.sqlite3
+2) 對正式庫執行 ensure footylogic schema（只 ADD 新表）
+3) 出問題時可刪除 footylogic_* 四表或整檔還原備份；不影響 soccer_daily
+
+========================================================================
+5. 小批量正式下載／入庫驗收範圍（待確認後執行）
+========================================================================
+建議小批量（約 30 個月份任務，來自下列 competitionId）：
+competitionIds=[50071337]
+樣本任務數=2（優先 2026-10／2026-11）
+驗收標準：
+- 任務全部 completed 或失敗列入清單可重試
+- soccer_daily 列數不變；HKJC 既有列未被改寫
+- footylogic_matches 有 has_score=1 列；null 比分未變 0
+- 同批重跑 upsert 不增加重複 source_key
+- quarantine 有理由；無靜默合併
+- 原始 raw_json 可追溯
+全量：小批量確認後才跑剩餘 pending 任務。
+
+========================================================================
+6. 已實作程式與命令
+========================================================================
+新增檔案：
+- hppv/footylogic_client.py
+- hppv/footylogic_parse.py
+- hppv/footylogic_schema.py
+- hppv/footylogic_ingest.py
+- hppv/footylogic_download.py
+- tests/test_footylogic_history.py
+命令（務必指定測試 DB；對正式庫非 dry-run 會拒絕）：
+  python -m hppv.footylogic_download init-jobs --db-path data/_test_footylogic.sqlite3
+  python -m hppv.footylogic_download run --db-path data/_test_footylogic.sqlite3 --dry-run --limit 10
+  python -m hppv.footylogic_download status --db-path data/_test_footylogic.sqlite3
+停止：建立 stop 檔後加 --stop-file 該路徑
+
+========================================================================
+7. 測試結果（測試 DB）
+========================================================================
+pytest exit=0 ok=True
+...........                                                              [100%]
+11 passed in 4.72s
+dry-run stats on temp DB (5 jobs): {'attempted': 5, 'completed': 5, 'failed': 0, 'empty_ok': 0, 'upserted': 0, 'quarantined': 0, 'stopped': 0, 'cleanup_warning': 1}
+
+========================================================================
+8. 需要用戶決定／確認後才可繼續
+========================================================================
+A. 同意新建 footylogic_* 表方案（不寫入 soccer_daily）？
+B. 同意對正式 soccer.sqlite3 先備份再 migration 新表？
+C. 同意小批量驗收 competitionIds 與月份範圍（見第 5 節），或指定其他樣本？
+D. 盃賽目錄目前空缺：是否接受先以聯賽+國際賽入庫，盃賽待來源可用後另案？
+E. 友誼賽目錄未見：是否接受此覆蓋限制並繼續？
+
+【完】未 commit／push；未對正式 DB 寫入。

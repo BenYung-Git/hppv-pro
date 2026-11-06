@@ -1,0 +1,319 @@
+Footylogic 今日賽果及回傳欄位查核
+檔案：footylogic_results_2026-11-05.txt
+產生時間（HKT）：2026-11-05（查核執行當日；查核目標日期固定如下）
+編碼：UTF-8
+性質：只讀查核證據；未改程式、未入庫、未 commit/push
+
+========================================================================
+1. 查核摘要
+========================================================================
+- 固定目標區間（HKT）：2026-11-05 00:00:00 至 2026-11-06 00:00:00 前。
+- 發現跨聯賽入口：GET https://api.footylogic.com/match/home/games （賽程表／貼士列表，非完整賽果明細）。
+- 賽果明細入口（需 competitionId+seasonId+月份）：GET https://api.footylogic.com/tournament/fixtures-results 。
+- 球季發現：GET https://api.footylogic.com/tournament/fixtures-seasons 。
+- 本次實際覆蓋：僅查詢由 home/games 在 11/05/2026 分組內出現的 3 個 competitionId 之 2026-11 月份 fixtures-results。
+- 不可宣稱為 Footylogic 當日全部賽果。
+- 在上述有限覆蓋內：HKT 當日場次 13；其中比分欄位非 null（視為已有賽果數字）5；比分欄位皆 null 8。
+- 已取得至少一場「比分非 null」之完整原始 JSON 樣本（含外層 statusCode/data/info）。
+- fixtures-results 單場事件未見原生 eventId／HKJC frontEndId／FBxxxx；home/games 另有 eventId（數字字串）。
+- Racing 程式的 EPL-* 本地組合 ID 不是 Footylogic 原生欄位。
+
+========================================================================
+2. 日期、時區及實際涵蓋範圍
+========================================================================
+目標開賽時間範圍：HKT 2026-11-05 00:00:00 <= kickoff < 2026-11-06 00:00:00
+
+maUTCKO 時區：
+- 原始值例：2026-11-04T16:00:00.000Z
+- 格式：ISO-8601，字尾 Z = UTC。
+- 轉 HKT 依據：UTC+08:00（固定 offset，非 DST）。上例 → 2026-11-05 00:00:00+08:00。
+- 此轉換與 Racing football.py _parse_footylogic_kickoff（Z→UTC 再 astimezone Asia/Hong_Kong）一致。
+
+info[].kickOff（日區塊）：
+- 例："2026-11-05"（僅日期）。
+- 定義：來源用來分組的賽日標籤；與 maUTCKO 的 UTC 日可能不同（因時差跨日）。
+- 本次篩選以 maUTCKO 換算 HKT 為準，不以 kickOff 日字串單獨定案。
+
+home/games 的 kickOff：
+- 例："2026-11-05 16:30"（無 offset）。
+- 請求帶 tzOffSet=480（分鐘）。來源是否保證已是 HKT 牆鐘時間：未由官方文件確認；本次僅記錄為「帶 tzOffSet=480 後回傳的牆鐘字串」，換算時暫以 HKT 牆鐘解讀，並標為有條件假設。
+
+實際請求涵蓋（非全球全部聯賽）：
+- competitionId=50064772 competitionName='女子阿根廷甲組聯賽' date=2026-11 season 見請求紀錄
+- competitionId=50075119 competitionName='亞冠盃2' date=2026-11 season 見請求紀錄
+- competitionId=50077786 competitionName='澳洲冠軍聯賽盃' date=2026-11 season 見請求紀錄
+- 未呼叫 tournament/countries 展開全球聯賽（避免大量請求；需用戶確認後才可擴大）。
+
+========================================================================
+3. 資料來源及請求紀錄
+========================================================================
+參考實作：C:\\Racing\\racing\\football.py
+- _footylogic_headers / _footylogic_get_json
+- _download_epl_from_footylogic：fixtures-seasons → fixtures-results（按月）
+- 另於官網 JS（footylogic.com/static/js/main.52dc2eb5.chunk.js）發現 match/home/games 等路徑。
+
+共同 headers（無 Cookie／Authorization／API key）：
+- Content 不需要；實際使用 GET query string
+- User-Agent: Mozilla/5.0 ... Chrome/120.0.0.0 Safari/537.36
+- Accept: application/json
+- Origin: https://footylogic.com
+- Referer: https://footylogic.com/
+
+--- 請求 A：跨聯賽賽程表 ---
+Endpoint: https://api.footylogic.com/match/home/games
+Method: GET
+Params: sortById=1&languageId=18&channelId=1&tzOffSet=480
+HTTP: 200 (transport 200); message='success'
+原始 data 分組數: 4
+  group id=1 label='11/05/2026' events=5
+  group id=2 label='11/06/2026' events=48
+  group id=3 label='11/07/2026' events=39
+  group id=4 label='11/08/2026' events=1
+其中 label=11/05/2026 場數: 5
+備註: 此端點回傳貼士／勝平負百分比等，事件物件無 homeTeamGoals 等比分欄位。
+
+--- 請求 B：各 competition 球季列表 ---
+competitionId=50064772 HTTP=200 ms=1037 bytes=641 statusCode=200 message='success' seasons=4
+  seasonId=5194 seasonName='2026 ' fixtureRange=['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11']
+  seasonId=4937 seasonName='2025 ' fixtureRange=['2025-01', '2025-02', '2025-03', '2025-04', '2025-05', '2025-08', '2025-09']
+  seasonId=4811 seasonName='2024 ' fixtureRange=['2024-03', '2024-04', '2024-05', '2024-06', '2024-07', '2024-08', '2024-09', '2024-10', '2024-11', '2024-12']
+competitionId=50075119 HTTP=200 ms=1051 bytes=1495 statusCode=200 message='success' seasons=11
+  seasonId=5384 seasonName='2026/27 ' fixtureRange=['2026-08', '2026-09', '2026-10', '2026-11', '2026-12']
+  seasonId=5062 seasonName='2025/26 ' fixtureRange=['2025-08', '2025-09', '2025-10', '2025-11', '2025-12', '2026-02', '2026-03', '2026-04', '2026-05']
+  seasonId=4755 seasonName='2024/25 ' fixtureRange=['2024-08', '2024-09', '2024-10', '2024-11', '2024-12', '2025-02', '2025-03', '2025-04', '2025-05']
+competitionId=50077786 HTTP=200 ms=597 bytes=209 statusCode=200 message='success' seasons=2
+  seasonId=5451 seasonName='2026 ' fixtureRange=['2026-10', '2026-11']
+  seasonId=5147 seasonName='2025 ' fixtureRange=['2025-10', '2025-11', '2025-12']
+
+--- 請求 C：月份賽果 fixtures-results ---
+Endpoint: https://api.footylogic.com/tournament/fixtures-results
+Method: GET
+Params: languageId=18 channelId=1 competitionId=50064772 seasonId=5194 date=2026-11 tzOffSet=480
+HTTP: 200 ms=562 bytes=2355 statusCode=200 message='success'
+API 原始回傳: competitionName='女子阿根廷甲組聯賽' lastUpdated='2026-11-02 10:48' day_blocks=4 events_in_month=8
+
+Endpoint: https://api.footylogic.com/tournament/fixtures-results
+Method: GET
+Params: languageId=18 channelId=1 competitionId=50075119 seasonId=5384 date=2026-11 tzOffSet=480
+HTTP: 200 ms=592 bytes=8166 statusCode=200 message='success'
+API 原始回傳: competitionName='亞冠盃2' lastUpdated='2026-11-05 00:45' day_blocks=6 events_in_month=32
+
+Endpoint: https://api.footylogic.com/tournament/fixtures-results
+Method: GET
+Params: languageId=18 channelId=1 competitionId=50077786 seasonId=5451 date=2026-11 tzOffSet=480
+HTTP: 200 ms=626 bytes=7246 statusCode=200 message='success'
+API 原始回傳: competitionName='澳洲冠軍聯賽盃' lastUpdated='2026-11-02 02:19' day_blocks=13 events_in_month=26
+
+--- 請求 D：event-information（失敗） ---
+Endpoint: https://api.footylogic.com/match/h2h/event-information
+嘗試 params:
+  1) languageId=18&channelId=1&eventId=50079676 → HTTP 500 body statusCode=404 message=Invalid Route
+  2) languageId=18&eventId=50079676 → 同上
+  3) languageId=18&channelId=1&eventId=50079676&tzOffSet=480 → 同上
+  4) languageId=18&channelId=1&homeTeamId=<finished.home>&awayTeamId=<finished.away>&marketGroupId=1&mode=1 → 同上 Invalid Route
+結論: 本次未能經由此端點取得額外欄位。
+
+========================================================================
+4. 場數與狀態統計
+========================================================================
+統計口徑 A（fixtures-results，僅本次查詢的 3 個 competitionId + 2026-11）：
+- API 原始回傳（三個月份請求之 events 加總）: 見各請求 events_in_month
+- 篩選 maUTCKO→HKT 落入目標日: 13
+- 比分欄位：homeTeamGoals 或 awayTeamGoals 不為 null: 5  （分類依據：欄位非 null；來源無獨立 status 欄位，故不稱為官方 status=完賽）
+- 比分欄位：homeTeamGoals 與 awayTeamGoals 皆為 null: 8  （可能未開賽／無資料；無法區分進行中）
+- 進行中: 未能分類（無 inplay／status 欄位）
+- 其他狀態: 未能分類
+
+按 competitionId:
+  50075119 ('亞冠盃2'): day=11 score_non_null=5
+  50064772 ('女子阿根廷甲組聯賽'): day=1 score_non_null=0
+  50077786 ('澳洲冠軍聯賽盃'): day=1 score_non_null=0
+
+統計口徑 B（home/games 分組 label=11/05/2026）:
+- 場數: 5 （無賽果比分欄位；不計入已完賽）
+
+逐場（fixtures-results 篩選後，HKT）:
+  HKT=2026-11-05T00:00:00+08:00 comp=50075119 ('亞冠盃2') 阿爾華達 vs 艾卡列迪亞 FT=1-2 HT=0-0 maUTCKO=2026-11-04T16:00:00.000Z
+  HKT=2026-11-05T00:00:00+08:00 comp=50075119 ('亞冠盃2') 科威特SC vs 拿薩夫 FT=2-3 HT=2-0 maUTCKO=2026-11-04T16:00:00.000Z
+  HKT=2026-11-05T00:00:00+08:00 comp=50075119 ('亞冠盃2') 艾雷恩 vs 艾拿達 FT=2-0 HT=0-0 maUTCKO=2026-11-04T16:00:00.000Z
+  HKT=2026-11-05T02:15:00+08:00 comp=50075119 ('亞冠盃2') 艾慕哈瑞克 vs 艾查捷拉 FT=0-3 HT=0-0 maUTCKO=2026-11-04T18:15:00.000Z
+  HKT=2026-11-05T02:15:00+08:00 comp=50075119 ('亞冠盃2') 艾塔亞文 vs 艾費薩里安曼 FT=3-1 HT=1-0 maUTCKO=2026-11-04T18:15:00.000Z
+  HKT=2026-11-05T16:30:00+08:00 comp=50077786 ('澳洲冠軍聯賽盃') 悉尼奧林匹克 vs 奧克萊加農炮 FT=None-None HT=None-None maUTCKO=2026-11-05T08:30:00.000Z
+  HKT=2026-11-05T18:00:00+08:00 comp=50075119 ('亞冠盃2') 獅城水手 vs 阿德萊德聯 FT=None-None HT=None-None maUTCKO=2026-11-05T10:00:00.000Z
+  HKT=2026-11-05T18:00:00+08:00 comp=50075119 ('亞冠盃2') 町田澤維亞 vs FC上海 FT=None-None HT=None-None maUTCKO=2026-11-05T10:00:00.000Z
+  HKT=2026-11-05T18:00:00+08:00 comp=50075119 ('亞冠盃2') 傑志 vs 金邊皇冠 FT=None-None HT=None-None maUTCKO=2026-11-05T10:00:00.000Z
+  HKT=2026-11-05T20:15:00+08:00 comp=50075119 ('亞冠盃2') 古晉城 vs FC江原 FT=None-None HT=None-None maUTCKO=2026-11-05T12:15:00.000Z
+  HKT=2026-11-05T20:15:00+08:00 comp=50075119 ('亞冠盃2') 巴吞聯 vs 和富大埔 FT=None-None HT=None-None maUTCKO=2026-11-05T12:15:00.000Z
+  HKT=2026-11-05T20:15:00+08:00 comp=50075119 ('亞冠盃2') Svay Rieng FC vs 淡濱尼流浪 FT=None-None HT=None-None maUTCKO=2026-11-05T12:15:00.000Z
+  HKT=2026-11-05T21:00:00+08:00 comp=50064772 ('女子阿根廷甲組聯賽') SAT女足 vs 班菲特女足 FT=None-None HT=None-None maUTCKO=2026-11-05T13:00:00.000Z
+
+========================================================================
+5. 完整原始 JSON 樣本
+========================================================================
+5.1 已完賽（比分非 null）樣本 — 取自 fixtures-results，保留外層結構；info 僅保留該場所在 day block 且 events 僅該場（避免整月過長，但該場物件欄位完整不省略）。
+來源請求: competitionId=50075119, date=2026-11
+{
+  "statusCode": 200,
+  "errors": null,
+  "message": "success",
+  "data": {
+    "competitionName": "亞冠盃2",
+    "lastUpdated": "2026-11-05 00:45",
+    "info": [
+      {
+        "kickOff": "2026-11-05",
+        "events": [
+          {
+            "maUTCKO": "2026-11-04T16:00:00.000Z",
+            "homeTeamName": "阿爾華達",
+            "awayTeamName": "艾卡列迪亞",
+            "homeTeamGoals": 1,
+            "awayTeamGoals": 2,
+            "homeTeamHTGoals": 0,
+            "awayTeamHTGoals": 0,
+            "rownumber": "1",
+            "homeTeamId": "50000111",
+            "awayTeamId": "50334361"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+5.2 同日比分皆 null 樣本（明確：不是已完賽證實）
+{
+  "statusCode": 200,
+  "errors": null,
+  "message": "success",
+  "data": {
+    "competitionName": "女子阿根廷甲組聯賽",
+    "lastUpdated": "2026-11-02 10:48",
+    "info": [
+      {
+        "kickOff": "2026-11-05",
+        "events": [
+          {
+            "maUTCKO": "2026-11-05T13:00:00.000Z",
+            "homeTeamName": "SAT女足",
+            "awayTeamName": "班菲特女足",
+            "homeTeamGoals": null,
+            "awayTeamGoals": null,
+            "homeTeamHTGoals": null,
+            "awayTeamHTGoals": null,
+            "rownumber": "1",
+            "homeTeamId": "50429175",
+            "awayTeamId": "50429161"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+5.3 home/games 同日樣本（明確：賽程／貼士，不是賽果完賽物件）
+{
+  "statusCode": 200,
+  "errors": null,
+  "message": "success",
+  "data": [
+    {
+      "id": 1,
+      "label": "11/05/2026",
+      "events": [
+        {
+          "kickOff": "2026-11-05 16:30",
+          "kickOffTime": "16:30",
+          "kickOffDate": "11/05/2026",
+          "eventId": "50079676",
+          "hadHomePct": "34",
+          "bestBetName": "主客和",
+          "subMarketName": null,
+          "matchOutcome": "34,26,40",
+          "hadAwayPct": "40",
+          "hadDrawPct": "26",
+          "homeForm": "W,L,L,D,L",
+          "awayForm": "D,D,W,D,W",
+          "countryId": "10013",
+          "countryName": null,
+          "competitionId": 50077786,
+          "competitionName": "澳洲冠軍聯賽盃",
+          "homeTeamName": "悉尼奧林匹克",
+          "awayTeamName": "奧克萊加農炮",
+          "awayTeamImgUrl": null,
+          "outcomeName": "客",
+          "kickOffDateLocal": "05/11/2026",
+          "competitionIdNav": 50077786
+        }
+      ]
+    }
+  ]
+}
+
+========================================================================
+6. 欄位查核表
+========================================================================
+格式：路徑 | 樣本值 | 解讀／未確認
+
+A. 賽事識別
+- data.info[].events[].（fixtures-results）無 eventId 欄位 | （缺欄） | 本次 fixtures-results 事件物件未提供原生 fixture/event id
+- home/games data[].events[].eventId | "50079676" | 數字字串；出現於賽程表端點；是否等於馬會 match id：型態相似但本次無官方對照證明，列未確認
+- fixtures-results 請求參數 competitionId | 50075119 | 聯賽／盃賽 ID
+- fixtures-seasons data[].seasonId | 例 5384 | 球季 ID
+- fixtures-results 請求參數 seasonId | 與上對應 | 必填之一
+- data.competitionName | 例 柬超2 | 聯賽名稱（語言隨 languageId=18）
+- HKJC frontEndId / FBxxxx | （缺欄） | 本次 home/games 與 fixtures-results 回應均未見
+- Racing 本地 EPL-{home}-{away}-{maUTCKO} | （程式組合） | 非 API 原生欄位；不得稱為 Footylogic 原生 ID
+- events[].rownumber | "1" | 列序；非穩定賽事 ID
+
+B. 主客隊
+- events[].homeTeamId / awayTeamId | "50000111" / "50334361" | 原生隊伍 ID（字串）；可為 null（同日樣本可見）
+- events[].homeTeamName / awayTeamName | 中文隊名 | languageId=18 時為中文；未見獨立英文名欄位於 fixtures-results
+- home/games 僅 homeTeamName / awayTeamName | 有名稱 | 無 teamId 於該端點事件物件
+- 簡稱／其他名稱 | （缺欄） | 本次未見
+- awayTeamImgUrl（home/games） | null | 可存在但樣本為 null
+
+C. 日期時間
+- events[].maUTCKO | 2026-11-04T16:00:00.000Z | UTC 開賽時間；轉 HKT 見第 2 節
+- info[].kickOff | 2026-11-05 | 日分組標籤（日期）
+- data.lastUpdated | 2026-11-05 00:45 | 更新時間字串；時區未標註 → 未確認是 HKT 或他區
+- home/games kickOff / kickOffDate / kickOffDateLocal / kickOffTime | 見樣本 | 多格式牆鐘；tz 假設見第 2 節
+- 延期／改期欄位 | （缺欄） | 本次未見
+
+D. 賽果
+- homeTeamGoals / awayTeamGoals | 1 / 2 或 null | 全場比分；null≠0；0 是有效數字
+- homeTeamHTGoals / awayTeamHTGoals | 0 / 0 或 null | 半場比分
+- 下半場 2H 直接欄位 | （缺欄） | 本次未見；不得自行 FT-HT 假稱來源提供
+- 加時／十二碼欄位 | （缺欄） | 本次未見
+- 角球欄位 | （缺欄） | 本次 fixtures-results 事件未見（Racing 寫入 corners 亦常空）
+- 主客對應 | home*=主隊, away*=客隊 | 依欄位命名
+- 結果是否含加時／十二碼 | （未確認） | 無來源欄位說明
+- 賽事狀態欄位 | （缺欄） | 僅能以比分 null/非 null 間接觀察
+- 結果確認標記 | （缺欄） | 本次未見
+- 更新時間 | data.lastUpdated | 見上；非逐場
+
+E. 其他實際存在資料
+- home/games: hadHomePct/hadDrawPct/hadAwayPct, matchOutcome, outcomeName, bestBetName, subMarketName, homeForm, awayForm, countryId, competitionName
+- 賠率完整市場／馬會球號 | 本次賽果端點未見
+
+========================================================================
+7. 原生賽事 ID／馬會編號查核結論
+========================================================================
+1) fixtures-results（賽果明細）事件層：本次證據顯示沒有原生 event/match ID 欄位；識別依賴 competitionId+seasonId+maUTCKO+主客隊 ID／名稱。
+2) home/games（賽程表）：有 eventId 數字字串；與馬會 match id 是否同一體系＝未確認。
+3) 馬會 frontEndId／FBxxxx：本次相關回應未出現。
+4) Racing EPL-* ID：本地組合，不是 Footylogic 原生 ID。
+
+========================================================================
+8. 限制、未能確認事項及失敗紀錄
+========================================================================
+- 未覆蓋 Footylogic 全部聯賽／全部當日賽事；僅 3 個由 home/games 當日分組導出的 competitionId。
+- 若要全球當日完整覆蓋，需 countries→competitions→seasons→months 大量請求；本輪依規範停止，待用戶確認。
+- home/games 不是賽果完賽資料來源。
+- 無官方 status／inplay；不能嚴格分「進行中」。
+- lastUpdated、home/games 牆鐘時區未獲官方文件確認。
+- event-information 多次 Invalid Route（失敗紀錄見第 3 節）。
+- 2H／加時／十二碼／角球／確認標記：本次樣本未出現 ⇒ 不得定案 API 永遠不提供，僅能說本次路徑未驗證到。
+- 未寫入任何資料庫；未修改程式。
+
+【完】
