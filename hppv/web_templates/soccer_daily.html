@@ -252,6 +252,7 @@
     color: #333;
     font-size: 13px;
     padding: 0 4px;
+    white-space: nowrap;
   }
   .soccer-daily table.matches tbody tr.row-current {
     outline: 2px solid #7aa2d6;
@@ -557,6 +558,112 @@
   .soccer-daily .icon-btn .btn-label {
     font-size: 13px;
   }
+  .soccer-daily .history-toolbar-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .soccer-daily .icon-btn.toolbar-icon-only {
+    padding: 8px;
+  }
+  .soccer-daily .icon-btn.toolbar-icon-only .btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .soccer-daily .history-export-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(20, 32, 48, 0.42);
+  }
+  .soccer-daily .history-export-overlay[hidden] {
+    display: none !important;
+  }
+  .soccer-daily .history-export-dialog {
+    width: min(440px, calc(100vw - 2rem));
+    background: #fff;
+    border: 1px solid #cfe0d4;
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(20, 40, 60, 0.22);
+    padding: 16px 18px 14px;
+  }
+  .soccer-daily .history-export-dialog h2 {
+    margin: 0 0 12px;
+    font-size: 18px;
+    color: #1b7a3d;
+  }
+  .soccer-daily .history-export-dialog .field-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .soccer-daily .history-export-dialog .field-row > label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #2c3d52;
+  }
+  .soccer-daily .history-export-dialog input[type="text"],
+  .soccer-daily .history-export-dialog select {
+    border: 1px solid #d0dbe8;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 14px;
+  }
+  .soccer-daily .history-export-dialog .filename-row,
+  .soccer-daily .history-export-dialog .path-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .soccer-daily .history-export-dialog .filename-row input,
+  .soccer-daily .history-export-dialog .path-row input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .soccer-daily .history-export-dialog .path-row input[readonly] {
+    background: #f5f8fb;
+    color: #2c3d52;
+    cursor: default;
+  }
+  .soccer-daily .history-export-path-hint {
+    margin: -4px 0 12px;
+    font-size: 12px;
+    color: #5c6b7e;
+  }
+  .soccer-daily .history-export-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .soccer-daily .history-export-status {
+    min-height: 1.3em;
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: #2c3d52;
+  }
+  .soccer-daily .history-export-status.is-error {
+    color: #a1281c;
+  }
+  .soccer-daily .history-export-status.is-ok {
+    color: #1b7a3d;
+  }
+  .soccer-daily .history-export-note {
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: #5c6b7e;
+  }
   .soccer-daily .field-block {
     margin-bottom: 14px;
   }
@@ -774,6 +881,22 @@
 <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
   <circle cx="32" cy="32" r="22" fill="#fff" stroke="#8a97a8" stroke-width="3"/>
   <path d="M22 22 L42 42 M42 22 L22 42" stroke="#5c6b7e" stroke-width="4" stroke-linecap="round"/>
+</svg>
+{%- endmacro %}
+
+{% macro icon_history_layout() -%}
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <rect x="10" y="14" width="44" height="36" rx="4" fill="#eef3fb" stroke="#1f3d66" stroke-width="3"/>
+  <path d="M18 24 h28 M18 32 h28 M18 40 h18" stroke="#1f3d66" stroke-width="3" stroke-linecap="round"/>
+  <rect x="40" y="36" width="10" height="10" rx="2" fill="#1b7a3d"/>
+</svg>
+{%- endmacro %}
+
+{% macro icon_history_export() -%}
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <rect x="14" y="10" width="28" height="36" rx="3" fill="#fff7e8" stroke="#b7791f" stroke-width="3"/>
+  <path d="M22 20 h12 M22 28 h12 M22 36 h8" stroke="#b7791f" stroke-width="3" stroke-linecap="round"/>
+  <path d="M40 34 v16 M34 44 l6 8 l6 -8" fill="none" stroke="#1b7a3d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
 {%- endmacro %}
 
@@ -1120,15 +1243,27 @@
                        autocomplete="off">
               </div>
             </div>
-            <button type="button" class="icon-btn toolbar-layout-btn" id="btn-open-history-layout"
-                    aria-controls="history-layout-mode"
-                    aria-expanded="{{ 'true' if open_history_layout_panel else 'false' }}"
-                    title="{{ t('soccer.daily.tab.layout') }}"
-                    aria-label="{{ t('soccer.daily.tab.layout') }}">
-              <span class="btn-label">{{ t('soccer.daily.tab.layout') }}</span>
-            </button>
+            <div class="history-toolbar-actions">
+              <button type="button" class="icon-btn toolbar-layout-btn toolbar-icon-only" id="btn-open-history-layout"
+                      aria-controls="history-layout-mode"
+                      aria-expanded="{{ 'true' if open_history_layout_panel else 'false' }}"
+                      title="{{ t('soccer.daily.tab.layout') }}"
+                      aria-label="{{ t('soccer.daily.tab.layout') }}">
+                {{ icon_history_layout() }}
+                <span class="btn-label">{{ t('soccer.daily.tab.layout') }}</span>
+              </button>
+              <button type="button" class="icon-btn toolbar-icon-only" id="btn-open-history-export"
+                      aria-controls="history-export-overlay"
+                      aria-expanded="false"
+                      title="{{ t('soccer.history.export.tip') }}"
+                      aria-label="{{ t('soccer.history.export.tip') }}">
+                {{ icon_history_export() }}
+                <span class="btn-label">{{ t('soccer.history.export.tip') }}</span>
+              </button>
+            </div>
           </div>
           {% set _htotal_pages = history_page_meta.get('total_pages', 0) or 0 %}
+          {% set _htotal_records = history_page_meta.get('total_count', 0) or 0 %}
           {% set _hn = (history_page_meta.get('n', 1) or 1) if _htotal_pages else 0 %}
           {% set _h_disable_all = _htotal_pages <= 1 %}
           {% set _h_at_first = _h_disable_all or _hn <= 1 %}
@@ -1145,7 +1280,7 @@
                     {% if _h_at_first %}disabled{% endif %}>‹</button>
             <span class="pager-status" id="history-pager-status"
                   title="{{ t('soccer.history.pager.status') }}"
-                  aria-live="polite">{{ _hn }} / {{ _htotal_pages }}</span>
+                  aria-live="polite">{{ _hn }} / {{ _htotal_pages }} {{ t('soccer.history.pager.records').replace('{n}', _htotal_records|string) }}</span>
             <button type="button" class="icon-btn" id="history-pager-next"
                     title="{{ t('soccer.daily.pager.next') }}"
                     aria-label="{{ t('soccer.daily.pager.next') }}"
@@ -1209,6 +1344,62 @@
         {% endif %}
       </div>
     </div>{# history-list-mode #}
+
+    <div class="history-export-overlay" id="history-export-overlay" hidden>
+      <div class="history-export-dialog" role="dialog" aria-modal="true"
+           aria-labelledby="history-export-title" id="history-export-dialog">
+        <h2 id="history-export-title">{{ t('soccer.history.export.title') }}</h2>
+        <div class="field-row">
+          <label for="history-export-path">{{ t('soccer.history.export.output_path') }}</label>
+          <div class="path-row">
+            <input type="text" id="history-export-path" readonly
+                   value="{{ t('soccer.history.export.path_unselected') }}"
+                   autocomplete="off" spellcheck="false">
+            <button type="button" class="icon-btn" id="btn-history-export-browse"
+                    title="{{ t('soccer.history.export.browse_tip') }}"
+                    aria-label="{{ t('soccer.history.export.browse_tip') }}">
+              <span class="btn-label">{{ t('soccer.history.export.browse') }}</span>
+            </button>
+          </div>
+        </div>
+        <p class="history-export-path-hint" id="history-export-path-hint">
+          {{ t('soccer.history.export.path_hint') }}
+        </p>
+        <div class="field-row">
+          <label for="history-export-filename">{{ t('soccer.history.export.filename') }}</label>
+          <div class="filename-row">
+            <input type="text" id="history-export-filename" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <div class="field-row">
+          <label for="history-export-filetype">{{ t('soccer.history.export.file_type') }}</label>
+          <select id="history-export-filetype">
+            <option value="xlsx" selected>XLSX（.xlsx）</option>
+            <option value="csv">CSV（.csv）</option>
+            <option value="jpeg">JPEG（.jpeg）</option>
+            <option value="pdf">PDF（.pdf）</option>
+          </select>
+        </div>
+        <p class="history-export-note" id="history-export-csv-note" hidden>
+          {{ t('soccer.history.export.csv_width_note') }}
+        </p>
+        <div class="history-export-actions">
+          <button type="button" class="icon-btn toolbar-icon-only" id="btn-history-export-leave"
+                  title="{{ t('soccer.history.export.leave_tip') }}"
+                  aria-label="{{ t('soccer.history.export.leave_tip') }}">
+            {{ icon_layout_cancel() }}
+            <span class="btn-label">{{ t('soccer.history.export.leave_tip') }}</span>
+          </button>
+          <button type="button" class="icon-btn layout-save toolbar-icon-only" id="btn-history-export-confirm"
+                  title="{{ t('soccer.history.export.confirm_tip') }}"
+                  aria-label="{{ t('soccer.history.export.confirm_tip') }}">
+            {{ icon_layout_save() }}
+            <span class="btn-label">{{ t('soccer.history.export.confirm_tip') }}</span>
+          </button>
+        </div>
+        <p class="history-export-status" id="history-export-status" role="status" aria-live="polite"></p>
+      </div>
+    </div>
 
     <div class="matches-layout-mode" id="history-layout-mode"
          {% if not open_history_layout_panel %}hidden{% endif %}
@@ -1454,6 +1645,25 @@
     historyHint: {{ t('soccer.history.hint')|tojson }},
     historyReadError: {{ t('soccer.history.read_error')|tojson }},
     historyLayoutSortUnsupported: {{ t('soccer.history.layout.sort_unsupported')|tojson }},
+    historyExportTip: {{ t('soccer.history.export.tip')|tojson }},
+    historyExportBusy: {{ t('soccer.history.export.busy')|tojson }},
+    historyExportDone: {{ t('soccer.history.export.done')|tojson }},
+    historyExportFailed: {{ t('soccer.history.export.failed')|tojson }},
+    historyExportFilenameBlank: {{ t('soccer.history.export.filename_blank')|tojson }},
+    historyExportFilenameIllegal: {{ t('soccer.history.export.filename_illegal')|tojson }},
+    historyExportJpegTooLarge: {{ t('soccer.history.export.jpeg_too_large')|tojson }},
+    historyExportPdfTooWide: {{ t('soccer.history.export.pdf_columns_too_wide')|tojson }},
+    historyExportNoVisible: {{ t('soccer.history.export.no_visible_columns')|tojson }},
+    historyExportReadError: {{ t('soccer.history.export.read_error')|tojson }},
+    historyExportWriteError: {{ t('soccer.history.export.write_error')|tojson }},
+    historyExportPickerUnsupported: {{ t('soccer.history.export.picker_unsupported')|tojson }},
+    historyExportPickerCancel: {{ t('soccer.history.export.picker_cancel')|tojson }},
+    historyExportPathUnselected: {{ t('soccer.history.export.path_unselected')|tojson }},
+    historyExportPathSelected: {{ t('soccer.history.export.path_selected')|tojson }},
+    historyExportPathNeedReselect: {{ t('soccer.history.export.path_need_reselect')|tojson }},
+    historyExportPathRequired: {{ t('soccer.history.export.path_required')|tojson }},
+    historyExportExtMismatch: {{ t('soccer.history.export.ext_mismatch')|tojson }},
+    currentLang: {{ current_lang|tojson }},
     historyColDescMatchDate: {{ t('soccer.history.col.desc.match_date')|tojson }},
     historyColDescKickoff: {{ t('soccer.history.col.desc.kickoff_hhmm')|tojson }},
     historyColDescComp: {{ t('soccer.history.col.desc.competition_name')|tojson }},
@@ -1465,6 +1675,7 @@
     pagerPrev: {{ t('soccer.daily.pager.prev')|tojson }},
     pagerNext: {{ t('soccer.daily.pager.next')|tojson }},
     pagerLast: {{ t('soccer.daily.pager.last')|tojson }},
+    historyPagerRecords: {{ t('soccer.history.pager.records')|tojson }},
     layoutSaveOk: {{ t('soccer.daily.layout.saved')|tojson }},
     colDate: {{ t('soccer.daily.col.date')|tojson }},
     colTime: {{ t('soccer.daily.col.time')|tojson }},
@@ -2579,6 +2790,11 @@
     submitHistoryCriteria({ n: 1 });
   }
 
+  function historyPagerRecordsLabel(totalCount) {
+    const tmpl = MSG.historyPagerRecords || "({n} Records)";
+    return String(tmpl).replace(/\{n\}/g, String(Number(totalCount) || 0));
+  }
+
   function updateHistoryPagerControls() {
     const statusEl = document.getElementById("history-pager-status");
     const btnFirst = document.getElementById("history-pager-first");
@@ -2587,7 +2803,10 @@
     const btnLast = document.getElementById("history-pager-last");
     const totalPages = historyTotalPages > 0 ? historyTotalPages : 0;
     const n = totalPages > 0 ? historyN : 0;
-    if (statusEl) statusEl.textContent = n + " / " + totalPages;
+    if (statusEl) {
+      statusEl.textContent =
+        n + " / " + totalPages + " " + historyPagerRecordsLabel(historyTotalCount);
+    }
     const disableAll = totalPages <= 1;
     const atFirst = disableAll || historyN <= 1;
     const atLast = disableAll || historyN >= totalPages;
@@ -2599,29 +2818,31 @@
 
   let historyLayoutSaved = {{ history_layout_settings|tojson }};
   let historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutSaved));
-  const historyLayoutCatalog = {{ (history_layout_catalog if history_layout_catalog is defined else [])|tojson }};
-  const HISTORY_COL_LABEL = {
-    match_date: MSG.colDate,
-    kickoff_hhmm: MSG.colTime,
-    competition_name: MSG.colCompetition,
-    home_team: MSG.colHome,
-    away_team: MSG.colAway,
-    score_ht: MSG.colHt,
-    score_ft: MSG.colFt,
-  };
-  const HISTORY_COL_DESC = {
-    match_date: MSG.historyColDescMatchDate,
-    kickoff_hhmm: MSG.historyColDescKickoff,
-    competition_name: MSG.historyColDescComp,
-    home_team: MSG.historyColDescHome,
-    away_team: MSG.historyColDescAway,
-    score_ht: MSG.historyColDescHt,
-    score_ft: MSG.historyColDescFt,
-  };
+  let historyLayoutCatalog = {{ (history_layout_catalog if history_layout_catalog is defined else [])|tojson }};
+  // Server builds maps for current lang from translations; missing key -> field key / "".
+  // Layout JSON identifies columns by key only — never trust a saved label for display.
+  const HISTORY_COL_LABEL = {{ (history_col_labels if history_col_labels is defined else {})|tojson }};
+  const HISTORY_COL_DESC = {{ (history_col_descs if history_col_descs is defined else {})|tojson }};
   const HISTORY_SORTABLE = {};
-  (historyLayoutCatalog || []).forEach((c) => {
-    HISTORY_SORTABLE[c.key] = !!c.sortable;
-  });
+  function rebuildHistorySortable() {
+    Object.keys(HISTORY_SORTABLE).forEach((k) => { delete HISTORY_SORTABLE[k]; });
+    (historyLayoutCatalog || []).forEach((c) => {
+      HISTORY_SORTABLE[c.key] = !!c.sortable;
+    });
+  }
+  rebuildHistorySortable();
+
+  function syncHistoryLayoutFromApi(data) {
+    if (!data || typeof data !== "object") return;
+    if (Array.isArray(data.catalog) && data.catalog.length) {
+      historyLayoutCatalog = data.catalog;
+      rebuildHistorySortable();
+    }
+    if (data.layout_settings && Array.isArray(data.layout_settings.columns)) {
+      historyLayoutSaved = data.layout_settings;
+      historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutSaved));
+    }
+  }
 
   const historyPanel = document.getElementById("tab-panel-history");
   const historyLayoutModeEl = document.getElementById("history-layout-mode");
@@ -2676,6 +2897,28 @@
     if (found) root.style.setProperty("--soccer-history-zebra", found.css);
   }
 
+  async function refreshHistoryLayoutFromServer() {
+    try {
+      const resp = await fetch("/api/soccer/layout/match-history", {
+        headers: { "Accept": "application/json" },
+        cache: "no-store",
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data || !data.ok) return false;
+      syncHistoryLayoutFromApi({
+        catalog: data.catalog,
+        layout_settings: data.settings,
+      });
+      const zc = document.getElementById("history-layout-zebra-color");
+      const ze = document.getElementById("history-layout-zebra-enable");
+      if (zc) zc.value = historyLayoutDraft.zebra_color_id;
+      if (ze) ze.checked = !!historyLayoutDraft.zebra_enabled;
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  }
+
   function setHistoryLayoutMode(open, opts) {
     const options = opts || {};
     historyLayoutModeOpen = !!open;
@@ -2698,9 +2941,14 @@
       btnOpenHistoryLayout.setAttribute("aria-expanded", historyLayoutModeOpen ? "true" : "false");
     }
     if (historyLayoutModeOpen) {
-      renderHistoryLayoutEditor();
-      const statusMsg = document.getElementById("history-layout-status-msg");
-      if (statusMsg && !options.keepStatus) statusMsg.textContent = "";
+      // Always re-fetch catalog/settings so schema-driven columns are not stuck
+      // on a stale SSR embed (or a previous process's 7-column fallback).
+      refreshHistoryLayoutFromServer().finally(() => {
+        if (!historyLayoutModeOpen) return;
+        renderHistoryLayoutEditor();
+        const statusMsg = document.getElementById("history-layout-status-msg");
+        if (statusMsg && !options.keepStatus) statusMsg.textContent = "";
+      });
     }
     if (!options.skipUrl) syncHistoryUrl();
   }
@@ -2775,6 +3023,7 @@
       const data = await resp.json();
       if (seq !== historyFetchSeq) return false;
       if (!resp.ok || !data || !data.ok) return false;
+      syncHistoryLayoutFromApi(data);
       historyMatches = data.matches || [];
       historyN = Number(data.n) || 1;
       historyTotalCount = Number(data.total_count) || 0;
@@ -3042,6 +3291,393 @@
   {% else %}
   setHistoryLayoutMode(false, { skipUrl: true });
   {% endif %}
+
+  /* ---- History export (File System Access API; local handle, no absolute path) ---- */
+  const historyExportOverlay = document.getElementById("history-export-overlay");
+  const historyExportDialog = document.getElementById("history-export-dialog");
+  const historyExportPath = document.getElementById("history-export-path");
+  const historyExportFilename = document.getElementById("history-export-filename");
+  const historyExportFiletype = document.getElementById("history-export-filetype");
+  const historyExportCsvNote = document.getElementById("history-export-csv-note");
+  const historyExportStatus = document.getElementById("history-export-status");
+  const btnOpenHistoryExport = document.getElementById("btn-open-history-export");
+  const btnHistoryExportBrowse = document.getElementById("btn-history-export-browse");
+  const btnHistoryExportConfirm = document.getElementById("btn-history-export-confirm");
+  const btnHistoryExportLeave = document.getElementById("btn-history-export-leave");
+  let historyExportBusy = false;
+  let historyExportFileHandle = null;
+  let historyExportStemTouched = false;
+  let historyExportSyncingName = false;
+  const HISTORY_EXPORT_EXT = { xlsx: ".xlsx", csv: ".csv", jpeg: ".jpeg", pdf: ".pdf" };
+  const HISTORY_EXPORT_ACCEPT = {
+    xlsx: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] },
+    csv: { "text/csv": [".csv"] },
+    jpeg: { "image/jpeg": [".jpeg", ".jpg"] },
+    pdf: { "application/pdf": [".pdf"] },
+  };
+  const HISTORY_EXPORT_ERR = {
+    filename_blank: MSG.historyExportFilenameBlank,
+    filename_illegal: MSG.historyExportFilenameIllegal,
+    jpeg_too_large: MSG.historyExportJpegTooLarge,
+    pdf_columns_too_wide: MSG.historyExportPdfTooWide,
+    no_visible_columns: MSG.historyExportNoVisible,
+    read_error: MSG.historyExportReadError,
+    export_failed: MSG.historyExportFailed,
+    write_error: MSG.historyExportWriteError,
+  };
+
+  function historyExportSupportsPicker() {
+    return typeof window.showSaveFilePicker === "function";
+  }
+
+  function historyExportHktYmd() {
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Hong_Kong",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date()).replace(/-/g, "");
+    } catch (_e) {
+      const d = new Date();
+      return String(d.getFullYear()) + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0");
+    }
+  }
+
+  function historyExportDefaultStem() {
+    const q = (historyQ || "").trim();
+    return (q || "All") + "-" + historyExportHktYmd();
+  }
+
+  function historyExportStripExt(name) {
+    let text = String(name || "");
+    const lower = text.toLowerCase();
+    for (const ext of Object.values(HISTORY_EXPORT_EXT)) {
+      if (lower.endsWith(ext)) {
+        text = text.slice(0, -ext.length);
+        break;
+      }
+    }
+    if (lower.endsWith(".jpg")) {
+      text = text.slice(0, -4);
+    }
+    return text.replace(/[.\s]+$/g, "");
+  }
+
+  function historyExportComposeFilename(stem, fileType) {
+    const raw = String(stem || "");
+    const lower = raw.toLowerCase();
+    const base = historyExportStripExt(raw);
+    if (fileType === "jpeg" && lower.endsWith(".jpg")) {
+      return base + ".jpg";
+    }
+    const ext = HISTORY_EXPORT_EXT[fileType] || ".xlsx";
+    return base + ext;
+  }
+
+  function historyExportValidateFilename(name, fileType) {
+    const text = String(name || "").trim();
+    if (!text) return { ok: false, error: "filename_blank" };
+    if (/[<>:"/\\|?*\x00-\x1f]/.test(text)) return { ok: false, error: "filename_illegal" };
+    const composed = historyExportComposeFilename(text, fileType);
+    if (!historyExportStripExt(composed)) return { ok: false, error: "filename_blank" };
+    if (/[<>:"/\\|?*\x00-\x1f]/.test(historyExportStripExt(composed))) {
+      return { ok: false, error: "filename_illegal" };
+    }
+    return { ok: true, filename: composed };
+  }
+
+  function historyExportHandleMatchesType(handle, fileType) {
+    const name = String((handle && handle.name) || "").toLowerCase();
+    if (!name) return false;
+    if (fileType === "jpeg") return name.endsWith(".jpeg") || name.endsWith(".jpg");
+    const ext = HISTORY_EXPORT_EXT[fileType] || ".xlsx";
+    return name.endsWith(ext);
+  }
+
+  function setHistoryExportPathSelected(selected) {
+    if (!historyExportPath) return;
+    historyExportPath.value = selected
+      ? (MSG.historyExportPathSelected || "")
+      : (MSG.historyExportPathUnselected || "");
+    historyExportPath.dataset.selected = selected ? "1" : "0";
+  }
+
+  function clearHistoryExportHandle(opts) {
+    const options = opts || {};
+    historyExportFileHandle = null;
+    setHistoryExportPathSelected(false);
+    if (options.showReselectTip) {
+      setHistoryExportStatus(MSG.historyExportPathNeedReselect || "", "error");
+    }
+  }
+
+  function setHistoryExportStatus(text, kind) {
+    if (!historyExportStatus) return;
+    historyExportStatus.textContent = text || "";
+    historyExportStatus.classList.toggle("is-error", kind === "error");
+    historyExportStatus.classList.toggle("is-ok", kind === "ok");
+  }
+
+  function setHistoryExportBusy(busy) {
+    historyExportBusy = !!busy;
+    if (btnHistoryExportConfirm) btnHistoryExportConfirm.disabled = historyExportBusy;
+    if (btnHistoryExportLeave) btnHistoryExportLeave.disabled = historyExportBusy;
+    if (btnHistoryExportBrowse) btnHistoryExportBrowse.disabled = historyExportBusy;
+    if (historyExportFilename) historyExportFilename.disabled = historyExportBusy;
+    if (historyExportFiletype) historyExportFiletype.disabled = historyExportBusy;
+    if (historyExportDialog) {
+      historyExportDialog.setAttribute("data-busy", historyExportBusy ? "1" : "0");
+    }
+  }
+
+  function syncHistoryExportCsvNote() {
+    if (!historyExportCsvNote || !historyExportFiletype) return;
+    const isCsv = historyExportFiletype.value === "csv";
+    if (isCsv) historyExportCsvNote.removeAttribute("hidden");
+    else historyExportCsvNote.setAttribute("hidden", "hidden");
+  }
+
+  function openHistoryExportDialog() {
+    if (!historyExportOverlay) return;
+    historyExportFileHandle = null;
+    historyExportStemTouched = false;
+    historyExportSyncingName = false;
+    if (historyExportFiletype) historyExportFiletype.value = "xlsx";
+    if (historyExportFilename) {
+      historyExportFilename.value = historyExportComposeFilename(
+        historyExportDefaultStem(),
+        historyExportFiletype ? historyExportFiletype.value : "xlsx"
+      );
+    }
+    setHistoryExportPathSelected(false);
+    syncHistoryExportCsvNote();
+    setHistoryExportStatus("", "");
+    setHistoryExportBusy(false);
+    historyExportOverlay.removeAttribute("hidden");
+    if (btnOpenHistoryExport) btnOpenHistoryExport.setAttribute("aria-expanded", "true");
+    if (btnHistoryExportBrowse) btnHistoryExportBrowse.focus();
+  }
+
+  function closeHistoryExportDialog() {
+    if (historyExportBusy) return;
+    if (!historyExportOverlay) return;
+    historyExportOverlay.setAttribute("hidden", "hidden");
+    if (btnOpenHistoryExport) btnOpenHistoryExport.setAttribute("aria-expanded", "false");
+    historyExportFileHandle = null;
+    setHistoryExportPathSelected(false);
+    setHistoryExportStatus("", "");
+  }
+
+  function historyExportVisibleColumnsSnapshot() {
+    const cols = (historyLayoutSaved && historyLayoutSaved.columns) || [];
+    return cols
+      .filter((c) => c && c.visible)
+      .map((c) => ({ key: c.key, width: c.width }));
+  }
+
+  async function historyExportPickFile(suggestedName, fileType) {
+    if (!historyExportSupportsPicker()) {
+      setHistoryExportStatus(MSG.historyExportPickerUnsupported, "error");
+      return { handle: null, cancelled: false, unsupported: true };
+    }
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: suggestedName,
+        types: [{
+          description: String(fileType || "xlsx").toUpperCase(),
+          accept: HISTORY_EXPORT_ACCEPT[fileType] || HISTORY_EXPORT_ACCEPT.xlsx,
+        }],
+      });
+      return { handle: handle, cancelled: false, unsupported: false };
+    } catch (err) {
+      if (err && (err.name === "AbortError" || err.name === "NotAllowedError")) {
+        return { handle: null, cancelled: true, unsupported: false };
+      }
+      setHistoryExportStatus(MSG.historyExportPickerUnsupported, "error");
+      return { handle: null, cancelled: false, unsupported: true };
+    }
+  }
+
+  async function runHistoryExport() {
+    if (historyExportBusy) return;
+    const fileType = historyExportFiletype ? historyExportFiletype.value : "xlsx";
+    const validated = historyExportValidateFilename(
+      historyExportFilename ? historyExportFilename.value : "",
+      fileType
+    );
+    if (!validated.ok) {
+      setHistoryExportStatus(HISTORY_EXPORT_ERR[validated.error] || MSG.historyExportFailed, "error");
+      return;
+    }
+    if (historyExportFilename) historyExportFilename.value = validated.filename;
+    const columns = historyExportVisibleColumnsSnapshot();
+    if (!columns.length) {
+      setHistoryExportStatus(MSG.historyExportNoVisible, "error");
+      return;
+    }
+    if (!historyExportSupportsPicker()) {
+      setHistoryExportStatus(MSG.historyExportPickerUnsupported, "error");
+      return;
+    }
+    const handle = historyExportFileHandle;
+    if (!handle) {
+      setHistoryExportStatus(MSG.historyExportPathRequired, "error");
+      return;
+    }
+    if (!historyExportHandleMatchesType(handle, fileType)) {
+      clearHistoryExportHandle({});
+      setHistoryExportStatus(MSG.historyExportExtMismatch, "error");
+      return;
+    }
+
+    setHistoryExportBusy(true);
+    setHistoryExportStatus(MSG.historyExportBusy, "");
+    try {
+      const payload = {
+        file_type: fileType,
+        filename: historyExportFilename.value,
+        q: historyQ || "",
+        all_matches: !!historyAllMatches,
+        date: historyDateInput ? historyDateInput.value : "",
+        sort: historySort || historyCurrentSortParam(),
+        columns: columns,
+        lang: MSG.currentLang || "zh-Hant",
+      };
+      const resp = await fetch("/api/soccer/history-export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "*/*" },
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok) {
+        let errCode = "export_failed";
+        try {
+          const j = await resp.json();
+          if (j && j.error) errCode = j.error;
+        } catch (_e) { /* binary or empty */ }
+        setHistoryExportStatus(
+          (HISTORY_EXPORT_ERR[errCode] || MSG.historyExportFailed) +
+            (errCode ? "（" + errCode + "）" : ""),
+          "error"
+        );
+        return;
+      }
+      const buf = await resp.arrayBuffer();
+      const writable = await handle.createWritable();
+      try {
+        await writable.write(buf);
+        await writable.close();
+      } catch (_writeErr) {
+        try { await writable.abort(); } catch (_e) { /* ignore */ }
+        setHistoryExportStatus(MSG.historyExportWriteError, "error");
+        return;
+      }
+      const rows = resp.headers.get("X-HPPV-Export-Rows") || "";
+      setHistoryExportStatus(
+        MSG.historyExportDone + (rows ? "（" + rows + "）" : ""),
+        "ok"
+      );
+      historyExportFileHandle = null;
+      setHistoryExportPathSelected(false);
+    } catch (_e) {
+      setHistoryExportStatus(MSG.historyExportFailed, "error");
+    } finally {
+      setHistoryExportBusy(false);
+    }
+  }
+
+  if (btnOpenHistoryExport) {
+    btnOpenHistoryExport.addEventListener("click", () => openHistoryExportDialog());
+  }
+  if (btnHistoryExportLeave) {
+    btnHistoryExportLeave.addEventListener("click", () => closeHistoryExportDialog());
+  }
+  if (btnHistoryExportConfirm) {
+    btnHistoryExportConfirm.addEventListener("click", () => { runHistoryExport(); });
+  }
+  if (btnHistoryExportBrowse) {
+    btnHistoryExportBrowse.addEventListener("click", async () => {
+      if (historyExportBusy) return;
+      const fileType = historyExportFiletype ? historyExportFiletype.value : "xlsx";
+      const validated = historyExportValidateFilename(
+        historyExportFilename ? historyExportFilename.value : historyExportDefaultStem(),
+        fileType
+      );
+      if (!validated.ok) {
+        setHistoryExportStatus(HISTORY_EXPORT_ERR[validated.error] || MSG.historyExportFailed, "error");
+        return;
+      }
+      if (historyExportFilename) historyExportFilename.value = validated.filename;
+      const previousHandle = historyExportFileHandle;
+      const picked = await historyExportPickFile(validated.filename, fileType);
+      if (picked.unsupported) return;
+      if (picked.cancelled || !picked.handle) {
+        // Keep prior selection; first-time cancel stays unselected. No export-failure.
+        if (previousHandle) {
+          historyExportFileHandle = previousHandle;
+          setHistoryExportPathSelected(true);
+          setHistoryExportStatus("", "");
+        } else {
+          setHistoryExportPathSelected(false);
+          setHistoryExportStatus("", "");
+        }
+        return;
+      }
+      if (!historyExportHandleMatchesType(picked.handle, fileType)) {
+        setHistoryExportStatus(MSG.historyExportExtMismatch, "error");
+        return;
+      }
+      historyExportFileHandle = picked.handle;
+      setHistoryExportPathSelected(true);
+      if (picked.handle.name && historyExportFilename) {
+        historyExportSyncingName = true;
+        historyExportFilename.value = picked.handle.name;
+        historyExportStemTouched = true;
+        historyExportSyncingName = false;
+      }
+      setHistoryExportStatus("", "");
+    });
+  }
+  if (historyExportFiletype) {
+    historyExportFiletype.addEventListener("change", () => {
+      syncHistoryExportCsvNote();
+      if (historyExportFilename) {
+        const stem = historyExportStemTouched
+          ? historyExportStripExt(historyExportFilename.value)
+          : historyExportDefaultStem();
+        historyExportSyncingName = true;
+        historyExportFilename.value = historyExportComposeFilename(
+          stem || historyExportDefaultStem(),
+          historyExportFiletype.value
+        );
+        historyExportSyncingName = false;
+      }
+      if (historyExportFileHandle) {
+        clearHistoryExportHandle({ showReselectTip: true });
+      }
+    });
+  }
+  if (historyExportFilename) {
+    historyExportFilename.addEventListener("input", () => {
+      if (historyExportSyncingName) return;
+      historyExportStemTouched = true;
+      if (historyExportFileHandle) {
+        clearHistoryExportHandle({ showReselectTip: true });
+      }
+    });
+  }
+  if (historyExportOverlay) {
+    historyExportOverlay.addEventListener("click", (ev) => {
+      if (ev.target === historyExportOverlay) closeHistoryExportDialog();
+    });
+  }
+  document.addEventListener("keydown", (ev) => {
+    if (!historyExportOverlay || historyExportOverlay.hasAttribute("hidden")) return;
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      closeHistoryExportDialog();
+    }
+  });
 
   historyUiReady = true;
   if (activeTabName === "history") {

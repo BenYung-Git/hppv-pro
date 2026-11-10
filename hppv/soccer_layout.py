@@ -48,8 +48,10 @@ COLUMN_CATALOG: tuple[dict[str, Any], ...] = (
 )
 
 # Match History (footylogic_matches) — independent catalog; never copy daily user settings.
+# Base display keys stay first / stable. Extra physical columns are appended from
+# live PRAGMA table_info so new DB fields appear without frontend edits.
 # Composite score columns are display-only: no invented sort by goals / home score.
-HISTORY_COLUMN_CATALOG: tuple[dict[str, Any], ...] = (
+HISTORY_BASE_COLUMN_CATALOG: tuple[dict[str, Any], ...] = (
     {"key": "match_date", "group": "basic", "default_visible": True, "default_width": 110, "default_sort": SORT_EMPTY, "sortable": True},
     {"key": "kickoff_hhmm", "group": "basic", "default_visible": True, "default_width": 90, "default_sort": SORT_DESC, "sortable": True},
     {"key": "competition_name", "group": "basic", "default_visible": True, "default_width": 160, "default_sort": SORT_EMPTY, "sortable": True},
@@ -58,6 +60,29 @@ HISTORY_COLUMN_CATALOG: tuple[dict[str, Any], ...] = (
     {"key": "score_ht", "group": "result", "default_visible": True, "default_width": 90, "default_sort": SORT_EMPTY, "sortable": False},
     {"key": "score_ft", "group": "result", "default_visible": True, "default_width": 90, "default_sort": SORT_EMPTY, "sortable": False},
 )
+
+# Physical columns already represented by the base display aliases above.
+HISTORY_COVERED_PHYSICAL_COLUMNS: frozenset[str] = frozenset(
+    {
+        "match_date_hkt",
+        "kickoff_hkt",
+        "competition_name",
+        "home_team_name",
+        "home_team_id",
+        "away_team_name",
+        "away_team_id",
+        "score_ht_home",
+        "score_ht_away",
+        "score_ft_home",
+        "score_ft_away",
+    }
+)
+
+# Large / low-signal fields stay in catalog but hidden by default.
+HISTORY_DEFAULT_HIDDEN_PHYSICAL: frozenset[str] = frozenset({"event_json"})
+
+# Backward-compatible name: base catalog only (no DB). Prefer resolve_history_column_catalog().
+HISTORY_COLUMN_CATALOG = HISTORY_BASE_COLUMN_CATALOG
 
 # Rename legacy layout-only placeholder keys to current display keys.
 # ui_et is kept as-is (pending ET schema); never silently drop saved layout rows.
@@ -74,14 +99,89 @@ HISTORY_COLUMN_KEYS = frozenset(c["key"] for c in HISTORY_COLUMN_CATALOG)
 HISTORY_COLUMN_BY_KEY = {c["key"]: c for c in HISTORY_COLUMN_CATALOG}
 
 
-def catalog_for_layout_key(layout_key: str) -> tuple[dict[str, Any], ...]:
+def _history_extra_column_meta(col_name: str) -> dict[str, Any]:
+    if col_name.startswith("score_") or col_name.startswith("final_odds_"):
+        group = "result" if col_name.startswith("score_") else "odds"
+        width = 110 if col_name.startswith("final_odds_") else 100
+    elif col_name in {"source_key", "source", "competition_id", "season_id", "month"}:
+        group = "basic"
+        width = 120
+    else:
+        group = "meta"
+        width = 140
+    return {
+        "key": col_name,
+        "group": group,
+        "default_visible": col_name not in HISTORY_DEFAULT_HIDDEN_PHYSICAL,
+        "default_width": width,
+        "default_sort": SORT_EMPTY,
+        "sortable": col_name
+        in {
+            "competition_id",
+            "season_id",
+            "month",
+            "source_key",
+            "kickoff_utc",
+            "source_last_updated",
+            "created_at",
+            "updated_at",
+            "has_score",
+            "score_complete",
+            "result_confirm_status",
+        },
+    }
+
+
+def history_column_catalog_from_physical(
+    physical_columns: list[str] | tuple[str, ...],
+) -> tuple[dict[str, Any], ...]:
+    """Base display columns first, then remaining footylogic_matches columns in table order."""
+    base_keys = {c["key"] for c in HISTORY_BASE_COLUMN_CATALOG}
+    extras: list[dict[str, Any]] = []
+    for name in physical_columns:
+        if name in HISTORY_COVERED_PHYSICAL_COLUMNS:
+            continue
+        if name in base_keys:
+            continue
+        extras.append(_history_extra_column_meta(name))
+    return HISTORY_BASE_COLUMN_CATALOG + tuple(extras)
+
+
+def read_footylogic_matches_columns(db_path: Path | None) -> list[str]:
+    """Live schema only — no cached column list."""
+    if db_path is None or not Path(db_path).is_file():
+        return []
+    from hppv.footylogic_schema import FOOTYLOGIC_MATCHES_TABLE
+
+    with get_connection(Path(db_path)) as conn:
+        if not table_exists(conn, FOOTYLOGIC_MATCHES_TABLE):
+            return []
+        return [str(r[1]) for r in conn.execute(f"PRAGMA table_info({FOOTYLOGIC_MATCHES_TABLE})")]
+
+
+def resolve_history_column_catalog(db_path: Path | None = None) -> tuple[dict[str, Any], ...]:
+    physical = read_footylogic_matches_columns(db_path)
+    if not physical:
+        return HISTORY_BASE_COLUMN_CATALOG
+    return history_column_catalog_from_physical(physical)
+
+
+def catalog_for_layout_key(
+    layout_key: str,
+    *,
+    db_path: Path | None = None,
+) -> tuple[dict[str, Any], ...]:
     if layout_key == LAYOUT_KEY_MATCH_HISTORY:
-        return HISTORY_COLUMN_CATALOG
+        return resolve_history_column_catalog(db_path)
     return COLUMN_CATALOG
 
 
-def column_keys_for_layout_key(layout_key: str) -> frozenset[str]:
-    return frozenset(c["key"] for c in catalog_for_layout_key(layout_key))
+def column_keys_for_layout_key(
+    layout_key: str,
+    *,
+    db_path: Path | None = None,
+) -> frozenset[str]:
+    return frozenset(c["key"] for c in catalog_for_layout_key(layout_key, db_path=db_path))
 
 ZEBRA_COLORS: tuple[dict[str, str], ...] = (
     {"id": "row_alt_gray", "css": "#f4f6f9"},
@@ -124,9 +224,13 @@ def validate_column_width(raw: Any) -> int:
     return width
 
 
-def default_layout_settings(layout_key: str = LAYOUT_KEY_DAILY_MATCHES) -> dict[str, Any]:
+def default_layout_settings(
+    layout_key: str = LAYOUT_KEY_DAILY_MATCHES,
+    *,
+    db_path: Path | None = None,
+) -> dict[str, Any]:
     columns = []
-    for c in catalog_for_layout_key(layout_key):
+    for c in catalog_for_layout_key(layout_key, db_path=db_path):
         columns.append(
             {
                 "key": c["key"],
@@ -146,12 +250,13 @@ def _migrate_legacy_column_list(
     cols_raw: list[Any],
     *,
     layout_key: str = LAYOUT_KEY_DAILY_MATCHES,
+    db_path: Path | None = None,
 ) -> list[Any]:
     """
     Daily only: map legacy ui_ht/2h/ft/pen keys to score_*; keep ui_et.
     History: append missing catalog keys only (no daily legacy rename).
     """
-    catalog = catalog_for_layout_key(layout_key)
+    catalog = catalog_for_layout_key(layout_key, db_path=db_path)
     migrated: list[Any] = []
     seen: set[str] = set()
     for item in cols_raw:
@@ -188,6 +293,7 @@ def _normalize_saved_settings(
     raw: Any,
     *,
     layout_key: str = LAYOUT_KEY_DAILY_MATCHES,
+    db_path: Path | None = None,
 ) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise SoccerLayoutError("invalid_settings", "settings must be an object")
@@ -200,9 +306,9 @@ def _normalize_saved_settings(
     cols_raw = raw.get("columns")
     if not isinstance(cols_raw, list) or not cols_raw:
         raise SoccerLayoutError("invalid_settings", "columns must be a non-empty array")
-    cols_raw = _migrate_legacy_column_list(cols_raw, layout_key=layout_key)
+    cols_raw = _migrate_legacy_column_list(cols_raw, layout_key=layout_key, db_path=db_path)
 
-    catalog = catalog_for_layout_key(layout_key)
+    catalog = catalog_for_layout_key(layout_key, db_path=db_path)
     catalog_keys = frozenset(c["key"] for c in catalog)
     by_key = {c["key"]: c for c in catalog}
 
@@ -251,23 +357,23 @@ def ensure_layout_schema(conn: sqlite3.Connection) -> None:
 
 def get_layout_settings(db_path: Path, layout_key: str = LAYOUT_KEY_DAILY_MATCHES) -> dict[str, Any]:
     if not db_path.is_file():
-        return default_layout_settings(layout_key)
+        return default_layout_settings(layout_key, db_path=db_path)
     with get_connection(db_path) as conn:
         if not table_exists(conn, SOCCER_LAYOUT_SETTINGS_TABLE):
-            return default_layout_settings(layout_key)
+            return default_layout_settings(layout_key, db_path=db_path)
         row = conn.execute(
             "SELECT settings_json FROM soccer_layout_settings WHERE layout_key = ?;",
             (layout_key,),
         ).fetchone()
     if not row:
-        return default_layout_settings(layout_key)
+        return default_layout_settings(layout_key, db_path=db_path)
     try:
         parsed = json.loads(str(row["settings_json"]))
     except json.JSONDecodeError as e:
         raise SoccerLayoutError("invalid_stored_layout", "stored settings_json is not valid JSON") from e
-    normalized = _normalize_saved_settings(parsed, layout_key=layout_key)
+    normalized = _normalize_saved_settings(parsed, layout_key=layout_key, db_path=db_path)
     # Persist newly appended catalog keys without resetting others / other layout_keys.
-    catalog_keys = column_keys_for_layout_key(layout_key)
+    catalog_keys = column_keys_for_layout_key(layout_key, db_path=db_path)
     stored_keys: set[str] = set()
     cols = parsed.get("columns") if isinstance(parsed, dict) else None
     if isinstance(cols, list):
@@ -295,7 +401,7 @@ def save_layout_settings(
 ) -> dict[str, Any]:
     if not db_path.is_file():
         raise SoccerLayoutError("db_missing", f"database missing: {db_path}")
-    normalized = _normalize_saved_settings(settings, layout_key=layout_key)
+    normalized = _normalize_saved_settings(settings, layout_key=layout_key, db_path=db_path)
     stamp = now_utc or utc_now_iso()
     payload = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
     with get_connection(db_path) as conn:
@@ -321,10 +427,14 @@ def zebra_css_for_id(color_id: str) -> str:
     raise SoccerLayoutError("invalid_settings", f"unknown zebra_color_id: {color_id!r}")
 
 
-def catalog_public(layout_key: str = LAYOUT_KEY_DAILY_MATCHES) -> list[dict[str, Any]]:
-    """Column metadata for UI (no translations)."""
+def catalog_public(
+    layout_key: str = LAYOUT_KEY_DAILY_MATCHES,
+    *,
+    db_path: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Column metadata for UI (no translations). Schema-driven for match_history."""
     out = []
-    for c in catalog_for_layout_key(layout_key):
+    for c in catalog_for_layout_key(layout_key, db_path=db_path):
         out.append(
             {
                 "key": c["key"],

@@ -5,3 +5,5 @@ beautifulsoup4>=4.12
 pandas>=2.0
 xlsxwriter>=3.2
 graphql-core>=3.2
+Pillow>=10.0
+reportlab>=4.0

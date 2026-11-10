@@ -251,7 +251,8 @@ def test_history_layout_independent_from_daily(tmp_path: Path) -> None:
     daily["columns"][0]["width"] = 222
     save_layout_settings(db, daily, layout_key=LAYOUT_KEY_DAILY_MATCHES)
 
-    hist = default_layout_settings(LAYOUT_KEY_MATCH_HISTORY)
+    # No footylogic_matches yet → base history catalog only.
+    hist = default_layout_settings(LAYOUT_KEY_MATCH_HISTORY, db_path=db)
     keys = [c["key"] for c in hist["columns"]]
     assert keys == [c["key"] for c in HISTORY_COLUMN_CATALOG]
     assert "match_code" not in keys
@@ -269,6 +270,44 @@ def test_history_layout_independent_from_daily(tmp_path: Path) -> None:
     assert loaded_daily["columns"][0]["width"] == 222
     assert loaded_hist["columns"][0]["width"] == 133
     assert len(loaded_hist["columns"]) == len(HISTORY_COLUMN_CATALOG)
+
+
+def test_history_layout_auto_appends_new_footylogic_columns(tmp_path: Path) -> None:
+    from hppv.footylogic_schema import footylogic_schema_sql
+    from hppv.soccer_db import get_connection
+    from hppv.soccer_layout import resolve_history_column_catalog
+
+    db = tmp_path / "soccer.sqlite3"
+    init_soccer_db(db)
+    with get_connection(db) as conn:
+        conn.executescript(footylogic_schema_sql())
+        conn.commit()
+
+    catalog = resolve_history_column_catalog(db)
+    keys = [c["key"] for c in catalog]
+    # Existing display order preserved at the front.
+    assert keys[:7] == [c["key"] for c in HISTORY_COLUMN_CATALOG]
+    for col in (
+        "score_2h_home",
+        "score_2h_away",
+        "score_et_home",
+        "score_et_away",
+        "score_pens_home",
+        "score_pens_away",
+        "final_odds_home",
+        "final_odds_draw",
+        "final_odds_away",
+        "final_odds_timestamp",
+        "final_odds_source",
+    ):
+        assert col in keys
+    # Covered physical pairs are not duplicated beside score_ht / score_ft.
+    assert "score_ft_home" not in keys
+    assert "score_ht_away" not in keys
+
+    hist = default_layout_settings(LAYOUT_KEY_MATCH_HISTORY, db_path=db)
+    assert any(c["key"] == "score_2h_home" and c["visible"] for c in hist["columns"])
+    assert any(c["key"] == "event_json" and not c["visible"] for c in hist["columns"])
 
     # Reject invented sort on composite score columns.
     bad = default_layout_settings(LAYOUT_KEY_MATCH_HISTORY)

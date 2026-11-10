@@ -7,12 +7,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from hppv.footylogic_parse import ParsedFootylogicMatch
+import json
+
+from hppv.footylogic_parse import (
+    FT_90MIN_EVIDENCE,
+    ParsedFootylogicMatch,
+    classify_score_2h_eligibility,
+)
 from hppv.footylogic_schema import (
     FOOTYLOGIC_JOBS_TABLE,
     FOOTYLOGIC_MATCHES_TABLE,
     FOOTYLOGIC_QUARANTINE_TABLE,
     FOOTYLOGIC_RAW_TABLE,
+    ensure_footylogic_matches_new_columns_sql,
     footylogic_schema_sql,
 )
 from hppv.soccer_db import get_connection
@@ -24,6 +31,12 @@ def _utc_now() -> str:
 
 def ensure_footylogic_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(footylogic_schema_sql())
+    existing = {
+        str(r[1])
+        for r in conn.execute(f"PRAGMA table_info({FOOTYLOGIC_MATCHES_TABLE})").fetchall()
+    }
+    for stmt in ensure_footylogic_matches_new_columns_sql(existing):
+        conn.execute(stmt)
 
 
 def init_footylogic_tables(db_path: Path) -> None:
@@ -166,6 +179,42 @@ def store_raw_month(
     )
 
 
+def _store_score_2h_derivation(
+    conn: sqlite3.Connection,
+    *,
+    source_key: str,
+    score_2h_home: int,
+    score_2h_away: int,
+    now: str,
+) -> None:
+    evidence = dict(FT_90MIN_EVIDENCE)
+    evidence["class_code"] = "A"
+    conn.execute(
+        """
+        INSERT INTO footylogic_score_derivations (
+            source_key, field, value_home, value_away, formula, class_code,
+            evidence_json, source_fields_json, calculated_at
+        ) VALUES (?, 'score_2h', ?, ?, 'score_ft - score_ht', 'A', ?, ?, ?)
+        ON CONFLICT(source_key, field) DO UPDATE SET
+            value_home=excluded.value_home,
+            value_away=excluded.value_away,
+            formula=excluded.formula,
+            class_code=excluded.class_code,
+            evidence_json=excluded.evidence_json,
+            source_fields_json=excluded.source_fields_json,
+            calculated_at=excluded.calculated_at
+        """,
+        (
+            source_key,
+            score_2h_home,
+            score_2h_away,
+            json.dumps(evidence, ensure_ascii=False, separators=(",", ":")),
+            json.dumps(FT_90MIN_EVIDENCE["source_fields"], ensure_ascii=False),
+            now,
+        ),
+    )
+
+
 def upsert_matches(conn: sqlite3.Connection, rows: Iterable[ParsedFootylogicMatch]) -> int:
     """
     Upsert identity-ok rows.
@@ -183,6 +232,10 @@ def upsert_matches(conn: sqlite3.Connection, rows: Iterable[ParsedFootylogicMatc
                 home_team_id, away_team_id, home_team_name, away_team_name,
                 kickoff_utc, kickoff_hkt, match_date_hkt,
                 score_ft_home, score_ft_away, score_ht_home, score_ht_away,
+                score_2h_home, score_2h_away, score_et_home, score_et_away,
+                score_pens_home, score_pens_away,
+                final_odds_home, final_odds_draw, final_odds_away,
+                final_odds_timestamp, final_odds_source,
                 has_score, score_complete, result_confirm_status,
                 event_json, source_last_updated, created_at, updated_at
             ) VALUES (
@@ -190,6 +243,10 @@ def upsert_matches(conn: sqlite3.Connection, rows: Iterable[ParsedFootylogicMatc
                 ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?,
+                ?, ?, ?,
+                ?, ?,
                 ?, ?, ?,
                 ?, ?, ?, ?
             )
@@ -211,6 +268,39 @@ def upsert_matches(conn: sqlite3.Connection, rows: Iterable[ParsedFootylogicMatc
                 score_ht_away=CASE
                     WHEN excluded.score_ht_away IS NOT NULL THEN excluded.score_ht_away
                     ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_ht_away END,
+                score_2h_home=CASE
+                    WHEN excluded.score_2h_home IS NOT NULL THEN excluded.score_2h_home
+                    ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_2h_home END,
+                score_2h_away=CASE
+                    WHEN excluded.score_2h_away IS NOT NULL THEN excluded.score_2h_away
+                    ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_2h_away END,
+                score_et_home=CASE
+                    WHEN excluded.score_et_home IS NOT NULL THEN excluded.score_et_home
+                    ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_et_home END,
+                score_et_away=CASE
+                    WHEN excluded.score_et_away IS NOT NULL THEN excluded.score_et_away
+                    ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_et_away END,
+                score_pens_home=CASE
+                    WHEN excluded.score_pens_home IS NOT NULL THEN excluded.score_pens_home
+                    ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_pens_home END,
+                score_pens_away=CASE
+                    WHEN excluded.score_pens_away IS NOT NULL THEN excluded.score_pens_away
+                    ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_pens_away END,
+                final_odds_home=CASE
+                    WHEN excluded.final_odds_home IS NOT NULL THEN excluded.final_odds_home
+                    ELSE {FOOTYLOGIC_MATCHES_TABLE}.final_odds_home END,
+                final_odds_draw=CASE
+                    WHEN excluded.final_odds_draw IS NOT NULL THEN excluded.final_odds_draw
+                    ELSE {FOOTYLOGIC_MATCHES_TABLE}.final_odds_draw END,
+                final_odds_away=CASE
+                    WHEN excluded.final_odds_away IS NOT NULL THEN excluded.final_odds_away
+                    ELSE {FOOTYLOGIC_MATCHES_TABLE}.final_odds_away END,
+                final_odds_timestamp=CASE
+                    WHEN excluded.final_odds_timestamp IS NOT NULL THEN excluded.final_odds_timestamp
+                    ELSE {FOOTYLOGIC_MATCHES_TABLE}.final_odds_timestamp END,
+                final_odds_source=CASE
+                    WHEN excluded.final_odds_source IS NOT NULL THEN excluded.final_odds_source
+                    ELSE {FOOTYLOGIC_MATCHES_TABLE}.final_odds_source END,
                 has_score=CASE
                     WHEN excluded.has_score=1 THEN 1
                     ELSE {FOOTYLOGIC_MATCHES_TABLE}.has_score END,
@@ -238,6 +328,17 @@ def upsert_matches(conn: sqlite3.Connection, rows: Iterable[ParsedFootylogicMatc
                 row.score_ft_away,
                 row.score_ht_home,
                 row.score_ht_away,
+                row.score_2h_home,
+                row.score_2h_away,
+                row.score_et_home,
+                row.score_et_away,
+                row.score_pens_home,
+                row.score_pens_away,
+                row.final_odds_home,
+                row.final_odds_draw,
+                row.final_odds_away,
+                row.final_odds_timestamp,
+                row.final_odds_source,
                 1 if row.has_score else 0,
                 1 if row.score_complete else 0,
                 row.result_confirm_status,
@@ -247,6 +348,24 @@ def upsert_matches(conn: sqlite3.Connection, rows: Iterable[ParsedFootylogicMatc
                 now,
             ),
         )
+        if row.score_2h_home is not None and row.score_2h_away is not None:
+            # Only record derivation when we computed 2H (class A). Never invent.
+            if (
+                classify_score_2h_eligibility(
+                    score_ft_home=row.score_ft_home,
+                    score_ft_away=row.score_ft_away,
+                    score_ht_home=row.score_ht_home,
+                    score_ht_away=row.score_ht_away,
+                )
+                == "A"
+            ):
+                _store_score_2h_derivation(
+                    conn,
+                    source_key=row.source_key,
+                    score_2h_home=row.score_2h_home,
+                    score_2h_away=row.score_2h_away,
+                    now=now,
+                )
         n += 1
     return n
 

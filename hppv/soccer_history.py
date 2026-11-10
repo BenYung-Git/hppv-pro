@@ -15,6 +15,7 @@ from hppv.soccer_matches import (
     EMPTY_DISPLAY,
     SoccerDataError,
     format_kickoff_hhmm,
+    format_odds,
     format_score_pair,
     format_text_field,
     normalize_record_index,
@@ -61,24 +62,15 @@ DEFAULT_HISTORY_SEARCH_KEYS: tuple[str, ...] = (
     "source_key",
 )
 
-_HISTORY_SELECT_SQL = f"""
-                SELECT
-                    source_key,
-                    competition_id,
-                    competition_name,
-                    home_team_id,
-                    away_team_id,
-                    home_team_name,
-                    away_team_name,
-                    kickoff_utc,
-                    kickoff_hkt,
-                    match_date_hkt,
-                    score_ft_home,
-                    score_ft_away,
-                    score_ht_home,
-                    score_ht_away
-                FROM {FOOTYLOGIC_MATCHES_TABLE}
-"""
+# SELECT * so newly migrated footylogic_matches columns flow to the API
+# without editing this module's column list again.
+_HISTORY_SELECT_SQL = f"SELECT * FROM {FOOTYLOGIC_MATCHES_TABLE}"
+
+# Physical columns that remain aliased into display keys (not duplicated as raw keys
+# in the primary view payload — raw values still available under physical names).
+_HISTORY_ODDS_COLUMNS = frozenset(
+    {"final_odds_home", "final_odds_draw", "final_odds_away"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +85,7 @@ class HistoryListResult:
     q: str
     all_matches: bool
     sort: str
+    field_keys: tuple[str, ...] = ()
 
 
 def format_name_or_id(name: Any, source_id: Any) -> str:
@@ -103,31 +96,54 @@ def format_name_or_id(name: Any, source_id: Any) -> str:
     return format_text_field(source_id)
 
 
+def _format_history_physical_value(col: str, value: Any, *, source_key: str) -> str:
+    if col in _HISTORY_ODDS_COLUMNS:
+        return format_odds(value, match_id=source_key, field=col)
+    # INTEGER/REAL/TEXT: NULL → —; real 0 kept as "0" (never invent missing as 0).
+    return format_text_field(value)
+
+
 def _row_to_history_view(row: Any) -> dict[str, str]:
-    source_key = str(row["source_key"] or "")
-    return {
-        "source_key": source_key,
-        "match_date": format_text_field(row["match_date_hkt"]),
-        "kickoff_hhmm": format_kickoff_hhmm(row["kickoff_hkt"]),
-        "competition_id": format_text_field(row["competition_id"]),
-        "competition_name": format_name_or_id(
-            row["competition_name"], row["competition_id"]
+    keys = list(row.keys()) if hasattr(row, "keys") else []
+    source_key = str(row["source_key"] or "") if "source_key" in keys else ""
+    view: dict[str, str] = {
+        "source_key": source_key or EMPTY_DISPLAY,
+        "match_date": format_text_field(row["match_date_hkt"] if "match_date_hkt" in keys else None),
+        "kickoff_hhmm": format_kickoff_hhmm(row["kickoff_hkt"] if "kickoff_hkt" in keys else None),
+        "competition_id": format_text_field(
+            row["competition_id"] if "competition_id" in keys else None
         ),
-        "home_team": format_name_or_id(row["home_team_name"], row["home_team_id"]),
-        "away_team": format_name_or_id(row["away_team_name"], row["away_team_id"]),
+        "competition_name": format_name_or_id(
+            row["competition_name"] if "competition_name" in keys else None,
+            row["competition_id"] if "competition_id" in keys else None,
+        ),
+        "home_team": format_name_or_id(
+            row["home_team_name"] if "home_team_name" in keys else None,
+            row["home_team_id"] if "home_team_id" in keys else None,
+        ),
+        "away_team": format_name_or_id(
+            row["away_team_name"] if "away_team_name" in keys else None,
+            row["away_team_id"] if "away_team_id" in keys else None,
+        ),
         "score_ht": format_score_pair(
-            row["score_ht_home"],
-            row["score_ht_away"],
+            row["score_ht_home"] if "score_ht_home" in keys else None,
+            row["score_ht_away"] if "score_ht_away" in keys else None,
             match_id=source_key,
             field="score_ht",
         ),
         "score_ft": format_score_pair(
-            row["score_ft_home"],
-            row["score_ft_away"],
+            row["score_ft_home"] if "score_ft_home" in keys else None,
+            row["score_ft_away"] if "score_ft_away" in keys else None,
             match_id=source_key,
             field="score_ft",
         ),
     }
+    # Expose every physical column so layout/API stay schema-driven.
+    for col in keys:
+        if col in view:
+            continue
+        view[col] = _format_history_physical_value(col, row[col], source_key=source_key)
+    return view
 
 
 def parse_history_sort_param(raw: str | None) -> list[tuple[str, str]] | None:
@@ -284,6 +300,7 @@ def fetch_history_filtered(
         raise SoccerDataError(f"history query failed for {label}: {e}") from e
 
     matches = [_row_to_history_view(r) for r in rows]
+    field_keys: tuple[str, ...] = tuple(matches[0].keys()) if matches else ()
     return HistoryListResult(
         matches=matches,
         n=page if total_count else 1,
@@ -293,6 +310,7 @@ def fetch_history_filtered(
         q=q_text,
         all_matches=all_mode,
         sort=history_sort_param(specs),
+        field_keys=field_keys,
     )
 
 

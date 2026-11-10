@@ -157,6 +157,24 @@ def test_history_date_filter_and_missing_scores(tmp_path: Path) -> None:
     # Missing scores → em dash, never coerced to 0.
     assert by_home["主隊丙"]["score_ft"] == EMPTY_DISPLAY
     assert by_home["主隊丙"]["score_ht"] == EMPTY_DISPLAY
+    # Schema-driven fields (incl. migrated score/odds columns) present; NULL → —.
+    for col in (
+        "score_2h_home",
+        "score_2h_away",
+        "score_et_home",
+        "score_et_away",
+        "score_pens_home",
+        "score_pens_away",
+        "final_odds_home",
+        "final_odds_draw",
+        "final_odds_away",
+        "final_odds_timestamp",
+        "final_odds_source",
+    ):
+        assert col in by_home["主隊甲"]
+        assert by_home["主隊甲"][col] == EMPTY_DISPLAY
+        assert by_home["主隊甲"][col] != "0"
+    assert "score_2h_home" in result.field_keys
 
 
 def test_history_id_fallback_and_search(tmp_path: Path) -> None:

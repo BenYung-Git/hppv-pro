@@ -144,16 +144,16 @@ INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
         "当前页 / 总页数",
     ),
     (
+        "soccer.history.pager.records",
+        "（{n} 筆）",
+        "({n} Records)",
+        "（{n} 条）",
+    ),
+    (
         "soccer.history.pager.nav",
         "往績列表分頁",
         "History list pagination",
         "往绩列表分页",
-    ),
-    (
-        "soccer.history.col.competition_id",
-        "賽事 ID",
-        "Competition ID",
-        "赛事 ID",
     ),
     (
         "soccer.history.layout.mode_title",
@@ -167,6 +167,59 @@ INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
         "Match History",
         "球赛往绩",
     ),
+    # Match History column labels (schema keys; presence of columns is catalog-driven).
+    ("soccer.history.col.match_date", "比賽日期", "Match Date", "比赛日期"),
+    ("soccer.history.col.kickoff_hhmm", "開賽時間", "Kick-off", "开赛时间"),
+    ("soccer.history.col.competition_name", "賽事名稱", "Competition", "赛事名称"),
+    ("soccer.history.col.home_team", "主隊", "Home", "主队"),
+    ("soccer.history.col.away_team", "客隊", "Away", "客队"),
+    ("soccer.history.col.score_ht", "半場", "HT", "半场"),
+    ("soccer.history.col.score_ft", "全場", "FT", "全场"),
+    ("soccer.history.col.source_key", "來源鍵", "Source Key", "来源键"),
+    ("soccer.history.col.source", "資料來源", "Source", "数据来源"),
+    ("soccer.history.col.competition_id", "賽事 ID", "Competition ID", "赛事 ID"),
+    ("soccer.history.col.season_id", "球季 ID", "Season ID", "球季 ID"),
+    ("soccer.history.col.month", "月份", "Month", "月份"),
+    ("soccer.history.col.kickoff_utc", "開賽時間（UTC）", "Kick-off (UTC)", "开赛时间（UTC）"),
+    ("soccer.history.col.has_score", "已有比分", "Has Score", "已有比分"),
+    ("soccer.history.col.score_complete", "比分完整", "Score Complete", "比分完整"),
+    (
+        "soccer.history.col.result_confirm_status",
+        "賽果確認狀態",
+        "Result Confirm Status",
+        "赛果确认状态",
+    ),
+    ("soccer.history.col.event_json", "事件 JSON", "Event JSON", "事件 JSON"),
+    (
+        "soccer.history.col.source_last_updated",
+        "來源最後更新",
+        "Source Last Updated",
+        "来源最后更新",
+    ),
+    ("soccer.history.col.created_at", "建立時間", "Created At", "建立时间"),
+    ("soccer.history.col.updated_at", "更新時間", "Updated At", "更新时间"),
+    ("soccer.history.col.score_2h_home", "下半場主隊", "2H Home", "下半场主队"),
+    ("soccer.history.col.score_2h_away", "下半場客隊", "2H Away", "下半场客队"),
+    ("soccer.history.col.score_et_home", "加時主隊", "ET Home", "加时主队"),
+    ("soccer.history.col.score_et_away", "加時客隊", "ET Away", "加时客队"),
+    ("soccer.history.col.score_pens_home", "互射主隊", "Pens Home", "互射主队"),
+    ("soccer.history.col.score_pens_away", "互射客隊", "Pens Away", "互射客队"),
+    ("soccer.history.col.final_odds_home", "終盤主勝", "Final Odds Home", "终盘主胜"),
+    ("soccer.history.col.final_odds_draw", "終盤和局", "Final Odds Draw", "终盘和局"),
+    ("soccer.history.col.final_odds_away", "終盤客勝", "Final Odds Away", "终盘客胜"),
+    (
+        "soccer.history.col.final_odds_timestamp",
+        "終盤時間戳",
+        "Final Odds Timestamp",
+        "终盘时间戳",
+    ),
+    (
+        "soccer.history.col.final_odds_source",
+        "終盤來源",
+        "Final Odds Source",
+        "终盘来源",
+    ),
+    # Match History column descriptions
     (
         "soccer.history.col.desc.match_date",
         "比賽日期（footylogic_matches.match_date_hkt）",
@@ -210,10 +263,307 @@ INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
         "全场比分（组合显示）",
     ),
     (
+        "soccer.history.col.desc.source_key",
+        "往績列唯一鍵（來源系統識別）",
+        "Unique history row key from the source system",
+        "往绩行唯一键（来源系统识别）",
+    ),
+    (
+        "soccer.history.col.desc.source",
+        "資料來源標記（例如 footylogic）",
+        "Data source marker (e.g. footylogic)",
+        "数据来源标记（例如 footylogic）",
+    ),
+    (
+        "soccer.history.col.desc.competition_id",
+        "賽事編號（來源 competitionId）",
+        "Competition id from source competitionId",
+        "赛事编号（来源 competitionId）",
+    ),
+    (
+        "soccer.history.col.desc.season_id",
+        "球季編號（來源 seasonId）",
+        "Season id from source seasonId",
+        "球季编号（来源 seasonId）",
+    ),
+    (
+        "soccer.history.col.desc.month",
+        "歸檔月份鍵（YYYY-MM，用於增量下載）",
+        "Archive month key (YYYY-MM) used for incremental download",
+        "归档月份键（YYYY-MM，用于增量下载）",
+    ),
+    (
+        "soccer.history.col.desc.kickoff_utc",
+        "開賽時間（UTC ISO 字串）",
+        "Kick-off time as UTC ISO string",
+        "开赛时间（UTC ISO 字符串）",
+    ),
+    (
+        "soccer.history.col.desc.has_score",
+        "是否已寫入任何比分欄位",
+        "Whether any score fields are present",
+        "是否已写入任何比分字段",
+    ),
+    (
+        "soccer.history.col.desc.score_complete",
+        "比分是否被視為完整可顯示",
+        "Whether the score is treated as complete for display",
+        "比分是否被视为完整可显示",
+    ),
+    (
+        "soccer.history.col.desc.result_confirm_status",
+        "賽果確認／衍生狀態代碼",
+        "Result confirmation / derivation status code",
+        "赛果确认／衍生状态代码",
+    ),
+    (
+        "soccer.history.col.desc.event_json",
+        "原始事件 JSON（體積大，預設隱藏）",
+        "Raw event JSON (large; hidden by default)",
+        "原始事件 JSON（体积大，默认隐藏）",
+    ),
+    (
+        "soccer.history.col.desc.source_last_updated",
+        "來源端最後更新時間",
+        "Last update time reported by the source",
+        "来源端最后更新时间",
+    ),
+    (
+        "soccer.history.col.desc.created_at",
+        "本列寫入本地庫的時間",
+        "When this row was first written locally",
+        "本行写入本地库的时间",
+    ),
+    (
+        "soccer.history.col.desc.updated_at",
+        "本列最近更新時間",
+        "When this row was last updated locally",
+        "本行最近更新时间",
+    ),
+    (
+        "soccer.history.col.desc.score_2h_home",
+        "下半場主隊進球（衍生／來源欄）",
+        "Second-half home goals (derived or source)",
+        "下半场主队进球（衍生／来源字段）",
+    ),
+    (
+        "soccer.history.col.desc.score_2h_away",
+        "下半場客隊進球（衍生／來源欄）",
+        "Second-half away goals (derived or source)",
+        "下半场客队进球（衍生／来源字段）",
+    ),
+    (
+        "soccer.history.col.desc.score_et_home",
+        "加時賽主隊進球",
+        "Extra-time home goals",
+        "加时赛主队进球",
+    ),
+    (
+        "soccer.history.col.desc.score_et_away",
+        "加時賽客隊進球",
+        "Extra-time away goals",
+        "加时赛客队进球",
+    ),
+    (
+        "soccer.history.col.desc.score_pens_home",
+        "互射十二碼主隊進球",
+        "Penalty-shootout home goals",
+        "互射十二码主队进球",
+    ),
+    (
+        "soccer.history.col.desc.score_pens_away",
+        "互射十二碼客隊進球",
+        "Penalty-shootout away goals",
+        "互射十二码客队进球",
+    ),
+    (
+        "soccer.history.col.desc.final_odds_home",
+        "終盤主勝賠率",
+        "Final home win odds",
+        "终盘主胜赔率",
+    ),
+    (
+        "soccer.history.col.desc.final_odds_draw",
+        "終盤和局賠率",
+        "Final draw odds",
+        "终盘和局赔率",
+    ),
+    (
+        "soccer.history.col.desc.final_odds_away",
+        "終盤客勝賠率",
+        "Final away win odds",
+        "终盘客胜赔率",
+    ),
+    (
+        "soccer.history.col.desc.final_odds_timestamp",
+        "終盤賠率時間戳",
+        "Timestamp of the final odds snapshot",
+        "终盘赔率时间戳",
+    ),
+    (
+        "soccer.history.col.desc.final_odds_source",
+        "終盤賠率來源標記",
+        "Source marker for the final odds snapshot",
+        "终盘赔率来源标记",
+    ),
+    (
         "soccer.history.layout.sort_unsupported",
         "此欄位不支援排序",
         "Sort is not supported for this column",
         "此栏位不支持排序",
+    ),
+    ("soccer.history.export.tip", "匯出資料", "Export data", "导出数据"),
+    (
+        "soccer.history.export.title",
+        "球賽往績 — 匯出資料",
+        "Match History — Export Data",
+        "球赛往绩 — 导出数据",
+    ),
+    (
+        "soccer.history.export.output_path",
+        "輸出路徑",
+        "Output path",
+        "输出路径",
+    ),
+    (
+        "soccer.history.export.path_unselected",
+        "尚未選擇儲存位置",
+        "No save location selected",
+        "尚未选择保存位置",
+    ),
+    (
+        "soccer.history.export.path_selected",
+        "已選擇本機儲存位置",
+        "Local save location selected",
+        "已选择本机保存位置",
+    ),
+    (
+        "soccer.history.export.path_hint",
+        "完整路徑請在系統「另存新檔」視窗確認。",
+        "Confirm the full path in the system Save As dialog.",
+        "完整路径请在系统“另存为”窗口确认。",
+    ),
+    (
+        "soccer.history.export.path_need_reselect",
+        "檔名或格式已變更，請重新瀏覽選擇儲存位置。",
+        "File name or type changed. Please browse again to choose the save location.",
+        "文件名或格式已变更，请重新浏览选择保存位置。",
+    ),
+    (
+        "soccer.history.export.path_required",
+        "請先按「瀏覽」選擇本機儲存位置。",
+        "Please click Browse first to choose a local save location.",
+        "请先按“浏览”选择本机保存位置。",
+    ),
+    (
+        "soccer.history.export.ext_mismatch",
+        "另存檔名的副檔名與所選檔案類型不符，請重新瀏覽選擇。",
+        "The saved file extension does not match the selected file type. Please browse again.",
+        "另存文件名的扩展名与所选文件类型不符，请重新浏览选择。",
+    ),
+    (
+        "soccer.history.export.filename",
+        "輸出檔案名稱",
+        "Output file name",
+        "输出文件名称",
+    ),
+    ("soccer.history.export.file_type", "檔案類型", "File type", "文件类型"),
+    ("soccer.history.export.browse", "瀏覽", "Browse", "浏览"),
+    (
+        "soccer.history.export.browse_tip",
+        "選擇本機儲存位置",
+        "Choose local save location",
+        "选择本机保存位置",
+    ),
+    (
+        "soccer.history.export.confirm_tip",
+        "確定匯出",
+        "Confirm export",
+        "确定导出",
+    ),
+    (
+        "soccer.history.export.leave_tip",
+        "離開",
+        "Leave",
+        "离开",
+    ),
+    (
+        "soccer.history.export.csv_width_note",
+        "CSV 無法保存欄寬或視覺格式；仍會輸出目前顯示欄位、欄位次序及資料排序。",
+        "CSV cannot preserve column widths or visual formatting; visible columns, column order and data sort are still applied.",
+        "CSV 无法保存栏宽或视觉格式；仍会输出目前显示字段、字段次序及数据排序。",
+    ),
+    (
+        "soccer.history.export.picker_unsupported",
+        "此瀏覽器不支援選擇本機儲存位置（需要 File System Access API）。請改用支援的瀏覽器（例如最新版 Chrome 或 Edge）。",
+        "This browser cannot choose a local save location (File System Access API required). Please use a supported browser such as the latest Chrome or Edge.",
+        "此浏览器不支持选择本机保存位置（需要 File System Access API）。请改用支持的浏览器（例如最新版 Chrome 或 Edge）。",
+    ),
+    (
+        "soccer.history.export.busy",
+        "匯出進行中…",
+        "Export in progress…",
+        "导出进行中…",
+    ),
+    (
+        "soccer.history.export.done",
+        "匯出完成。",
+        "Export completed.",
+        "导出完成。",
+    ),
+    (
+        "soccer.history.export.failed",
+        "匯出失敗",
+        "Export failed",
+        "导出失败",
+    ),
+    (
+        "soccer.history.export.filename_blank",
+        "檔案名稱不可空白。",
+        "File name cannot be blank.",
+        "文件名称不可空白。",
+    ),
+    (
+        "soccer.history.export.filename_illegal",
+        "檔案名稱含有不合法字元，請修正後再試。",
+        "File name contains illegal characters. Please correct it and try again.",
+        "文件名称含有不合法字符，请修正后再试。",
+    ),
+    (
+        "soccer.history.export.jpeg_too_large",
+        "資料量超出單張 JPEG 可匯出範圍，請縮小搜尋／篩選範圍，或改用 XLSX／CSV／PDF。",
+        "The result set exceeds what a single JPEG can export. Narrow the search/filter, or use XLSX/CSV/PDF instead.",
+        "数据量超出单张 JPEG 可导出范围，请缩小搜索／筛选范围，或改用 XLSX／CSV／PDF。",
+    ),
+    (
+        "soccer.history.export.pdf_columns_too_wide",
+        "顯示欄位過闊，無法以可讀尺寸匯出 PDF，請減少顯示欄位、調整欄寬，或改用 XLSX。",
+        "Visible columns are too wide for a readable PDF. Hide some columns, adjust widths, or use XLSX instead.",
+        "显示字段过宽，无法以可读尺寸导出 PDF，请减少显示字段、调整栏宽，或改用 XLSX。",
+    ),
+    (
+        "soccer.history.export.no_visible_columns",
+        "目前沒有顯示中的欄位可匯出。",
+        "There are no visible columns to export.",
+        "目前没有显示中的字段可导出。",
+    ),
+    (
+        "soccer.history.export.read_error",
+        "讀取往績資料失敗，請稍後重試。",
+        "Failed to read history data. Please try again later.",
+        "读取往绩数据失败，请稍后重试。",
+    ),
+    (
+        "soccer.history.export.write_error",
+        "寫入本機檔案失敗。",
+        "Failed to write the local file.",
+        "写入本机文件失败。",
+    ),
+    (
+        "soccer.history.export.picker_cancel",
+        "已取消選擇儲存位置。",
+        "Save location selection cancelled.",
+        "已取消选择保存位置。",
     ),
     ("soccer.daily.tab.download", "下載資料", "Download Data", "下载数据"),
     ("soccer.daily.tab.tasks", "任務", "Tasks", "任务"),
@@ -677,4 +1027,24 @@ def translate(text_map: dict[str, str], key: str) -> str:
         logger.warning("Missing or disabled translation key: %s", key)
         return f"[{key}]"
     return value
+
+
+def history_column_i18n_maps(
+    text_map: dict[str, str],
+    catalog_keys: list[str] | tuple[str, ...],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """
+    Labels/descriptions for history layout UI and table headers.
+
+    Catalog remains the source of which columns exist. Missing translations
+    fall back to the field key (label) or empty string (description).
+    """
+    labels: dict[str, str] = {}
+    descs: dict[str, str] = {}
+    for key in catalog_keys:
+        raw_label = (text_map.get(f"soccer.history.col.{key}") or "").strip()
+        labels[key] = raw_label if raw_label else key
+        raw_desc = (text_map.get(f"soccer.history.col.desc.{key}") or "").strip()
+        descs[key] = raw_desc
+    return labels, descs
 

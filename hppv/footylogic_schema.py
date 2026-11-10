@@ -32,6 +32,17 @@ def footylogic_schema_sql() -> str:
             score_ft_away INTEGER,
             score_ht_home INTEGER,
             score_ht_away INTEGER,
+            score_2h_home INTEGER,
+            score_2h_away INTEGER,
+            score_et_home INTEGER,
+            score_et_away INTEGER,
+            score_pens_home INTEGER,
+            score_pens_away INTEGER,
+            final_odds_home REAL,
+            final_odds_draw REAL,
+            final_odds_away REAL,
+            final_odds_timestamp TEXT,
+            final_odds_source TEXT,
             has_score INTEGER NOT NULL DEFAULT 0,
             score_complete INTEGER NOT NULL DEFAULT 0,
             result_confirm_status TEXT NOT NULL DEFAULT 'source_score_unconfirmed',
@@ -98,5 +109,46 @@ def footylogic_schema_sql() -> str:
             event_json TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS footylogic_score_derivations (
+            source_key TEXT NOT NULL,
+            field TEXT NOT NULL,
+            value_home INTEGER,
+            value_away INTEGER,
+            formula TEXT NOT NULL,
+            class_code TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            source_fields_json TEXT NOT NULL,
+            calculated_at TEXT NOT NULL,
+            PRIMARY KEY (source_key, field)
+        );
         """
     )
+
+
+# Added after initial Footylogic ingest; migrate via ALTER when missing.
+FOOTYLOGIC_MATCHES_NEW_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("score_2h_home", "INTEGER"),
+    ("score_2h_away", "INTEGER"),
+    ("score_et_home", "INTEGER"),
+    ("score_et_away", "INTEGER"),
+    ("score_pens_home", "INTEGER"),
+    ("score_pens_away", "INTEGER"),
+    ("final_odds_home", "REAL"),
+    ("final_odds_draw", "REAL"),
+    ("final_odds_away", "REAL"),
+    ("final_odds_timestamp", "TEXT"),
+    ("final_odds_source", "TEXT"),
+)
+
+
+def ensure_footylogic_matches_new_columns_sql(existing_columns: set[str]) -> list[str]:
+    """Return idempotent ALTER TABLE statements for missing match columns."""
+    sqls: list[str] = []
+    for name, col_type in FOOTYLOGIC_MATCHES_NEW_COLUMNS:
+        if name in existing_columns:
+            continue
+        sqls.append(
+            f"ALTER TABLE {FOOTYLOGIC_MATCHES_TABLE} ADD COLUMN {name} {col_type}"
+        )
+    return sqls

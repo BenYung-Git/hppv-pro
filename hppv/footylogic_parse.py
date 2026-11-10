@@ -18,6 +18,35 @@ DEFAULT_RANGE_START_HKT = datetime(2021, 11, 5, 0, 0, 0, tzinfo=HKT)
 DEFAULT_RANGE_END_EXCLUSIVE_HKT = datetime(2026, 11, 6, 0, 0, 0, tzinfo=HKT)
 
 
+# Evidence that fixtures-results homeTeamGoals/awayTeamGoals are 90-minute
+# regulation FT (not AET/pens totals), independent of competition name:
+# 1) Field pair is FT↔HT in source (homeTeamGoals + homeTeamHTGoals); UI labels
+#    ftScore/htScore ("FT Score" / "HT Score").
+# 2) Local soccer_daily documents score_ft as 正常時間全場, and FT=HT+score_2h
+#    holds for all scored daily rows.
+# 3) Joins on match_date_hkt + team names: Footylogic FT/HT equal soccer_daily
+#    regulation FT/HT for all overlaps (incl. UCL 50070797 and ACL2 50075119),
+#    mismatches=0. Therefore same field quantity as regulation FT.
+# Absence of ET columns alone is NOT used as proof; overlaps include cup comps.
+FT_GOALS_CONFIRMED_AS_90MIN = True
+
+FT_90MIN_EVIDENCE = {
+    "policy_version": "2026-11-09-soccer_daily_overlap",
+    "source_fields": [
+        "homeTeamGoals",
+        "awayTeamGoals",
+        "homeTeamHTGoals",
+        "awayTeamHTGoals",
+    ],
+    "ui_labels": {"ftScore": "FT Score", "htScore": "HT Score"},
+    "soccer_daily_score_ft_meaning": "正常時間全場",
+    "overlap_note": (
+        "footylogic_matches ⨝ soccer_daily on match_date_hkt+team names; "
+        "FT/HT equality 100% including UCL/ACL2 cup overlaps"
+    ),
+}
+
+
 @dataclass(frozen=True, slots=True)
 class ParsedFootylogicMatch:
     source_key: str
@@ -36,6 +65,17 @@ class ParsedFootylogicMatch:
     score_ft_away: int | None
     score_ht_home: int | None
     score_ht_away: int | None
+    score_2h_home: int | None
+    score_2h_away: int | None
+    score_et_home: int | None
+    score_et_away: int | None
+    score_pens_home: int | None
+    score_pens_away: int | None
+    final_odds_home: float | None
+    final_odds_draw: float | None
+    final_odds_away: float | None
+    final_odds_timestamp: str | None
+    final_odds_source: str | None
     has_score: bool
     score_complete: bool
     result_confirm_status: str  # always source_score_unconfirmed when has_score
@@ -43,6 +83,77 @@ class ParsedFootylogicMatch:
     quarantine_reason: str | None
     event_json: str
     source_last_updated: str | None
+
+
+def classify_score_2h_eligibility(
+    *,
+    score_ft_home: int | None,
+    score_ft_away: int | None,
+    score_ht_home: int | None,
+    score_ht_away: int | None,
+    ft_confirmed_90min: bool = FT_GOALS_CONFIRMED_AS_90MIN,
+) -> str:
+    """
+    A: FT confirmed 90-min and FT/HT complete with non-negative 2H.
+    B: FT/HT missing on either side.
+    C: FT 90-min semantics not confirmed for this record set.
+    D: score anomaly (e.g. HT > FT on a side) — leave blank.
+    """
+    if None in (score_ft_home, score_ft_away, score_ht_home, score_ht_away):
+        return "B"
+    if not ft_confirmed_90min:
+        return "C"
+    assert score_ft_home is not None and score_ft_away is not None
+    assert score_ht_home is not None and score_ht_away is not None
+    if score_ft_home < score_ht_home or score_ft_away < score_ht_away:
+        return "D"
+    return "A"
+
+
+def derive_score_2h(
+    *,
+    score_ft_home: int | None,
+    score_ft_away: int | None,
+    score_ht_home: int | None,
+    score_ht_away: int | None,
+    ft_confirmed_90min: bool = FT_GOALS_CONFIRMED_AS_90MIN,
+) -> tuple[int | None, int | None]:
+    """2H = FT - HT only for class A. 0 is a valid half-score."""
+    if (
+        classify_score_2h_eligibility(
+            score_ft_home=score_ft_home,
+            score_ft_away=score_ft_away,
+            score_ht_home=score_ht_home,
+            score_ht_away=score_ht_away,
+            ft_confirmed_90min=ft_confirmed_90min,
+        )
+        != "A"
+    ):
+        return None, None
+    assert score_ft_home is not None and score_ft_away is not None
+    assert score_ht_home is not None and score_ht_away is not None
+    return score_ft_home - score_ht_home, score_ft_away - score_ht_away
+
+
+def extract_source_et_pens_odds(ev: dict[str, Any]) -> dict[str, Any]:
+    """
+    Only return values when source fields clearly define them.
+    Current fixtures-results event shape has none of these; leave empty.
+    """
+    out: dict[str, Any] = {
+        "score_et_home": None,
+        "score_et_away": None,
+        "score_pens_home": None,
+        "score_pens_away": None,
+        "final_odds_home": None,
+        "final_odds_draw": None,
+        "final_odds_away": None,
+        "final_odds_timestamp": None,
+        "final_odds_source": None,
+    }
+    # Intentionally no guessing from ambiguous goal totals.
+    _ = ev
+    return out
 
 
 def parse_mautcko_to_hkt(raw: Any) -> tuple[datetime | None, str]:
@@ -200,7 +311,14 @@ def parse_fixtures_results_payload(
             ft_a, ft_a_err = parse_score_value(ev.get("awayTeamGoals"))
             ht_h, ht_h_err = parse_score_value(ev.get("homeTeamHTGoals"))
             ht_a, ht_a_err = parse_score_value(ev.get("awayTeamHTGoals"))
-
+            extra = extract_source_et_pens_odds(ev)
+            score_2h_h, score_2h_a = derive_score_2h(
+                score_ft_home=ft_h,
+                score_ft_away=ft_a,
+                score_ht_home=ht_h,
+                score_ht_away=ht_a,
+            )
+            # Keep source event_json verbatim (no derived markers embedded).
             event_json = json.dumps(ev, ensure_ascii=False, separators=(",", ":"))
 
             if kick_hkt is None:
@@ -221,6 +339,17 @@ def parse_fixtures_results_payload(
                     score_ft_away=ft_a,
                     score_ht_home=ht_h,
                     score_ht_away=ht_a,
+                    score_2h_home=score_2h_h,
+                    score_2h_away=score_2h_a,
+                    score_et_home=extra["score_et_home"],
+                    score_et_away=extra["score_et_away"],
+                    score_pens_home=extra["score_pens_home"],
+                    score_pens_away=extra["score_pens_away"],
+                    final_odds_home=extra["final_odds_home"],
+                    final_odds_draw=extra["final_odds_draw"],
+                    final_odds_away=extra["final_odds_away"],
+                    final_odds_timestamp=extra["final_odds_timestamp"],
+                    final_odds_source=extra["final_odds_source"],
                     has_score=False,
                     score_complete=False,
                     result_confirm_status="source_score_unconfirmed",
@@ -316,6 +445,17 @@ def parse_fixtures_results_payload(
                 score_ft_away=ft_a,
                 score_ht_home=ht_h,
                 score_ht_away=ht_a,
+                score_2h_home=score_2h_h,
+                score_2h_away=score_2h_a,
+                score_et_home=extra["score_et_home"],
+                score_et_away=extra["score_et_away"],
+                score_pens_home=extra["score_pens_home"],
+                score_pens_away=extra["score_pens_away"],
+                final_odds_home=extra["final_odds_home"],
+                final_odds_draw=extra["final_odds_draw"],
+                final_odds_away=extra["final_odds_away"],
+                final_odds_timestamp=extra["final_odds_timestamp"],
+                final_odds_source=extra["final_odds_source"],
                 has_score=has_score and quarantine_reason is None and score_complete,
                 score_complete=score_complete,
                 result_confirm_status="source_score_unconfirmed",

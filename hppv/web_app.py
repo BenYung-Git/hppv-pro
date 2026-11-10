@@ -74,6 +74,14 @@ from hppv.soccer_history import (
     history_sort_specs_from_layout,
     parse_history_sort_param,
 )
+from hppv.soccer_history_export import (
+    HistoryExportError,
+    build_history_export,
+    export_content_disposition,
+    header_safe_export_filename,
+    parse_history_export_request,
+    validate_export_filename,
+)
 from hppv.soccer_graphql import (
     SoccerGraphQLSendError,
     parse_and_validate_send_payload,
@@ -116,6 +124,7 @@ from hppv.translations import (
     SUPPORTED_LANGS,
     TranslationError,
     create_translation,
+    history_column_i18n_maps,
     list_translations,
     load_active_text_map,
     normalize_lang,
@@ -460,7 +469,9 @@ def _layout_context() -> dict[str, Any]:
     try:
         history_layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_MATCH_HISTORY)
     except SoccerLayoutError as e:
-        history_layout = default_layout_settings(LAYOUT_KEY_MATCH_HISTORY)
+        history_layout = default_layout_settings(
+            LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH
+        )
         history_layout_error = e.code
         logging.getLogger(__name__).warning(
             "soccer history layout load failed: %s %s", e.code, e.detail
@@ -469,6 +480,18 @@ def _layout_context() -> dict[str, Any]:
         zebra_css_for_id(history_layout["zebra_color_id"])
         if history_layout.get("zebra_enabled")
         else ""
+    )
+    history_catalog = catalog_public(
+        LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH
+    )
+    lang = normalize_lang(session.get("lang"))
+    try:
+        history_text_map = load_active_text_map(SOCCER_DB_PATH, lang)
+    except Exception:
+        history_text_map = {}
+    history_col_labels, history_col_descs = history_column_i18n_maps(
+        history_text_map,
+        [str(c["key"]) for c in history_catalog],
     )
     return {
         "layout_settings": layout,
@@ -481,7 +504,9 @@ def _layout_context() -> dict[str, Any]:
         "layout_width_max": COLUMN_WIDTH_MAX,
         "status_filter_mapping_connected": STATUS_FILTER_MAPPING_CONNECTED,
         "history_layout_settings": history_layout,
-        "history_layout_catalog": catalog_public(LAYOUT_KEY_MATCH_HISTORY),
+        "history_layout_catalog": history_catalog,
+        "history_col_labels": history_col_labels,
+        "history_col_descs": history_col_descs,
         "history_layout_zebra_css": history_zebra_css,
         "history_layout_error": history_layout_error,
     }
@@ -939,7 +964,9 @@ def api_soccer_history_matches() -> Any:
     try:
         hist_layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_MATCH_HISTORY)
     except SoccerLayoutError:
-        hist_layout = default_layout_settings(LAYOUT_KEY_MATCH_HISTORY)
+        hist_layout = default_layout_settings(
+            LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH
+        )
     hist_state = _history_list_query_state(hist_layout)
     try:
         result = fetch_history_filtered(
@@ -965,6 +992,11 @@ def api_soccer_history_matches() -> Any:
             "page_size": result.page_size,
             "q": result.q,
             "sort": result.sort,
+            "field_keys": list(result.field_keys),
+            "layout_settings": hist_layout,
+            "catalog": catalog_public(
+                LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH
+            ),
         }
     )
 
@@ -1064,12 +1096,23 @@ def api_soccer_history_layout_get() -> Any:
         settings = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_MATCH_HISTORY)
     except SoccerLayoutError as e:
         return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    catalog = catalog_public(LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH)
+    lang = normalize_lang(session.get("lang"))
+    try:
+        text_map = load_active_text_map(SOCCER_DB_PATH, lang)
+    except Exception:
+        text_map = {}
+    labels, descs = history_column_i18n_maps(
+        text_map, [str(c["key"]) for c in catalog]
+    )
     return jsonify(
         {
             "ok": True,
             "layout_key": LAYOUT_KEY_MATCH_HISTORY,
             "settings": settings,
-            "catalog": catalog_public(LAYOUT_KEY_MATCH_HISTORY),
+            "catalog": catalog,
+            "col_labels": labels,
+            "col_descs": descs,
             "zebra_colors": list(ZEBRA_COLORS),
             "width": {
                 "default": COLUMN_WIDTH_DEFAULT,
@@ -1095,6 +1138,39 @@ def api_soccer_history_layout_save() -> Any:
         logging.getLogger(__name__).exception("soccer history layout save failed: %s", e)
         return jsonify({"ok": False, "error": "save_failed"}), 500
     return jsonify({"ok": True, "layout_key": LAYOUT_KEY_MATCH_HISTORY, "settings": saved})
+
+
+@app.post("/api/soccer/history-export")
+def api_soccer_history_export() -> Any:
+    """Build a history export file from a frozen filter/layout snapshot."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
+    catalog = catalog_public(LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH)
+    catalog_keys = [str(c["key"]) for c in catalog]
+    try:
+        export_req = parse_history_export_request(
+            data, catalog_keys=catalog_keys, db_path=SOCCER_DB_PATH
+        )
+        filename = validate_export_filename(
+            str(data.get("filename") or ""), export_req.file_type
+        )
+        result = build_history_export(SOCCER_DB_PATH, export_req)
+    except HistoryExportError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("soccer history export failed: %s", e)
+        return jsonify({"ok": False, "error": "export_failed", "detail": str(e)}), 500
+    resp = make_response(result.content)
+    resp.headers["Content-Type"] = result.mime
+    resp.headers["X-HPPV-Export-Rows"] = str(result.row_count)
+    # Custom / disposition headers must stay latin-1 safe (no raw CJK).
+    resp.headers["X-HPPV-Export-Filename"] = header_safe_export_filename(filename)
+    # Informational only; browser writes via showSaveFilePicker using local handle.
+    resp.headers["Content-Disposition"] = export_content_disposition(
+        filename, file_type=export_req.file_type
+    )
+    return resp
 
 
 @app.get("/settings")
