@@ -9,11 +9,19 @@ import pytest
 
 from hppv.footylogic_schema import FOOTYLOGIC_MATCHES_TABLE, footylogic_schema_sql
 from hppv.soccer_history import (
+    DEFAULT_HISTORY_SEARCH_OP,
     HISTORY_PAGE_SIZE,
+    HISTORY_SEARCH_OP_APPROX,
+    HISTORY_SEARCH_OP_CONTAINS,
+    HISTORY_SEARCH_OP_EQ,
+    HISTORY_SEARCH_OP_STARTS,
+    HISTORY_SEARCH_OPS_VISIBLE,
     fetch_history_filtered,
     format_name_or_id,
+    normalize_history_search_op,
     parse_history_sort_param,
 )
+from hppv.soccer_history_export import parse_history_export_request
 from hppv.soccer_matches import EMPTY_DISPLAY, SoccerDataError
 
 
@@ -189,10 +197,67 @@ def test_history_id_fallback_and_search(tmp_path: Path) -> None:
     found = fetch_history_filtered(db, None, n=1, q="主隊甲")
     assert found.total_count == 1
     assert found.matches[0]["home_team"] == "主隊甲"
+    assert found.q_op == DEFAULT_HISTORY_SEARCH_OP
 
-    by_id = fetch_history_filtered(db, None, n=1, q="c2")
-    assert by_id.total_count == 1
-    assert by_id.matches[0]["competition_name"] == "c2"
+    # Search is home/away only — competition id must not match.
+    by_comp = fetch_history_filtered(db, None, n=1, q="c2")
+    assert by_comp.total_count == 0
+
+    # Missing home name falls back to home_team_id.
+    by_home_id = fetch_history_filtered(db, None, n=1, q="h3")
+    assert by_home_id.total_count == 1
+    assert by_home_id.matches[0]["home_team"] == "h3"
+
+    # Away-only hit.
+    by_away = fetch_history_filtered(db, None, n=1, q="客隊戊")
+    assert by_away.total_count == 1
+    assert by_away.matches[0]["away_team"] == "客隊戊"
+
+
+def test_history_search_ops_and_export_q_op(tmp_path: Path) -> None:
+    db = _init_history_db(tmp_path)
+    assert normalize_history_search_op("") == HISTORY_SEARCH_OP_APPROX
+    assert normalize_history_search_op("contains") == HISTORY_SEARCH_OP_CONTAINS
+    assert list(HISTORY_SEARCH_OPS_VISIBLE)[0] == HISTORY_SEARCH_OP_APPROX
+
+    approx = fetch_history_filtered(db, None, n=1, q="主隊", q_op=HISTORY_SEARCH_OP_APPROX)
+    assert approx.total_count == 2  # 主隊甲 + 主隊丙
+
+    exact = fetch_history_filtered(db, None, n=1, q="主隊甲", q_op=HISTORY_SEARCH_OP_EQ)
+    assert exact.total_count == 1
+    assert exact.matches[0]["home_team"] == "主隊甲"
+
+    starts = fetch_history_filtered(db, None, n=1, q="客隊", q_op=HISTORY_SEARCH_OP_STARTS)
+    assert starts.total_count == 3
+
+    # approx is case-insensitive; contains is case-sensitive on stored text.
+    # Seed uses Chinese names — use ASCII team via id fallback for case contrast.
+    ci = fetch_history_filtered(db, None, n=1, q="H3", q_op=HISTORY_SEARCH_OP_APPROX)
+    assert ci.total_count == 1
+    cs = fetch_history_filtered(db, None, n=1, q="H3", q_op=HISTORY_SEARCH_OP_CONTAINS)
+    assert cs.total_count == 0
+    cs2 = fetch_history_filtered(db, None, n=1, q="h3", q_op=HISTORY_SEARCH_OP_CONTAINS)
+    assert cs2.total_count == 1
+
+    req = parse_history_export_request(
+        {
+            "file_type": "csv",
+            "filename": "t.csv",
+            "q": "主隊甲",
+            "q_op": "eq",
+            "all_matches": True,
+            "sort": "kickoff_hhmm:desc",
+            "columns": [{"key": "home_team", "width": 120}],
+            "lang": "zh-Hant",
+        },
+        catalog_keys=["home_team", "away_team"],
+        db_path=db,
+    )
+    assert req.q_op == HISTORY_SEARCH_OP_EQ
+    listed = fetch_history_filtered(
+        db, None, n=1, q=req.q, q_op=req.q_op, page_size=1
+    )
+    assert listed.total_count == 1
 
 
 def test_history_backend_paging(tmp_path: Path) -> None:
@@ -365,6 +430,9 @@ def test_history_translation_keys_seeded(tmp_path: Path) -> None:
         "soccer.history.search_placeholder",
         "soccer.history.pager.status",
         "soccer.history.read_error",
+        "soccer.history.search_op.approx",
+        "soccer.history.search_op.contains",
+        "soccer.history.search_op.gt",  # hidden but seeded
     }
     with get_connection(db_path) as conn:
         for key in keys:

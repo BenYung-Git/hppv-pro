@@ -67,11 +67,13 @@ from hppv.soccer_matches import (
     sort_specs_from_layout,
 )
 from hppv.soccer_history import (
+    DEFAULT_HISTORY_SEARCH_OP,
     HISTORY_PAGE_SIZE,
     default_history_sort_specs,
     fetch_history_filtered,
     history_sort_param,
     history_sort_specs_from_layout,
+    normalize_history_search_op,
     parse_history_sort_param,
 )
 from hppv.soccer_history_export import (
@@ -559,6 +561,7 @@ def _history_list_query_state(layout_settings: dict[str, Any]) -> dict[str, Any]
     if n_raw is None or str(n_raw).strip() == "":
         n_raw = request.args.get("page")
     q = (request.args.get("q") or "").strip()
+    q_op = normalize_history_search_op(request.args.get("q_op"))
     parsed_sort = parse_history_sort_param(request.args.get("sort"))
     sort_specs = (
         parsed_sort
@@ -568,18 +571,26 @@ def _history_list_query_state(layout_settings: dict[str, Any]) -> dict[str, Any]
     return {
         "n_raw": n_raw,
         "q": q,
+        "q_op": q_op,
         "sort_specs": sort_specs,
         "sort": history_sort_param(sort_specs),
     }
 
 
-def _empty_history_page_meta(*, all_matches: bool, q: str = "", sort: str = "") -> dict[str, Any]:
+def _empty_history_page_meta(
+    *,
+    all_matches: bool,
+    q: str = "",
+    q_op: str = DEFAULT_HISTORY_SEARCH_OP,
+    sort: str = "",
+) -> dict[str, Any]:
     return {
         "n": 1,
         "total_count": 0,
         "total_pages": 0,
         "page_size": HISTORY_PAGE_SIZE,
         "q": q,
+        "q_op": normalize_history_search_op(q_op),
         "all_matches": all_matches,
         "sort": sort or history_sort_param(default_history_sort_specs()),
     }
@@ -635,6 +646,7 @@ def soccer_daily() -> str:
         history_page_meta = _empty_history_page_meta(
             all_matches=history_all_matches,
             q=hist_state["q"],
+            q_op=hist_state["q_op"],
             sort=hist_state["sort"],
         )
         if date_invalid and not history_all_matches:
@@ -653,6 +665,7 @@ def soccer_daily() -> str:
                     None if history_all_matches else selected,
                     n=hist_state["n_raw"],
                     q=hist_state["q"],
+                    q_op=hist_state["q_op"],
                     sort_specs=hist_state["sort_specs"],
                 )
                 history_matches = hist.matches
@@ -662,6 +675,7 @@ def soccer_daily() -> str:
                     "total_pages": hist.total_pages,
                     "page_size": hist.page_size,
                     "q": hist.q,
+                    "q_op": hist.q_op,
                     "all_matches": history_all_matches,
                     "sort": hist.sort,
                 }
@@ -974,6 +988,7 @@ def api_soccer_history_matches() -> Any:
             None if all_matches else selected,
             n=hist_state["n_raw"],
             q=hist_state["q"],
+            q_op=hist_state["q_op"],
             sort_specs=hist_state["sort_specs"],
         )
     except SoccerDataError as e:
@@ -991,6 +1006,7 @@ def api_soccer_history_matches() -> Any:
             "total_pages": result.total_pages,
             "page_size": result.page_size,
             "q": result.q,
+            "q_op": result.q_op,
             "sort": result.sort,
             "field_keys": list(result.field_keys),
             "layout_settings": hist_layout,

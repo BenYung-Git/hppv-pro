@@ -719,6 +719,27 @@
     gap: 8px;
     align-items: center;
   }
+  .soccer-daily .history-search-op {
+    min-width: 7.5em;
+    max-width: 11em;
+    border: 1px solid #d0dbe8;
+    border-radius: 8px;
+    padding: 7px 8px;
+    font-size: 13px;
+    background: #fff;
+    color: #1d2a3a;
+  }
+  .soccer-daily .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .soccer-daily .mapping-note {
     margin: 0 0 12px;
     padding: 8px 10px;
@@ -1200,8 +1221,9 @@
        role="tabpanel" id="tab-panel-history"
        data-panel="history"{% if active_tab != 'history' %} hidden{% endif %}>
     {% set history_page_meta = history_page_meta if history_page_meta is defined else {
-      'n': 1, 'total_count': 0, 'total_pages': 0, 'page_size': 50, 'q': '', 'all_matches': true, 'sort': 'kickoff_hhmm:desc'
+      'n': 1, 'total_count': 0, 'total_pages': 0, 'page_size': 50, 'q': '', 'q_op': 'approx', 'all_matches': true, 'sort': 'kickoff_hhmm:desc'
     } %}
+    {% set _history_q_op = history_page_meta.get('q_op', 'approx') or 'approx' %}
     {% set history_all_matches = history_all_matches if history_all_matches is defined else true %}
     {% set history_selected_date = history_selected_date if history_selected_date is defined else selected_date %}
     {% set history_matches = history_matches if history_matches is defined else [] %}
@@ -1241,6 +1263,18 @@
                        placeholder="{{ t('soccer.history.search_placeholder') }}"
                        value="{{ history_page_meta.q }}"
                        autocomplete="off">
+                <label class="visually-hidden" for="history-search-op">{{ t('soccer.history.search_op.label') }}</label>
+                <select id="history-search-op" class="history-search-op"
+                        title="{{ t('soccer.history.search_op.label') }}"
+                        aria-label="{{ t('soccer.history.search_op.label') }}">
+                  <option value="approx"{% if _history_q_op == 'approx' %} selected{% endif %}>{{ t('soccer.history.search_op.approx') }}</option>
+                  <option value="eq"{% if _history_q_op == 'eq' %} selected{% endif %}>{{ t('soccer.history.search_op.eq') }}</option>
+                  <option value="ne"{% if _history_q_op == 'ne' %} selected{% endif %}>{{ t('soccer.history.search_op.ne') }}</option>
+                  <option value="contains"{% if _history_q_op == 'contains' %} selected{% endif %}>{{ t('soccer.history.search_op.contains') }}</option>
+                  <option value="not_contains"{% if _history_q_op == 'not_contains' %} selected{% endif %}>{{ t('soccer.history.search_op.not_contains') }}</option>
+                  <option value="starts"{% if _history_q_op == 'starts' %} selected{% endif %}>{{ t('soccer.history.search_op.starts') }}</option>
+                  <option value="ends"{% if _history_q_op == 'ends' %} selected{% endif %}>{{ t('soccer.history.search_op.ends') }}</option>
+                </select>
               </div>
             </div>
             <div class="history-toolbar-actions">
@@ -2750,6 +2784,7 @@
   let historyTotalPages = Number(historyPageInit.total_pages) || 0;
   let historyPageSize = Number(historyPageInit.page_size) || 50;
   let historyQ = historyPageInit.q || "";
+  let historyQOp = (historyPageInit.q_op || "approx").toString().trim() || "approx";
   let historySort = historyPageInit.sort || "kickoff_hhmm:desc";
   let historyFetchSeq = 0;
   let historyLoadedOnce = {{ (active_tab == 'history')|tojson }};
@@ -2760,6 +2795,8 @@
   const historyBtnPrev = document.getElementById("history-btn-prev-day");
   const historyBtnNext = document.getElementById("history-btn-next-day");
   const historySearchInput = document.getElementById("history-search");
+  const historySearchOp = document.getElementById("history-search-op");
+  if (historySearchOp) historySearchOp.value = historyQOp;
 
   function applyHistoryAllMatchesControls(allOn) {
     historyAllMatches = !!allOn;
@@ -2962,6 +2999,7 @@
     params.set("date", historyDateInput.value);
     params.set("n", String(historyN));
     if (historyQ) params.set("q", historyQ);
+    params.set("q_op", historyQOp || "approx");
     const sort = historySort || historyCurrentSortParam();
     if (sort) params.set("sort", sort);
     window.history.replaceState(null, "", window.location.pathname + "?" + params.toString());
@@ -3018,6 +3056,7 @@
       params.set("date", historyDateInput.value);
       params.set("n", String(n));
       if (historyQ) params.set("q", historyQ);
+      params.set("q_op", historyQOp || "approx");
       if (historySort) params.set("sort", historySort);
       const resp = await fetch("/api/soccer/history-matches?" + params.toString());
       const data = await resp.json();
@@ -3030,6 +3069,8 @@
       historyTotalPages = Number(data.total_pages) || 0;
       historyPageSize = Number(data.page_size) || historyPageSize;
       historyQ = data.q || "";
+      historyQOp = (data.q_op || historyQOp || "approx").toString().trim() || "approx";
+      if (historySearchOp) historySearchOp.value = historyQOp;
       historySort = data.sort || historySort;
       if (typeof data.all_matches === "boolean") {
         historyAllMatches = data.all_matches;
@@ -3049,6 +3090,9 @@
 
   function submitHistoryCriteria({ n = 1 } = {}) {
     if (historySearchInput) historyQ = (historySearchInput.value || "").trim();
+    if (historySearchOp) {
+      historyQOp = (historySearchOp.value || "approx").toString().trim() || "approx";
+    }
     if (historyAllCheckbox) historyAllMatches = !!historyAllCheckbox.checked;
     applyHistoryAllMatchesControls(historyAllMatches);
     return fetchHistoryList(n);
@@ -3090,6 +3134,9 @@
       if (histSearchTimer) window.clearTimeout(histSearchTimer);
       commitHistSearch();
     });
+  }
+  if (historySearchOp) {
+    historySearchOp.addEventListener("change", () => submitHistoryCriteria({ n: 1 }));
   }
   const histFirst = document.getElementById("history-pager-first");
   const histPrev = document.getElementById("history-pager-prev");
@@ -3538,6 +3585,7 @@
         file_type: fileType,
         filename: historyExportFilename.value,
         q: historyQ || "",
+        q_op: historyQOp || "approx",
         all_matches: !!historyAllMatches,
         date: historyDateInput ? historyDateInput.value : "",
         sort: historySort || historyCurrentSortParam(),

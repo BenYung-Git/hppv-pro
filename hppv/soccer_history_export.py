@@ -32,9 +32,11 @@ from reportlab.platypus import (
 )
 
 from hppv.soccer_history import (
+    DEFAULT_HISTORY_SEARCH_OP,
     HISTORY_PAGE_SIZE,
     SoccerDataError,
     fetch_history_filtered,
+    normalize_history_search_op,
     parse_history_sort_param,
 )
 from hppv.soccer_layout import COLUMN_WIDTH_DEFAULT, COLUMN_WIDTH_MAX, COLUMN_WIDTH_MIN
@@ -97,6 +99,7 @@ class ExportColumn:
 class HistoryExportRequest:
     file_type: str
     q: str
+    q_op: str
     all_matches: bool
     match_date: date | None
     sort_param: str
@@ -242,6 +245,7 @@ def parse_history_export_request(
     if file_type not in EXPORT_FILE_TYPES:
         raise HistoryExportError("invalid_file_type", file_type)
     q = str(raw.get("q") or "").strip()
+    q_op = normalize_history_search_op(raw.get("q_op") or DEFAULT_HISTORY_SEARCH_OP)
     all_matches = bool(raw.get("all_matches", True))
     match_date: date | None = None
     if not all_matches:
@@ -270,6 +274,7 @@ def parse_history_export_request(
     return HistoryExportRequest(
         file_type=file_type,
         q=q,
+        q_op=q_op,
         all_matches=all_matches,
         match_date=match_date,
         sort_param=sort_param,
@@ -295,6 +300,7 @@ def iter_history_export_rows(
                 None if req.all_matches else req.match_date,
                 n=page,
                 q=req.q,
+                q_op=req.q_op,
                 sort_specs=specs,
                 page_size=max(1, int(batch_size or HISTORY_PAGE_SIZE)),
             )
@@ -315,6 +321,7 @@ def count_history_export_rows(db_path: Path, req: HistoryExportRequest) -> int:
             None if req.all_matches else req.match_date,
             n=1,
             q=req.q,
+            q_op=req.q_op,
             sort_specs=specs,
             page_size=1,
         )
