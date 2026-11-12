@@ -348,6 +348,73 @@ def soccer_layout_settings_expected_columns() -> set[str]:
     return set(SOCCER_LAYOUT_SETTINGS_COLUMNS)
 
 
+SOCCER_TASK_SETTINGS_TABLE = "soccer_task_settings"
+SOCCER_TASK_SETTINGS_COLUMNS: tuple[str, ...] = (
+    "task_key",
+    "enabled",
+    "interval_value",
+    "interval_unit",
+    "next_run_at",
+    "last_run_at",
+    "last_status",
+    "last_error",
+    "last_detail_json",
+    "updated_at",
+)
+
+
+def soccer_task_settings_schema_sql() -> str:
+    """DDL for soccer web task schedule settings (separate from soccer_sync_state)."""
+    return dedent(
+        """
+        CREATE TABLE IF NOT EXISTS soccer_task_settings (
+            task_key TEXT PRIMARY KEY NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            interval_value INTEGER NOT NULL DEFAULT 1,
+            interval_unit TEXT NOT NULL DEFAULT 'mins',
+            next_run_at TEXT,
+            last_run_at TEXT,
+            last_status TEXT,
+            last_error TEXT,
+            last_detail_json TEXT,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+
+
+def soccer_task_settings_expected_columns() -> set[str]:
+    return set(SOCCER_TASK_SETTINGS_COLUMNS)
+
+
+SOCCER_DAILY_REMOVED_TABLE = "soccer_daily_removed"
+SOCCER_DAILY_REMOVED_COLUMNS: tuple[str, ...] = (
+    "match_id",
+    "removed_at",
+    "reason",
+)
+
+
+def soccer_daily_removed_schema_sql() -> str:
+    """
+    Tombstone for soccer_daily rows removed after successful official-result
+    history write. Update-matches must skip re-inserting these match_ids.
+    """
+    return dedent(
+        """
+        CREATE TABLE IF NOT EXISTS soccer_daily_removed (
+            match_id TEXT PRIMARY KEY NOT NULL,
+            removed_at TEXT NOT NULL,
+            reason TEXT NOT NULL
+        );
+        """
+    )
+
+
+def soccer_daily_removed_expected_columns() -> set[str]:
+    return set(SOCCER_DAILY_REMOVED_COLUMNS)
+
+
 def _read_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     try:
         rows = conn.execute(f"PRAGMA table_info({qident(table)});").fetchall()

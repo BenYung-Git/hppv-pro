@@ -8,16 +8,22 @@ from pathlib import Path
 from hppv.config import default_config
 from hppv.schema import (
     SOCCER_DAILY_ADDITIVE_COLUMNS,
+    SOCCER_DAILY_REMOVED_TABLE,
     SOCCER_DAILY_TABLE,
     SOCCER_LAYOUT_SETTINGS_TABLE,
     SOCCER_SYNC_STATE_TABLE,
+    SOCCER_TASK_SETTINGS_TABLE,
     soccer_daily_expected_columns,
     soccer_daily_index_sql,
+    soccer_daily_removed_expected_columns,
+    soccer_daily_removed_schema_sql,
     soccer_daily_schema_sql,
     soccer_layout_settings_expected_columns,
     soccer_layout_settings_schema_sql,
     soccer_sync_state_expected_columns,
     soccer_sync_state_schema_sql,
+    soccer_task_settings_expected_columns,
+    soccer_task_settings_schema_sql,
 )
 
 
@@ -137,15 +143,53 @@ def report_layout_settings_schema_diff(conn: sqlite3.Connection) -> str | None:
     return "\n".join(parts)
 
 
+def report_task_settings_schema_diff(conn: sqlite3.Connection) -> str | None:
+    if not table_exists(conn, SOCCER_TASK_SETTINGS_TABLE):
+        return None
+    expected = soccer_task_settings_expected_columns()
+    actual = _read_table_columns(conn, SOCCER_TASK_SETTINGS_TABLE)
+    missing = sorted(expected - actual)
+    unexpected = sorted(actual - expected)
+    if not missing and not unexpected:
+        return None
+    parts = [f"表 `{SOCCER_TASK_SETTINGS_TABLE}` 結構與預期不符。"]
+    if missing:
+        parts.append("缺少欄位: " + ", ".join(missing))
+    if unexpected:
+        parts.append("多餘欄位: " + ", ".join(unexpected))
+    parts.append("不會刪表或重建；請手動處理後再初始化。")
+    return "\n".join(parts)
+
+
+def report_daily_removed_schema_diff(conn: sqlite3.Connection) -> str | None:
+    if not table_exists(conn, SOCCER_DAILY_REMOVED_TABLE):
+        return None
+    expected = soccer_daily_removed_expected_columns()
+    actual = _read_table_columns(conn, SOCCER_DAILY_REMOVED_TABLE)
+    missing = sorted(expected - actual)
+    unexpected = sorted(actual - expected)
+    if not missing and not unexpected:
+        return None
+    parts = [f"表 `{SOCCER_DAILY_REMOVED_TABLE}` 結構與預期不符。"]
+    if missing:
+        parts.append("缺少欄位: " + ", ".join(missing))
+    if unexpected:
+        parts.append("多餘欄位: " + ", ".join(unexpected))
+    parts.append("不會刪表或重建；請手動處理後再初始化。")
+    return "\n".join(parts)
+
+
 def init_soccer_db(db_path: Path) -> dict[str, int]:
     """
     Create soccer.sqlite3 schema if missing
-    (soccer_daily + translations + soccer_sync_state + soccer_layout_settings).
+    (soccer_daily + soccer_daily_removed + translations + soccer_sync_state
+    + soccer_layout_settings + soccer_task_settings + Footylogic tables).
 
     Idempotent: safe to re-run; does not drop tables or clear data.
     Seeds missing translation keys only (never overwrites existing rows).
     """
     # Local import avoids circular import at module load.
+    from hppv.footylogic_ingest import ensure_footylogic_schema
     from hppv.translations import (
         apply_seed_label_renames,
         ensure_translations_schema,
@@ -160,14 +204,23 @@ def init_soccer_db(db_path: Path) -> dict[str, int]:
         layout_diff = report_layout_settings_schema_diff(conn)
         if layout_diff is not None:
             raise SoccerSchemaMismatchError(layout_diff)
+        task_diff = report_task_settings_schema_diff(conn)
+        if task_diff is not None:
+            raise SoccerSchemaMismatchError(task_diff)
+        removed_diff = report_daily_removed_schema_diff(conn)
+        if removed_diff is not None:
+            raise SoccerSchemaMismatchError(removed_diff)
         conn.executescript(soccer_daily_schema_sql())
         ensure_soccer_daily_columns(conn)
         diff = report_schema_diff(conn)
         if diff is not None:
             raise SoccerSchemaMismatchError(diff)
         conn.executescript(soccer_daily_index_sql())
+        conn.executescript(soccer_daily_removed_schema_sql())
         conn.executescript(soccer_sync_state_schema_sql())
         conn.executescript(soccer_layout_settings_schema_sql())
+        conn.executescript(soccer_task_settings_schema_sql())
+        ensure_footylogic_schema(conn)
         ensure_translations_schema(conn)
         inserted = seed_initial_translations(conn)
         renamed = apply_seed_label_renames(conn)

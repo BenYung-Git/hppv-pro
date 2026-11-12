@@ -143,14 +143,25 @@ def _assert_query_operations_only(query: str) -> None:
             )
 
 
-def _acquire_rate_slot() -> None:
+def _acquire_rate_slot(*, wait: bool = False) -> None:
+    """
+    Enforce min interval between GraphQL sends (process-local).
+
+    wait=False (manual API): raise rate_limited if too soon.
+    wait=True (schedulers): sleep until the slot is free, then take it.
+    """
     global _rate_last_monotonic
-    with _rate_lock:
-        now = time.monotonic()
-        elapsed = now - _rate_last_monotonic
-        if _rate_last_monotonic > 0 and elapsed < SOCCER_GRAPHQL_MIN_INTERVAL_SEC:
-            raise SoccerGraphQLSendError("rate_limited", "too frequent")
-        _rate_last_monotonic = now
+    while True:
+        with _rate_lock:
+            now = time.monotonic()
+            elapsed = now - _rate_last_monotonic
+            if _rate_last_monotonic <= 0 or elapsed >= SOCCER_GRAPHQL_MIN_INTERVAL_SEC:
+                _rate_last_monotonic = now
+                return
+            delay = SOCCER_GRAPHQL_MIN_INTERVAL_SEC - elapsed
+            if not wait:
+                raise SoccerGraphQLSendError("rate_limited", "too frequent")
+        time.sleep(max(delay, 0.01))
 
 
 def reset_rate_limit_for_tests() -> None:
@@ -213,12 +224,16 @@ def send_soccer_graphql(
     *,
     session: requests.Session | None = None,
     post_func: Callable[..., requests.Response] | None = None,
+    wait_for_rate_limit: bool = False,
 ) -> SoccerGraphQLSendResult:
     """
     Send a validated payload to the fixed HKJC GraphQL endpoint.
     post_func/session are injectable for tests.
+
+    wait_for_rate_limit: schedulers should pass True so back-to-back tasks
+    wait for SOCCER_GRAPHQL_MIN_INTERVAL_SEC instead of failing.
     """
-    _acquire_rate_slot()
+    _acquire_rate_slot(wait=wait_for_rate_limit)
 
     body_obj: dict[str, Any] = {"query": payload.query}
     if payload.variables is not None:

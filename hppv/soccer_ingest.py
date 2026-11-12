@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import json
 import logging
 import math
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from hppv.schema import SOCCER_DAILY_TABLE, SOCCER_SYNC_STATE_TABLE
+from hppv.footylogic_ingest import ensure_footylogic_schema
+from hppv.footylogic_schema import FOOTYLOGIC_MATCHES_TABLE
+from hppv.schema import (
+    SOCCER_DAILY_REMOVED_TABLE,
+    SOCCER_DAILY_TABLE,
+    SOCCER_SYNC_STATE_TABLE,
+)
 from hppv.soccer_db import get_connection, table_exists
 
 logger = logging.getLogger(__name__)
@@ -18,6 +26,11 @@ REQUEST_KEY_MATCHES_AND_ODDS = "matches_and_odds"
 REQUEST_KEY_UPDATE_ODDS_AND_RESULTS = "update_odds_and_results"
 REQUEST_KEY_MATCH_RESULTS = "match_results"
 REQUEST_KEY_MATCH_RESULTS_BY_YEAR = "match_results_by_year"
+REQUEST_KEY_UPDATE_RESULTS = "update_results"
+
+TOMBSTONE_REASON_OFFICIAL_FT = "official_ft_to_history"
+HKJC_SOURCE = "hkjc"
+HKJC_RESULT_CONFIRM_STATUS = "hkjc_official_ft_confirmed"
 
 # Official frontend ch(e, n): resultType==1 goals; stageId 3=HT, 5=FT (not 9/ET this round).
 RESULT_TYPE_GOALS = 1
@@ -78,6 +91,14 @@ class IngestResult:
     skipped_insufficient: int = 0
     match_num_total: int | None = None
     matches_returned: int | None = None
+    # Odds-update diagnostics (optional; default 0 for other ingest paths).
+    odds_changed: int = 0
+    odds_unchanged: int = 0
+    # update_results / tombstone diagnostics.
+    daily_deleted: int = 0
+    skipped_tombstone: int = 0
+    skipped_no_kickoff: int = 0
+    skipped_not_in_daily: int = 0
 
 
 def utc_now_iso() -> str:
@@ -336,6 +357,8 @@ def ingest_matches_and_odds(
 
         inserted = 0
         updated = 0
+        skipped_tombstone = 0
+        tombstone_ready = table_exists(conn, SOCCER_DAILY_REMOVED_TABLE)
         try:
             conn.execute("BEGIN;")
             for m in parsed:
@@ -346,6 +369,15 @@ def ingest_matches_and_odds(
                 ).fetchone()
 
                 if existing is None:
+                    if tombstone_ready:
+                        removed = conn.execute(
+                            f"SELECT 1 FROM {SOCCER_DAILY_REMOVED_TABLE} "
+                            "WHERE match_id = ? LIMIT 1;",
+                            (m.match_id,),
+                        ).fetchone()
+                        if removed is not None:
+                            skipped_tombstone += 1
+                            continue
                     odds_fetched = stamp if m.has_complete_had else None
                     conn.execute(
                         """
@@ -460,6 +492,40 @@ def ingest_matches_and_odds(
         skipped_missing=0,
         results_applied=False,
         request_key=request_key,
+        skipped_tombstone=skipped_tombstone,
+    )
+
+
+def _norm_odds_for_compare(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(num):
+        return None
+    return round(num, 6)
+
+
+def _odds_fields_equal(
+    home: Any,
+    draw: Any,
+    away: Any,
+    status: Any,
+    *,
+    home2: Any,
+    draw2: Any,
+    away2: Any,
+    status2: Any,
+) -> bool:
+    st1 = str(status).strip() if status is not None and str(status).strip() != "" else None
+    st2 = str(status2).strip() if status2 is not None and str(status2).strip() != "" else None
+    return (
+        _norm_odds_for_compare(home) == _norm_odds_for_compare(home2)
+        and _norm_odds_for_compare(draw) == _norm_odds_for_compare(draw2)
+        and _norm_odds_for_compare(away) == _norm_odds_for_compare(away2)
+        and st1 == st2
     )
 
 
@@ -474,6 +540,7 @@ def update_odds_for_existing_matches(
     Update HAD odds for existing soccer_daily rows only.
     Does not insert new matches; does not overwrite basic match fields;
     does not apply official results (not connected yet).
+    Incomplete HAD never blanks previously stored valid odds.
     """
     if not db_path.is_file():
         raise SoccerIngestError("db_missing", f"database missing: {db_path}")
@@ -499,6 +566,8 @@ def update_odds_for_existing_matches(
     had_incomplete = 0
     skipped_missing = 0
     updated = 0
+    odds_changed = 0
+    odds_unchanged = 0
 
     with get_connection(db_path) as conn:
         if not table_exists(conn, SOCCER_DAILY_TABLE):
@@ -538,6 +607,21 @@ def update_odds_for_existing_matches(
                         else existing["odds_status"]
                     )
 
+                same = _odds_fields_equal(
+                    home_odds,
+                    draw_odds,
+                    away_odds,
+                    odds_status,
+                    home2=existing["home_odds"],
+                    draw2=existing["draw_odds"],
+                    away2=existing["away_odds"],
+                    status2=existing["odds_status"],
+                )
+                if same:
+                    odds_unchanged += 1
+                else:
+                    odds_changed += 1
+
                 conn.execute(
                     """
                     UPDATE soccer_daily SET
@@ -575,6 +659,8 @@ def update_odds_for_existing_matches(
                     skipped_missing=skipped_missing,
                     results_applied=False,
                     request_key=request_key,
+                    odds_changed=0,
+                    odds_unchanged=0,
                 )
 
             conn.execute(
@@ -606,6 +692,8 @@ def update_odds_for_existing_matches(
         skipped_missing=skipped_missing,
         results_applied=False,
         request_key=request_key,
+        odds_changed=odds_changed,
+        odds_unchanged=odds_unchanged,
     )
 
 
@@ -1184,5 +1272,419 @@ def ingest_official_match_results(
         skipped_insufficient=skipped_insufficient,
         match_num_total=match_num_total,
         matches_returned=matches_returned,
+    )
+
+
+def hkjc_history_source_key(match_id: str) -> str:
+    return f"{HKJC_SOURCE}|{match_id}"
+
+
+def parse_kickoff_utc_and_hkt(kickoff_raw: Any) -> tuple[str, str, str]:
+    """
+    Parse kickOffTime → (kickoff_utc with Z, kickoff_hkt +08:00 ISO, match_date HKT).
+    Raises SoccerIngestError when missing/invalid (caller should skip the match).
+    """
+    kickoff_hkt, match_date = parse_kickoff_hkt(kickoff_raw)
+    text = str(kickoff_raw).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    dt = datetime.fromisoformat(text)
+    assert dt.tzinfo is not None
+    utc = dt.astimezone(timezone.utc)
+    kickoff_utc = utc.isoformat().replace("+00:00", "Z")
+    return kickoff_utc, kickoff_hkt, match_date
+
+
+def _team_source_id(team_obj: Any) -> str | None:
+    if not isinstance(team_obj, dict):
+        return None
+    tid = team_obj.get("id")
+    if tid is None or str(tid).strip() == "":
+        return None
+    return str(tid).strip()
+
+
+def soccer_daily_date_bounds(db_path: Path) -> tuple[str, str] | None:
+    """Return (min_match_date, max_match_date) or None when soccer_daily is empty."""
+    with get_connection(db_path) as conn:
+        if not table_exists(conn, SOCCER_DAILY_TABLE):
+            return None
+        row = conn.execute(
+            f"SELECT MIN(match_date) AS min_d, MAX(match_date) AS max_d "
+            f"FROM {SOCCER_DAILY_TABLE};"
+        ).fetchone()
+        if row is None or row["min_d"] is None or row["max_d"] is None:
+            return None
+        return str(row["min_d"]), str(row["max_d"])
+
+
+def soccer_daily_distinct_dates(db_path: Path) -> list[str]:
+    with get_connection(db_path) as conn:
+        if not table_exists(conn, SOCCER_DAILY_TABLE):
+            return []
+        return [
+            str(r["match_date"])
+            for r in conn.execute(
+                f"SELECT DISTINCT match_date FROM {SOCCER_DAILY_TABLE} "
+                "ORDER BY match_date;"
+            )
+        ]
+
+
+def _upsert_hkjc_history_row(
+    conn: sqlite3.Connection,
+    *,
+    raw: dict[str, Any],
+    parsed: ParsedOfficialResult,
+    kickoff_utc: str,
+    kickoff_hkt: str,
+    match_date: str,
+    stamp: str,
+) -> str:
+    """
+    Insert or update one hkjc|{id} row. Returns 'inserted' or 'updated'.
+    Missing source fields stay NULL; ON CONFLICT does not clear existing values.
+    """
+    source_key = hkjc_history_source_key(parsed.match_id)
+    month = match_date[:7]
+    tourn = raw.get("tournament") if isinstance(raw.get("tournament"), dict) else {}
+    competition_id = str(tourn.get("code") or "").strip() or None
+    competition_name = (
+        str(tourn.get("name_ch") or "").strip()
+        or str(tourn.get("name_en") or "").strip()
+        or None
+    )
+    home_name = _team_display_name(raw.get("homeTeam"))
+    away_name = _team_display_name(raw.get("awayTeam"))
+    home_id = _team_source_id(raw.get("homeTeam"))
+    away_id = _team_source_id(raw.get("awayTeam"))
+    front_end = str(raw.get("frontEndId") or "").strip() or None
+    score_ft_home = parsed.ft.home if parsed.ft is not None else None
+    score_ft_away = parsed.ft.away if parsed.ft is not None else None
+    score_ht_home = parsed.ht.home if parsed.ht is not None else None
+    score_ht_away = parsed.ht.away if parsed.ht is not None else None
+    score_2h_home = parsed.sh.home if parsed.sh is not None else None
+    score_2h_away = parsed.sh.away if parsed.sh is not None else None
+    has_score = 1 if parsed.ft is not None else 0
+    score_complete = 1 if (parsed.ft is not None and parsed.ht is not None) else 0
+    event_json = json.dumps(raw, ensure_ascii=False, separators=(",", ":"), default=str)
+
+    existing = conn.execute(
+        f"SELECT source_key FROM {FOOTYLOGIC_MATCHES_TABLE} WHERE source_key = ?;",
+        (source_key,),
+    ).fetchone()
+    action = "updated" if existing is not None else "inserted"
+
+    t = FOOTYLOGIC_MATCHES_TABLE
+    conn.execute(
+        f"""
+        INSERT INTO {t} (
+            source_key, source, competition_id, season_id, month, competition_name,
+            home_team_id, away_team_id, home_team_name, away_team_name,
+            kickoff_utc, kickoff_hkt, match_date_hkt,
+            score_ft_home, score_ft_away, score_ht_home, score_ht_away,
+            score_2h_home, score_2h_away,
+            has_score, score_complete, result_confirm_status,
+            event_json, source_last_updated, created_at, updated_at,
+            hkjc_match_id, hkjc_front_end_id
+        ) VALUES (
+            ?, ?, ?, NULL, ?, ?,
+            ?, ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?, ?,
+            ?, ?,
+            ?, ?, ?,
+            ?, ?, ?, ?,
+            ?, ?
+        )
+        ON CONFLICT(source_key) DO UPDATE SET
+            competition_id=COALESCE(excluded.competition_id, {t}.competition_id),
+            competition_name=COALESCE(excluded.competition_name, {t}.competition_name),
+            home_team_id=COALESCE(excluded.home_team_id, {t}.home_team_id),
+            away_team_id=COALESCE(excluded.away_team_id, {t}.away_team_id),
+            home_team_name=COALESCE(excluded.home_team_name, {t}.home_team_name),
+            away_team_name=COALESCE(excluded.away_team_name, {t}.away_team_name),
+            kickoff_utc=excluded.kickoff_utc,
+            kickoff_hkt=excluded.kickoff_hkt,
+            match_date_hkt=excluded.match_date_hkt,
+            month=excluded.month,
+            score_ft_home=CASE
+                WHEN excluded.score_ft_home IS NOT NULL THEN excluded.score_ft_home
+                ELSE {t}.score_ft_home END,
+            score_ft_away=CASE
+                WHEN excluded.score_ft_away IS NOT NULL THEN excluded.score_ft_away
+                ELSE {t}.score_ft_away END,
+            score_ht_home=CASE
+                WHEN excluded.score_ht_home IS NOT NULL THEN excluded.score_ht_home
+                ELSE {t}.score_ht_home END,
+            score_ht_away=CASE
+                WHEN excluded.score_ht_away IS NOT NULL THEN excluded.score_ht_away
+                ELSE {t}.score_ht_away END,
+            score_2h_home=CASE
+                WHEN excluded.score_2h_home IS NOT NULL THEN excluded.score_2h_home
+                ELSE {t}.score_2h_home END,
+            score_2h_away=CASE
+                WHEN excluded.score_2h_away IS NOT NULL THEN excluded.score_2h_away
+                ELSE {t}.score_2h_away END,
+            has_score=CASE WHEN excluded.has_score=1 THEN 1 ELSE {t}.has_score END,
+            score_complete=CASE
+                WHEN excluded.score_complete=1 THEN 1 ELSE {t}.score_complete END,
+            result_confirm_status=excluded.result_confirm_status,
+            event_json=excluded.event_json,
+            source_last_updated=excluded.source_last_updated,
+            updated_at=excluded.updated_at,
+            hkjc_match_id=COALESCE(excluded.hkjc_match_id, {t}.hkjc_match_id),
+            hkjc_front_end_id=COALESCE(excluded.hkjc_front_end_id, {t}.hkjc_front_end_id)
+        """,
+        (
+            source_key,
+            HKJC_SOURCE,
+            competition_id,
+            month,
+            competition_name,
+            home_id,
+            away_id,
+            home_name,
+            away_name,
+            kickoff_utc,
+            kickoff_hkt,
+            match_date,
+            score_ft_home,
+            score_ft_away,
+            score_ht_home,
+            score_ht_away,
+            score_2h_home,
+            score_2h_away,
+            has_score,
+            score_complete,
+            HKJC_RESULT_CONFIRM_STATUS,
+            event_json,
+            stamp,
+            stamp,
+            stamp,
+            parsed.match_id,
+            front_end,
+        ),
+    )
+    return action
+
+
+def ingest_official_results_to_history(
+    db_path: Path,
+    response_obj: Any,
+    *,
+    request_key: str = REQUEST_KEY_UPDATE_RESULTS,
+    now_utc: str | None = None,
+    variables: dict[str, Any] | None = None,
+    only_daily_ids: set[str] | None = None,
+) -> IngestResult:
+    """
+    Official matchResults with confirmed FT → upsert footylogic_matches
+    (source=hkjc), then DELETE soccer_daily + tombstone in one per-match
+    transaction.
+
+    Source status is not a gate: presence in matchResults with confirmed FT
+    means the match is treated as finished. HT-only / no kickOffTime / write
+    failure → daily row kept.
+    """
+    if not db_path.is_file():
+        raise SoccerIngestError("db_missing", f"database missing: {db_path}")
+
+    matches_raw, match_num_total, _ = _extract_match_results_envelope(response_obj)
+    matches_returned = len(matches_raw)
+    assert_match_results_completeness(
+        matches_returned=matches_returned,
+        match_num_total=match_num_total,
+        variables=variables,
+    )
+
+    if matches_returned == 0:
+        return IngestResult(
+            code="skipped_empty",
+            processed=0,
+            inserted=0,
+            updated=0,
+            had_complete=0,
+            had_incomplete=0,
+            last_success_at=get_last_success_at(db_path, request_key),
+            detail="empty matches",
+            results_applied=False,
+            request_key=request_key,
+            match_num_total=match_num_total,
+            matches_returned=0,
+        )
+
+    stamp = now_utc or utc_now_iso()
+    inserted = 0
+    updated = 0
+    daily_deleted = 0
+    skipped_status = 0
+    skipped_unconfirmed = 0
+    skipped_no_kickoff = 0
+    skipped_not_in_daily = 0
+    ft_applied = 0
+    ht_applied = 0
+    sh_applied = 0
+
+    with get_connection(db_path) as conn:
+        if not table_exists(conn, SOCCER_DAILY_TABLE):
+            raise SoccerIngestError("table_missing", "soccer_daily missing; run init")
+        ensure_footylogic_schema(conn)
+        if not table_exists(conn, SOCCER_DAILY_REMOVED_TABLE):
+            raise SoccerIngestError(
+                "table_missing",
+                "soccer_daily_removed missing; run: python -m hppv.soccer_db init",
+            )
+        if only_daily_ids is None:
+            daily_ids = {
+                str(r["match_id"])
+                for r in conn.execute(
+                    f"SELECT match_id FROM {SOCCER_DAILY_TABLE};"
+                ).fetchall()
+            }
+        else:
+            daily_ids = set(only_daily_ids)
+
+        seen: set[str] = set()
+        for item in matches_raw:
+            if not isinstance(item, dict):
+                raise SoccerIngestError(
+                    "structure_mismatch", "match result item is not an object"
+                )
+            parsed = parse_official_result_item(item)
+            if parsed.match_id in seen:
+                raise SoccerIngestError(
+                    "duplicate_id", f"duplicate match_id {parsed.match_id}"
+                )
+            seen.add(parsed.match_id)
+
+            # Status ignored: matchResults + confirmed FT = finished.
+            if parsed.ft is None:
+                skipped_unconfirmed += 1
+                continue
+            if parsed.match_id not in daily_ids:
+                skipped_not_in_daily += 1
+                continue
+            try:
+                kickoff_utc, kickoff_hkt, match_date = parse_kickoff_utc_and_hkt(
+                    item.get("kickOffTime")
+                )
+            except SoccerIngestError:
+                skipped_no_kickoff += 1
+                continue
+
+            try:
+                conn.execute("BEGIN;")
+                action = _upsert_hkjc_history_row(
+                    conn,
+                    raw=item,
+                    parsed=parsed,
+                    kickoff_utc=kickoff_utc,
+                    kickoff_hkt=kickoff_hkt,
+                    match_date=match_date,
+                    stamp=stamp,
+                )
+                del_cur = conn.execute(
+                    f"DELETE FROM {SOCCER_DAILY_TABLE} WHERE match_id = ?;",
+                    (parsed.match_id,),
+                )
+                if del_cur.rowcount != 1:
+                    raise SoccerIngestError(
+                        "daily_delete_failed",
+                        f"expected 1 deleted row match_id={parsed.match_id} "
+                        f"rowcount={del_cur.rowcount}",
+                    )
+                conn.execute(
+                    f"""
+                    INSERT INTO {SOCCER_DAILY_REMOVED_TABLE} (match_id, removed_at, reason)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(match_id) DO UPDATE SET
+                        removed_at = excluded.removed_at,
+                        reason = excluded.reason;
+                    """,
+                    (parsed.match_id, stamp, TOMBSTONE_REASON_OFFICIAL_FT),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+            if action == "inserted":
+                inserted += 1
+            else:
+                updated += 1
+            daily_deleted += 1
+            ft_applied += 1
+            if parsed.ht is not None:
+                ht_applied += 1
+            if parsed.sh is not None:
+                sh_applied += 1
+            daily_ids.discard(parsed.match_id)
+
+        if daily_deleted == 0 and inserted == 0 and updated == 0:
+            return IngestResult(
+                code="skipped_no_existing",
+                processed=len(seen),
+                inserted=0,
+                updated=0,
+                had_complete=0,
+                had_incomplete=0,
+                last_success_at=get_last_success_at(db_path, request_key),
+                detail=(
+                    f"no confirmed-FT rows moved; skipped_status={skipped_status} "
+                    f"skipped_unconfirmed={skipped_unconfirmed} "
+                    f"skipped_no_kickoff={skipped_no_kickoff} "
+                    f"skipped_not_in_daily={skipped_not_in_daily}"
+                ),
+                results_applied=False,
+                request_key=request_key,
+                skipped_status=skipped_status,
+                skipped_unconfirmed=skipped_unconfirmed,
+                skipped_no_kickoff=skipped_no_kickoff,
+                skipped_not_in_daily=skipped_not_in_daily,
+                match_num_total=match_num_total,
+                matches_returned=matches_returned,
+                daily_deleted=0,
+            )
+
+        conn.execute(
+            """
+            INSERT INTO soccer_sync_state (request_key, last_success_at)
+            VALUES (?, ?)
+            ON CONFLICT(request_key) DO UPDATE SET
+                last_success_at = excluded.last_success_at;
+            """,
+            (request_key, stamp),
+        )
+        conn.commit()
+
+    detail = (
+        f"history inserted={inserted} updated={updated} daily_deleted={daily_deleted}; "
+        f"ht_applied={ht_applied} ft_applied={ft_applied} sh_applied={sh_applied}; "
+        f"skipped_status={skipped_status} skipped_unconfirmed={skipped_unconfirmed} "
+        f"skipped_no_kickoff={skipped_no_kickoff} "
+        f"skipped_not_in_daily={skipped_not_in_daily}"
+    )
+    return IngestResult(
+        code="success",
+        processed=len(seen),
+        inserted=inserted,
+        updated=updated,
+        had_complete=ht_applied,
+        had_incomplete=ft_applied,
+        last_success_at=stamp,
+        detail=detail,
+        results_applied=True,
+        request_key=request_key,
+        ht_applied=ht_applied,
+        ft_applied=ft_applied,
+        sh_applied=sh_applied,
+        skipped_status=skipped_status,
+        skipped_unconfirmed=skipped_unconfirmed,
+        skipped_no_kickoff=skipped_no_kickoff,
+        skipped_not_in_daily=skipped_not_in_daily,
+        match_num_total=match_num_total,
+        matches_returned=matches_returned,
+        daily_deleted=daily_deleted,
     )
 

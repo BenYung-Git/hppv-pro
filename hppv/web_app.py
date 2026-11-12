@@ -76,6 +76,10 @@ from hppv.soccer_history import (
     normalize_history_search_op,
     parse_history_sort_param,
 )
+from hppv.soccer_daily_export import (
+    build_daily_export,
+    parse_daily_export_request,
+)
 from hppv.soccer_history_export import (
     HistoryExportError,
     build_history_export,
@@ -120,6 +124,12 @@ from hppv.soccer_requests import (
     SoccerRequestPresetError,
     ensure_placeholder_preset_files,
     load_soccer_request_preset,
+)
+from hppv.soccer_task_scheduler import (
+    SoccerTaskError,
+    get_update_matches_scheduler,
+    get_update_odds_scheduler,
+    get_update_results_scheduler,
 )
 from hppv.translations import (
     DEFAULT_LANG,
@@ -185,6 +195,29 @@ try:
     ensure_placeholder_preset_files(SOCCER_REQUESTS_DIR)
 except OSError as _soccer_req_err:
     print(">>> SOCCER REQUEST PRESET INIT FAILED:", _soccer_req_err)
+
+# Single-process soccer task schedulers (not multi-worker safe).
+_update_matches_scheduler = get_update_matches_scheduler(
+    SOCCER_DB_PATH, SOCCER_REQUESTS_DIR
+)
+_update_odds_scheduler = get_update_odds_scheduler(
+    SOCCER_DB_PATH, SOCCER_REQUESTS_DIR
+)
+_update_results_scheduler = get_update_results_scheduler(
+    SOCCER_DB_PATH, SOCCER_REQUESTS_DIR
+)
+try:
+    _update_matches_scheduler.start()
+except Exception as _soccer_task_err:
+    print(">>> SOCCER UPDATE_MATCHES SCHEDULER START FAILED:", _soccer_task_err)
+try:
+    _update_odds_scheduler.start()
+except Exception as _soccer_odds_err:
+    print(">>> SOCCER UPDATE_ODDS SCHEDULER START FAILED:", _soccer_odds_err)
+try:
+    _update_results_scheduler.start()
+except Exception as _soccer_results_err:
+    print(">>> SOCCER UPDATE_RESULTS SCHEDULER START FAILED:", _soccer_results_err)
 
 @app.get("/ping")
 def ping():
@@ -952,6 +985,108 @@ def api_soccer_graphql_send() -> Any:
     )
 
 
+@app.get("/api/soccer/tasks/update-matches")
+def api_soccer_task_update_matches_get() -> Any:
+    """Return persisted update_matches task state (backend is source of truth)."""
+    try:
+        state = _update_matches_scheduler.get_state()
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("update_matches task get failed: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+    return jsonify({"ok": True, "task": state.to_public_dict()})
+
+
+@app.put("/api/soccer/tasks/update-matches")
+def api_soccer_task_update_matches_put() -> Any:
+    """Save update_matches settings and re-arm in-process schedule."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
+    enabled = bool(data.get("enabled"))
+    try:
+        state = _update_matches_scheduler.apply_settings(
+            enabled=enabled,
+            interval_value=data.get("interval_value"),
+            interval_unit=data.get("interval_unit"),
+        )
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("update_matches task save failed: %s", e)
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+    return jsonify({"ok": True, "task": state.to_public_dict()})
+
+
+@app.get("/api/soccer/tasks/update-odds")
+def api_soccer_task_update_odds_get() -> Any:
+    """Return persisted update_odds task state (backend is source of truth)."""
+    try:
+        state = _update_odds_scheduler.get_state()
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("update_odds task get failed: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+    return jsonify({"ok": True, "task": state.to_public_dict()})
+
+
+@app.put("/api/soccer/tasks/update-odds")
+def api_soccer_task_update_odds_put() -> Any:
+    """Save update_odds settings and re-arm in-process schedule."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
+    enabled = bool(data.get("enabled"))
+    try:
+        state = _update_odds_scheduler.apply_settings(
+            enabled=enabled,
+            interval_value=data.get("interval_value"),
+            interval_unit=data.get("interval_unit"),
+        )
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("update_odds task save failed: %s", e)
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+    return jsonify({"ok": True, "task": state.to_public_dict()})
+
+
+@app.get("/api/soccer/tasks/update-results")
+def api_soccer_task_update_results_get() -> Any:
+    """Return persisted update_results task state (backend is source of truth)."""
+    try:
+        state = _update_results_scheduler.get_state()
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("update_results task get failed: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+    return jsonify({"ok": True, "task": state.to_public_dict()})
+
+
+@app.put("/api/soccer/tasks/update-results")
+def api_soccer_task_update_results_put() -> Any:
+    """Save update_results settings and re-arm in-process schedule."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
+    enabled = bool(data.get("enabled"))
+    try:
+        state = _update_results_scheduler.apply_settings(
+            enabled=enabled,
+            interval_value=data.get("interval_value"),
+            interval_unit=data.get("interval_unit"),
+        )
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("update_results task save failed: %s", e)
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+    return jsonify({"ok": True, "task": state.to_public_dict()})
+
+
 @app.get("/api/soccer/sync-state")
 def api_soccer_sync_state() -> Any:
     key = (request.args.get("request_key") or REQUEST_KEY_MATCHES_AND_ODDS).strip()
@@ -1183,6 +1318,43 @@ def api_soccer_history_export() -> Any:
     # Custom / disposition headers must stay latin-1 safe (no raw CJK).
     resp.headers["X-HPPV-Export-Filename"] = header_safe_export_filename(filename)
     # Informational only; browser writes via showSaveFilePicker using local handle.
+    resp.headers["Content-Disposition"] = export_content_disposition(
+        filename, file_type=export_req.file_type
+    )
+    return resp
+
+
+@app.post("/api/soccer/daily-export")
+def api_soccer_daily_export() -> Any:
+    """Build a daily-matches export from soccer_daily (never history/footylogic)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
+    catalog = catalog_public(LAYOUT_KEY_DAILY_MATCHES, db_path=SOCCER_DB_PATH)
+    catalog_keys = [str(c["key"]) for c in catalog]
+    try:
+        try:
+            daily_layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_DAILY_MATCHES)
+        except SoccerLayoutError:
+            daily_layout = default_layout_settings(LAYOUT_KEY_DAILY_MATCHES)
+        export_req = parse_daily_export_request(
+            data, catalog_keys=catalog_keys, db_path=SOCCER_DB_PATH
+        )
+        filename = validate_export_filename(
+            str(data.get("filename") or ""), export_req.file_type
+        )
+        result = build_daily_export(
+            SOCCER_DB_PATH, export_req, layout_settings=daily_layout
+        )
+    except HistoryExportError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("soccer daily export failed: %s", e)
+        return jsonify({"ok": False, "error": "export_failed", "detail": str(e)}), 500
+    resp = make_response(result.content)
+    resp.headers["Content-Type"] = result.mime
+    resp.headers["X-HPPV-Export-Rows"] = str(result.row_count)
+    resp.headers["X-HPPV-Export-Filename"] = header_safe_export_filename(filename)
     resp.headers["Content-Disposition"] = export_content_disposition(
         filename, file_type=export_req.file_type
     )

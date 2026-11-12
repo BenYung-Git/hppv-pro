@@ -20,7 +20,10 @@ from hppv.footylogic_schema import (
     FOOTYLOGIC_QUARANTINE_TABLE,
     FOOTYLOGIC_RAW_TABLE,
     ensure_footylogic_matches_new_columns_sql,
+    footylogic_matches_base_indexes_sql,
+    footylogic_matches_hkjc_indexes_sql,
     footylogic_schema_sql,
+    rebuild_footylogic_matches_nullable_ids,
 )
 from hppv.soccer_db import get_connection
 
@@ -30,13 +33,20 @@ def _utc_now() -> str:
 
 
 def ensure_footylogic_schema(conn: sqlite3.Connection) -> None:
+    """
+    Create Footylogic tables if missing; migrate competition_id/season_id to
+    nullable and add HKJC columns when needed. Never drops match data.
+    """
     conn.executescript(footylogic_schema_sql())
+    rebuild_footylogic_matches_nullable_ids(conn)
     existing = {
         str(r[1])
         for r in conn.execute(f"PRAGMA table_info({FOOTYLOGIC_MATCHES_TABLE})").fetchall()
     }
     for stmt in ensure_footylogic_matches_new_columns_sql(existing):
         conn.execute(stmt)
+    conn.executescript(footylogic_matches_base_indexes_sql())
+    conn.executescript(footylogic_matches_hkjc_indexes_sql())
 
 
 def init_footylogic_tables(db_path: Path) -> None:

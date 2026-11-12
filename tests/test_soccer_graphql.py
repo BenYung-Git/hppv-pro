@@ -135,6 +135,14 @@ def test_send_http_error_non_json_and_rate_limit() -> None:
         send_soccer_graphql(payload, post_func=post_500)
     assert exc.value.code == "rate_limited"
 
+    # Scheduler path waits instead of failing.
+    reset_rate_limit_for_tests()
+    send_soccer_graphql(payload, post_func=post_500)
+    r_wait = send_soccer_graphql(
+        payload, post_func=post_500, wait_for_rate_limit=True
+    )
+    assert r_wait.outcome == "http_error"
+
 
 def test_api_send_rejects_mutation_and_does_not_write_preset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -269,12 +277,25 @@ def test_page_has_tasks_tab_ui_defaults() -> None:
     assert 'value="matches_and_odds" selected' in html
     assert "status-mapping-note" in html
 
-    assert re.search(r'id="task-odds-enabled"[^>]*\bchecked\b', html)
-    assert re.search(r'id="task-matches-enabled"[^>]*\bchecked\b', html)
+    # Backend is source of truth: HTML must not hard-check enabled.
+    assert 'id="task-odds-enabled"' in html
+    assert not re.search(r'id="task-odds-enabled"[^>]*\bchecked\b', html)
+    assert not re.search(r'id="task-odds-enabled"[^>]*\bdisabled\b', html)
+    assert 'id="task-matches-enabled"' in html
+    assert not re.search(r'id="task-matches-enabled"[^>]*\bchecked\b', html)
+    assert 'id="task-results-enabled"' in html
+    assert not re.search(r'id="task-results-enabled"[^>]*\bchecked\b', html)
     assert 'id="task-odds-interval"' in html
     assert 'id="task-odds-unit"' in html
+    assert 'id="task-odds-status"' in html
     assert 'id="task-matches-interval"' in html
     assert 'id="task-matches-unit"' in html
+    assert 'id="task-results-interval"' in html
+    assert 'id="task-results-unit"' in html
+    assert 'id="task-results-status"' in html
+    assert "/api/soccer/tasks/update-odds" in html
+    assert "/api/soccer/tasks/update-matches" in html
+    assert "/api/soccer/tasks/update-results" in html
     for n in range(1, 11):
         assert f'value="{n}"' in html
     assert re.search(r'id="task-odds-interval"[\s\S]*?<option value="1" selected>', html)
@@ -285,6 +306,8 @@ def test_page_has_tasks_tab_ui_defaults() -> None:
     assert 'id="task-odds-next"' in html
     assert 'id="task-matches-last"' in html
     assert 'id="task-matches-next"' in html
+    assert 'id="task-results-last"' in html
+    assert 'id="task-results-next"' in html
     assert "尚未排程" in html or "Not scheduled" in html
     assert "onchange=\"fetch" not in html
     assert "onclick=\"fetch" not in html
@@ -299,6 +322,8 @@ def test_task_translation_keys_seeded(tmp_path) -> None:
         "soccer.daily.tab.tasks",
         "soccer.daily.task.update_odds",
         "soccer.daily.task.update_matches",
+        "soccer.daily.task.update_results",
+        "soccer.daily.task.results_scope_note",
         "soccer.daily.task.last_updated",
         "soccer.daily.task.next_update",
         "soccer.daily.task.not_scheduled",

@@ -129,6 +129,29 @@ def previous_complete_calendar_year_bounds(
     return f"{year}-01-01", f"{year}-12-31"
 
 
+def apply_match_results_date_window(
+    payload: SoccerRequestPayload,
+    *,
+    start_date: str,
+    end_date: str,
+) -> SoccerRequestPayload:
+    """
+    Copy payload and set inclusive startDate/endDate with full-range paging
+    (startIndex=0, endIndex=0, teamId=null) — verified short-window mode.
+    """
+    base = dict(payload.variables) if isinstance(payload.variables, dict) else {}
+    base["startDate"] = start_date
+    base["endDate"] = end_date
+    base["startIndex"] = 0
+    base["endIndex"] = 0
+    base["teamId"] = None
+    return SoccerRequestPayload(
+        query=payload.query,
+        variables=base,
+        operation_name=payload.operation_name,
+    )
+
+
 def apply_previous_calendar_year_variables(
     payload: SoccerRequestPayload,
     *,
@@ -136,20 +159,8 @@ def apply_previous_calendar_year_variables(
 ) -> SoccerRequestPayload:
     """Copy payload variables and set startDate/endDate to previous complete calendar year."""
     start, end = previous_complete_calendar_year_bounds(today)
-    base = dict(payload.variables) if isinstance(payload.variables, dict) else {}
-    base["startDate"] = start
-    base["endDate"] = end
-    # Keep other required variables from the verified preset (startIndex/endIndex/teamId).
-    if "startIndex" not in base:
-        base["startIndex"] = 0
-    if "endIndex" not in base:
-        base["endIndex"] = 0
-    if "teamId" not in base:
-        base["teamId"] = None
-    return SoccerRequestPayload(
-        query=payload.query,
-        variables=base,
-        operation_name=payload.operation_name,
+    return apply_match_results_date_window(
+        payload, start_date=start, end_date=end
     )
 
 

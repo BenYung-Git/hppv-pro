@@ -1009,13 +1009,23 @@
               <button type="button" disabled aria-disabled="true">🔄 {{ t('soccer.daily.update') }}</button>
             </div>
           </div>
-          <button type="button" class="icon-btn toolbar-layout-btn" id="btn-open-layout"
-                  aria-controls="matches-layout-mode"
-                  aria-expanded="{{ 'true' if open_layout_panel else 'false' }}"
-                  title="{{ t('soccer.daily.tab.layout') }}"
-                  aria-label="{{ t('soccer.daily.tab.layout') }}">
-            <span class="btn-label">{{ t('soccer.daily.tab.layout') }}</span>
-          </button>
+          <div class="history-toolbar-actions">
+            <button type="button" class="icon-btn toolbar-layout-btn" id="btn-open-layout"
+                    aria-controls="matches-layout-mode"
+                    aria-expanded="{{ 'true' if open_layout_panel else 'false' }}"
+                    title="{{ t('soccer.daily.tab.layout') }}"
+                    aria-label="{{ t('soccer.daily.tab.layout') }}">
+              <span class="btn-label">{{ t('soccer.daily.tab.layout') }}</span>
+            </button>
+            <button type="button" class="icon-btn toolbar-icon-only" id="btn-open-daily-export"
+                    aria-controls="history-export-overlay"
+                    aria-expanded="false"
+                    title="{{ t('soccer.daily.export.tip') }}"
+                    aria-label="{{ t('soccer.daily.export.tip') }}">
+              {{ icon_history_export() }}
+              <span class="btn-label">{{ t('soccer.daily.export.tip') }}</span>
+            </button>
+          </div>
         </div>
         {% set _total = page_meta.get('total_count', 0) or 0 %}
         {% set _n = (page_meta.get('n', 1) or 1) if _total else 0 %}
@@ -1379,62 +1389,6 @@
       </div>
     </div>{# history-list-mode #}
 
-    <div class="history-export-overlay" id="history-export-overlay" hidden>
-      <div class="history-export-dialog" role="dialog" aria-modal="true"
-           aria-labelledby="history-export-title" id="history-export-dialog">
-        <h2 id="history-export-title">{{ t('soccer.history.export.title') }}</h2>
-        <div class="field-row">
-          <label for="history-export-path">{{ t('soccer.history.export.output_path') }}</label>
-          <div class="path-row">
-            <input type="text" id="history-export-path" readonly
-                   value="{{ t('soccer.history.export.path_unselected') }}"
-                   autocomplete="off" spellcheck="false">
-            <button type="button" class="icon-btn" id="btn-history-export-browse"
-                    title="{{ t('soccer.history.export.browse_tip') }}"
-                    aria-label="{{ t('soccer.history.export.browse_tip') }}">
-              <span class="btn-label">{{ t('soccer.history.export.browse') }}</span>
-            </button>
-          </div>
-        </div>
-        <p class="history-export-path-hint" id="history-export-path-hint">
-          {{ t('soccer.history.export.path_hint') }}
-        </p>
-        <div class="field-row">
-          <label for="history-export-filename">{{ t('soccer.history.export.filename') }}</label>
-          <div class="filename-row">
-            <input type="text" id="history-export-filename" autocomplete="off" spellcheck="false">
-          </div>
-        </div>
-        <div class="field-row">
-          <label for="history-export-filetype">{{ t('soccer.history.export.file_type') }}</label>
-          <select id="history-export-filetype">
-            <option value="xlsx" selected>XLSX（.xlsx）</option>
-            <option value="csv">CSV（.csv）</option>
-            <option value="jpeg">JPEG（.jpeg）</option>
-            <option value="pdf">PDF（.pdf）</option>
-          </select>
-        </div>
-        <p class="history-export-note" id="history-export-csv-note" hidden>
-          {{ t('soccer.history.export.csv_width_note') }}
-        </p>
-        <div class="history-export-actions">
-          <button type="button" class="icon-btn toolbar-icon-only" id="btn-history-export-leave"
-                  title="{{ t('soccer.history.export.leave_tip') }}"
-                  aria-label="{{ t('soccer.history.export.leave_tip') }}">
-            {{ icon_layout_cancel() }}
-            <span class="btn-label">{{ t('soccer.history.export.leave_tip') }}</span>
-          </button>
-          <button type="button" class="icon-btn layout-save toolbar-icon-only" id="btn-history-export-confirm"
-                  title="{{ t('soccer.history.export.confirm_tip') }}"
-                  aria-label="{{ t('soccer.history.export.confirm_tip') }}">
-            {{ icon_layout_save() }}
-            <span class="btn-label">{{ t('soccer.history.export.confirm_tip') }}</span>
-          </button>
-        </div>
-        <p class="history-export-status" id="history-export-status" role="status" aria-live="polite"></p>
-      </div>
-    </div>
-
     <div class="matches-layout-mode" id="history-layout-mode"
          {% if not open_history_layout_panel %}hidden{% endif %}
          aria-label="{{ t('soccer.history.layout.mode_title') }}">
@@ -1546,7 +1500,7 @@
     <div class="task-list">
       <div class="task-row" data-task="update_odds">
         <label class="task-enable" for="task-odds-enabled">
-          <input type="checkbox" id="task-odds-enabled" checked>
+          <input type="checkbox" id="task-odds-enabled">
           <span>{{ t('soccer.daily.task.update_odds') }}</span>
         </label>
         <div class="task-controls">
@@ -1564,12 +1518,14 @@
           <span class="sync-badge" id="task-odds-last">{{ t('soccer.daily.updated_at_never') }}</span>
           <span class="task-time-label">{{ t('soccer.daily.task.next_update') }}</span>
           <span class="sync-badge" id="task-odds-next">{{ t('soccer.daily.task.not_scheduled') }}</span>
+          <span class="task-time-label">{{ t('soccer.daily.task.status.idle') }}</span>
+          <span class="sync-badge" id="task-odds-status">{{ t('soccer.daily.task.status.idle') }}</span>
         </div>
       </div>
 
       <div class="task-row" data-task="update_matches">
         <label class="task-enable" for="task-matches-enabled">
-          <input type="checkbox" id="task-matches-enabled" checked>
+          <input type="checkbox" id="task-matches-enabled">
           <span>{{ t('soccer.daily.task.update_matches') }}</span>
         </label>
         <div class="task-controls">
@@ -1587,8 +1543,99 @@
           <span class="sync-badge" id="task-matches-last">{{ t('soccer.daily.updated_at_never') }}</span>
           <span class="task-time-label">{{ t('soccer.daily.task.next_update') }}</span>
           <span class="sync-badge" id="task-matches-next">{{ t('soccer.daily.task.not_scheduled') }}</span>
+          <span class="task-time-label">{{ t('soccer.daily.task.status.idle') }}</span>
+          <span class="sync-badge" id="task-matches-status">{{ t('soccer.daily.task.status.idle') }}</span>
         </div>
       </div>
+
+      <div class="task-row" data-task="update_results">
+        <label class="task-enable" for="task-results-enabled">
+          <input type="checkbox" id="task-results-enabled">
+          <span>{{ t('soccer.daily.task.update_results') }}</span>
+        </label>
+        <div class="task-controls">
+          <select id="task-results-interval" aria-label="{{ t('soccer.daily.task.update_results') }}">
+            {% for n in range(1, 11) %}
+            <option value="{{ n }}" {% if n == 1 %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+          <select id="task-results-unit" aria-label="{{ t('soccer.daily.task.update_results') }}">
+            <option value="mins" selected>{{ t('soccer.daily.task.unit.mins') }}</option>
+            <option value="hour">{{ t('soccer.daily.task.unit.hour') }}</option>
+            <option value="day">{{ t('soccer.daily.task.unit.day') }}</option>
+          </select>
+          <span class="task-time-label">{{ t('soccer.daily.task.last_updated') }}</span>
+          <span class="sync-badge" id="task-results-last">{{ t('soccer.daily.updated_at_never') }}</span>
+          <span class="task-time-label">{{ t('soccer.daily.task.next_update') }}</span>
+          <span class="sync-badge" id="task-results-next">{{ t('soccer.daily.task.not_scheduled') }}</span>
+          <span class="task-time-label">{{ t('soccer.daily.task.status.idle') }}</span>
+          <span class="sync-badge" id="task-results-status">{{ t('soccer.daily.task.status.idle') }}</span>
+        </div>
+      </div>
+      <p class="muted dl-note" id="task-odds-scope-note">{{ t('soccer.daily.task.odds_scope_note') }}</p>
+      <p class="muted dl-note" id="task-matches-scope-note">{{ t('soccer.daily.task.scope_note') }}</p>
+      <p class="muted dl-note" id="task-results-scope-note">{{ t('soccer.daily.task.results_scope_note') }}</p>
+      <p class="muted dl-note" id="task-matches-process-note">{{ t('soccer.daily.task.single_process_note') }}</p>
+      <p class="muted" id="task-odds-msg" role="status" aria-live="polite"></p>
+      <p class="muted" id="task-matches-msg" role="status" aria-live="polite"></p>
+      <p class="muted" id="task-results-msg" role="status" aria-live="polite"></p>
+    </div>
+  </div>
+
+  {# Shared export dialog: outside tab panels so daily + history can both open it. #}
+  <div class="history-export-overlay" id="history-export-overlay" hidden>
+    <div class="history-export-dialog" role="dialog" aria-modal="true"
+         aria-labelledby="history-export-title" id="history-export-dialog">
+      <h2 id="history-export-title">{{ t('soccer.history.export.title') }}</h2>
+      <div class="field-row">
+        <label for="history-export-path">{{ t('soccer.history.export.output_path') }}</label>
+        <div class="path-row">
+          <input type="text" id="history-export-path" readonly
+                 value="{{ t('soccer.history.export.path_unselected') }}"
+                 autocomplete="off" spellcheck="false">
+          <button type="button" class="icon-btn" id="btn-history-export-browse"
+                  title="{{ t('soccer.history.export.browse_tip') }}"
+                  aria-label="{{ t('soccer.history.export.browse_tip') }}">
+            <span class="btn-label">{{ t('soccer.history.export.browse') }}</span>
+          </button>
+        </div>
+      </div>
+      <p class="history-export-path-hint" id="history-export-path-hint">
+        {{ t('soccer.history.export.path_hint') }}
+      </p>
+      <div class="field-row">
+        <label for="history-export-filename">{{ t('soccer.history.export.filename') }}</label>
+        <div class="filename-row">
+          <input type="text" id="history-export-filename" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+      <div class="field-row">
+        <label for="history-export-filetype">{{ t('soccer.history.export.file_type') }}</label>
+        <select id="history-export-filetype">
+          <option value="xlsx" selected>XLSX（.xlsx）</option>
+          <option value="csv">CSV（.csv）</option>
+          <option value="jpeg">JPEG（.jpeg）</option>
+          <option value="pdf">PDF（.pdf）</option>
+        </select>
+      </div>
+      <p class="history-export-note" id="history-export-csv-note" hidden>
+        {{ t('soccer.history.export.csv_width_note') }}
+      </p>
+      <div class="history-export-actions">
+        <button type="button" class="icon-btn toolbar-icon-only" id="btn-history-export-leave"
+                title="{{ t('soccer.history.export.leave_tip') }}"
+                aria-label="{{ t('soccer.history.export.leave_tip') }}">
+          {{ icon_layout_cancel() }}
+          <span class="btn-label">{{ t('soccer.history.export.leave_tip') }}</span>
+        </button>
+        <button type="button" class="icon-btn layout-save toolbar-icon-only" id="btn-history-export-confirm"
+                title="{{ t('soccer.history.export.confirm_tip') }}"
+                aria-label="{{ t('soccer.history.export.confirm_tip') }}">
+          {{ icon_layout_save() }}
+          <span class="btn-label">{{ t('soccer.history.export.confirm_tip') }}</span>
+        </button>
+      </div>
+      <p class="history-export-status" id="history-export-status" role="status" aria-live="polite"></p>
     </div>
   </div>
 
@@ -1680,6 +1727,9 @@
     historyReadError: {{ t('soccer.history.read_error')|tojson }},
     historyLayoutSortUnsupported: {{ t('soccer.history.layout.sort_unsupported')|tojson }},
     historyExportTip: {{ t('soccer.history.export.tip')|tojson }},
+    dailyExportTip: {{ t('soccer.daily.export.tip')|tojson }},
+    dailyExportTitle: {{ t('soccer.daily.export.title')|tojson }},
+    historyExportTitle: {{ t('soccer.history.export.title')|tojson }},
     historyExportBusy: {{ t('soccer.history.export.busy')|tojson }},
     historyExportDone: {{ t('soccer.history.export.done')|tojson }},
     historyExportFailed: {{ t('soccer.history.export.failed')|tojson }},
@@ -1710,6 +1760,15 @@
     pagerNext: {{ t('soccer.daily.pager.next')|tojson }},
     pagerLast: {{ t('soccer.daily.pager.last')|tojson }},
     historyPagerRecords: {{ t('soccer.history.pager.records')|tojson }},
+    taskNotScheduled: {{ t('soccer.daily.task.not_scheduled')|tojson }},
+    taskNever: {{ t('soccer.daily.updated_at_never')|tojson }},
+    taskStatusIdle: {{ t('soccer.daily.task.status.idle')|tojson }},
+    taskStatusRunning: {{ t('soccer.daily.task.status.running')|tojson }},
+    taskStatusSuccess: {{ t('soccer.daily.task.status.success')|tojson }},
+    taskStatusFailed: {{ t('soccer.daily.task.status.failed')|tojson }},
+    taskStatusSkipped: {{ t('soccer.daily.task.status.skipped')|tojson }},
+    taskSaveOk: {{ t('soccer.daily.task.save_ok')|tojson }},
+    taskSaveFailed: {{ t('soccer.daily.task.save_failed')|tojson }},
     layoutSaveOk: {{ t('soccer.daily.layout.saved')|tojson }},
     colDate: {{ t('soccer.daily.col.date')|tojson }},
     colTime: {{ t('soccer.daily.col.time')|tojson }},
@@ -2775,6 +2834,150 @@
   setLayoutMode(false, { skipUrl: true });
   {% endif %}
 
+  /* ---- Tasks: update_matches + update_odds + update_results ---- */
+  function initSoccerTaskUi(opts) {
+    const enabledEl = document.getElementById(opts.enabledId);
+    const intervalEl = document.getElementById(opts.intervalId);
+    const unitEl = document.getElementById(opts.unitId);
+    const lastEl = document.getElementById(opts.lastId);
+    const nextEl = document.getElementById(opts.nextId);
+    const statusEl = document.getElementById(opts.statusId);
+    const msgEl = document.getElementById(opts.msgId);
+    if (!enabledEl || !intervalEl || !unitEl) return;
+
+    let saveTimer = null;
+    let applyingRemote = false;
+    let pollTimer = null;
+    const apiUrl = opts.apiUrl;
+
+    function statusLabel(code) {
+      const map = {
+        idle: MSG.taskStatusIdle,
+        running: MSG.taskStatusRunning,
+        success: MSG.taskStatusSuccess,
+        failed: MSG.taskStatusFailed,
+        skipped: MSG.taskStatusSkipped,
+      };
+      return map[code] || MSG.taskStatusIdle;
+    }
+
+    function applyTaskToUi(task) {
+      if (!task) return;
+      applyingRemote = true;
+      enabledEl.checked = !!task.enabled;
+      if (task.interval_value) intervalEl.value = String(task.interval_value);
+      if (task.interval_unit) unitEl.value = String(task.interval_unit);
+      if (lastEl) {
+        lastEl.textContent = task.last_run_at_hkt || MSG.taskNever || "—";
+      }
+      if (nextEl) {
+        nextEl.textContent = task.enabled && task.next_run_at_hkt
+          ? task.next_run_at_hkt
+          : (MSG.taskNotScheduled || "");
+      }
+      if (statusEl) {
+        const st = task.running ? "running" : (task.last_status || "idle");
+        statusEl.textContent = statusLabel(st);
+      }
+      applyingRemote = false;
+    }
+
+    async function loadTask() {
+      try {
+        const resp = await fetch(apiUrl, {
+          headers: { "Accept": "application/json" },
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data || !data.ok) {
+          enabledEl.checked = false;
+          if (msgEl) msgEl.textContent = MSG.taskSaveFailed || "";
+          return;
+        }
+        applyTaskToUi(data.task);
+      } catch (_e) {
+        enabledEl.checked = false;
+        if (msgEl) msgEl.textContent = MSG.taskSaveFailed || "";
+      }
+    }
+
+    async function saveTask() {
+      if (applyingRemote) return;
+      const payload = {
+        enabled: !!enabledEl.checked,
+        interval_value: Number(intervalEl.value || 1),
+        interval_unit: unitEl.value || "mins",
+      };
+      try {
+        const resp = await fetch(apiUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data || !data.ok) {
+          if (msgEl) msgEl.textContent = MSG.taskSaveFailed || "";
+          await loadTask();
+          return;
+        }
+        applyTaskToUi(data.task);
+        if (msgEl) msgEl.textContent = MSG.taskSaveOk || "";
+      } catch (_e) {
+        if (msgEl) msgEl.textContent = MSG.taskSaveFailed || "";
+        await loadTask();
+      }
+    }
+
+    function scheduleSave() {
+      if (applyingRemote) return;
+      if (saveTimer) window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(saveTask, 200);
+    }
+
+    enabledEl.addEventListener("change", scheduleSave);
+    intervalEl.addEventListener("change", scheduleSave);
+    unitEl.addEventListener("change", scheduleSave);
+
+    loadTask();
+    pollTimer = window.setInterval(loadTask, 5000);
+    window.addEventListener("beforeunload", () => {
+      if (pollTimer) window.clearInterval(pollTimer);
+    });
+  }
+
+  initSoccerTaskUi({
+    apiUrl: "/api/soccer/tasks/update-odds",
+    enabledId: "task-odds-enabled",
+    intervalId: "task-odds-interval",
+    unitId: "task-odds-unit",
+    lastId: "task-odds-last",
+    nextId: "task-odds-next",
+    statusId: "task-odds-status",
+    msgId: "task-odds-msg",
+  });
+  initSoccerTaskUi({
+    apiUrl: "/api/soccer/tasks/update-matches",
+    enabledId: "task-matches-enabled",
+    intervalId: "task-matches-interval",
+    unitId: "task-matches-unit",
+    lastId: "task-matches-last",
+    nextId: "task-matches-next",
+    statusId: "task-matches-status",
+    msgId: "task-matches-msg",
+  });
+  initSoccerTaskUi({
+    apiUrl: "/api/soccer/tasks/update-results",
+    enabledId: "task-results-enabled",
+    intervalId: "task-results-interval",
+    unitId: "task-results-unit",
+    lastId: "task-results-last",
+    nextId: "task-results-next",
+    statusId: "task-results-status",
+    msgId: "task-results-msg",
+  });
+
   /* ---- Match History (footylogic_matches) — isolated from Daily Matches ---- */
   const historyPageInit = {{ history_page_meta|tojson }};
   let historyMatches = {{ history_matches|tojson }};
@@ -3339,7 +3542,7 @@
   setHistoryLayoutMode(false, { skipUrl: true });
   {% endif %}
 
-  /* ---- History export (File System Access API; local handle, no absolute path) ---- */
+  /* ---- Shared export dialog (history + daily; File System Access API) ---- */
   const historyExportOverlay = document.getElementById("history-export-overlay");
   const historyExportDialog = document.getElementById("history-export-dialog");
   const historyExportPath = document.getElementById("history-export-path");
@@ -3348,6 +3551,7 @@
   const historyExportCsvNote = document.getElementById("history-export-csv-note");
   const historyExportStatus = document.getElementById("history-export-status");
   const btnOpenHistoryExport = document.getElementById("btn-open-history-export");
+  const btnOpenDailyExport = document.getElementById("btn-open-daily-export");
   const btnHistoryExportBrowse = document.getElementById("btn-history-export-browse");
   const btnHistoryExportConfirm = document.getElementById("btn-history-export-confirm");
   const btnHistoryExportLeave = document.getElementById("btn-history-export-leave");
@@ -3355,6 +3559,8 @@
   let historyExportFileHandle = null;
   let historyExportStemTouched = false;
   let historyExportSyncingName = false;
+  /** @type {"history"|"daily"} */
+  let exportSource = "history";
   const HISTORY_EXPORT_EXT = { xlsx: ".xlsx", csv: ".csv", jpeg: ".jpeg", pdf: ".pdf" };
   const HISTORY_EXPORT_ACCEPT = {
     xlsx: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] },
@@ -3391,7 +3597,18 @@
     }
   }
 
+  function dailyExportSelectedYmd() {
+    const raw = dateInputEl && dateInputEl.value ? String(dateInputEl.value) : "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw.replace(/-/g, "");
+    return historyExportHktYmd();
+  }
+
   function historyExportDefaultStem() {
+    if (exportSource === "daily") {
+      const q = (committedQ || "").trim();
+      const datePart = dailyExportSelectedYmd();
+      return q ? (q + "-DailyMatches-" + datePart) : ("DailyMatches-" + datePart);
+    }
     const q = (historyQ || "").trim();
     return (q || "All") + "-" + historyExportHktYmd();
   }
@@ -3485,11 +3702,24 @@
     else historyExportCsvNote.setAttribute("hidden", "hidden");
   }
 
-  function openHistoryExportDialog() {
+  function setExportOpenButtonsExpanded(expanded) {
+    const value = expanded ? "true" : "false";
+    if (btnOpenHistoryExport) btnOpenHistoryExport.setAttribute("aria-expanded", value);
+    if (btnOpenDailyExport) btnOpenDailyExport.setAttribute("aria-expanded", value);
+  }
+
+  function openHistoryExportDialog(source) {
     if (!historyExportOverlay) return;
+    exportSource = source === "daily" ? "daily" : "history";
     historyExportFileHandle = null;
     historyExportStemTouched = false;
     historyExportSyncingName = false;
+    const titleEl = document.getElementById("history-export-title");
+    if (titleEl) {
+      titleEl.textContent = exportSource === "daily"
+        ? (MSG.dailyExportTitle || MSG.historyExportTitle || "")
+        : (MSG.historyExportTitle || "");
+    }
     if (historyExportFiletype) historyExportFiletype.value = "xlsx";
     if (historyExportFilename) {
       historyExportFilename.value = historyExportComposeFilename(
@@ -3502,7 +3732,7 @@
     setHistoryExportStatus("", "");
     setHistoryExportBusy(false);
     historyExportOverlay.removeAttribute("hidden");
-    if (btnOpenHistoryExport) btnOpenHistoryExport.setAttribute("aria-expanded", "true");
+    setExportOpenButtonsExpanded(true);
     if (btnHistoryExportBrowse) btnHistoryExportBrowse.focus();
   }
 
@@ -3510,14 +3740,15 @@
     if (historyExportBusy) return;
     if (!historyExportOverlay) return;
     historyExportOverlay.setAttribute("hidden", "hidden");
-    if (btnOpenHistoryExport) btnOpenHistoryExport.setAttribute("aria-expanded", "false");
+    setExportOpenButtonsExpanded(false);
     historyExportFileHandle = null;
     setHistoryExportPathSelected(false);
     setHistoryExportStatus("", "");
   }
 
   function historyExportVisibleColumnsSnapshot() {
-    const cols = (historyLayoutSaved && historyLayoutSaved.columns) || [];
+    const layout = exportSource === "daily" ? layoutSaved : historyLayoutSaved;
+    const cols = (layout && layout.columns) || [];
     return cols
       .filter((c) => c && c.visible)
       .map((c) => ({ key: c.key, width: c.width }));
@@ -3581,18 +3812,33 @@
     setHistoryExportBusy(true);
     setHistoryExportStatus(MSG.historyExportBusy, "");
     try {
-      const payload = {
-        file_type: fileType,
-        filename: historyExportFilename.value,
-        q: historyQ || "",
-        q_op: historyQOp || "approx",
-        all_matches: !!historyAllMatches,
-        date: historyDateInput ? historyDateInput.value : "",
-        sort: historySort || historyCurrentSortParam(),
-        columns: columns,
-        lang: MSG.currentLang || "zh-Hant",
-      };
-      const resp = await fetch("/api/soccer/history-export", {
+      const payload = exportSource === "daily"
+        ? {
+            file_type: fileType,
+            filename: historyExportFilename.value,
+            q: committedQ || "",
+            status: committedStatus || "prematch",
+            all_matches: !!committedAllMatches,
+            date: dateInputEl ? dateInputEl.value : "",
+            sort: currentSortParam(),
+            columns: columns,
+            lang: MSG.currentLang || "zh-Hant",
+          }
+        : {
+            file_type: fileType,
+            filename: historyExportFilename.value,
+            q: historyQ || "",
+            q_op: historyQOp || "approx",
+            all_matches: !!historyAllMatches,
+            date: historyDateInput ? historyDateInput.value : "",
+            sort: historySort || historyCurrentSortParam(),
+            columns: columns,
+            lang: MSG.currentLang || "zh-Hant",
+          };
+      const exportUrl = exportSource === "daily"
+        ? "/api/soccer/daily-export"
+        : "/api/soccer/history-export";
+      const resp = await fetch(exportUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "*/*" },
         body: JSON.stringify(payload),
@@ -3635,7 +3881,10 @@
   }
 
   if (btnOpenHistoryExport) {
-    btnOpenHistoryExport.addEventListener("click", () => openHistoryExportDialog());
+    btnOpenHistoryExport.addEventListener("click", () => openHistoryExportDialog("history"));
+  }
+  if (btnOpenDailyExport) {
+    btnOpenDailyExport.addEventListener("click", () => openHistoryExportDialog("daily"));
   }
   if (btnHistoryExportLeave) {
     btnHistoryExportLeave.addEventListener("click", () => closeHistoryExportDialog());

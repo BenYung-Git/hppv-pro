@@ -504,6 +504,13 @@ INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
         "此栏位不支持排序",
     ),
     ("soccer.history.export.tip", "匯出資料", "Export data", "导出数据"),
+    ("soccer.daily.export.tip", "匯出資料", "Export data", "导出数据"),
+    (
+        "soccer.daily.export.title",
+        "每日賽事 — 匯出資料",
+        "Daily Matches — Export Data",
+        "每日赛事 — 导出数据",
+    ),
     (
         "soccer.history.export.title",
         "球賽往績 — 匯出資料",
@@ -662,12 +669,79 @@ INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
     ("soccer.daily.tab.layout", "版面設定", "Layout", "版面设定"),
     ("soccer.daily.task.update_odds", "更新賠率", "Update odds", "更新赔率"),
     ("soccer.daily.task.update_matches", "更新賽事", "Update matches", "更新赛事"),
+    ("soccer.daily.task.update_results", "更新賽果", "Update results", "更新赛果"),
     ("soccer.daily.task.last_updated", "上次更新", "Last updated", "上次更新"),
     ("soccer.daily.task.next_update", "下次更新", "Next update", "下次更新"),
     ("soccer.daily.task.not_scheduled", "尚未排程", "Not scheduled", "尚未排程"),
     ("soccer.daily.task.unit.mins", "mins", "mins", "mins"),
     ("soccer.daily.task.unit.hour", "hour", "hour", "hour"),
     ("soccer.daily.task.unit.day", "day", "day", "day"),
+    (
+        "soccer.daily.task.status.idle",
+        "待機",
+        "Idle",
+        "待机",
+    ),
+    (
+        "soccer.daily.task.status.running",
+        "執行中",
+        "Running",
+        "执行中",
+    ),
+    (
+        "soccer.daily.task.status.success",
+        "成功",
+        "Success",
+        "成功",
+    ),
+    (
+        "soccer.daily.task.status.failed",
+        "失敗",
+        "Failed",
+        "失败",
+    ),
+    (
+        "soccer.daily.task.status.skipped",
+        "已跳過",
+        "Skipped",
+        "已跳过",
+    ),
+    (
+        "soccer.daily.task.save_ok",
+        "任務設定已保存。",
+        "Task settings saved.",
+        "任务设定已保存。",
+    ),
+    (
+        "soccer.daily.task.save_failed",
+        "任務設定保存失敗。",
+        "Failed to save task settings.",
+        "任务设定保存失败。",
+    ),
+    (
+        "soccer.daily.task.scope_note",
+        "更新賽事重用 matches_and_odds（來源預設窗口、endIndex=40 切片），非完整球賽下載；不含正式賽果。",
+        "Update matches reuses matches_and_odds (source default window, endIndex=40 slice); not a full catalog download; official results excluded.",
+        "更新赛事重用 matches_and_odds（来源默认窗口、endIndex=40 切片），非完整球赛下载；不含正式赛果。",
+    ),
+    (
+        "soccer.daily.task.odds_scope_note",
+        "更新賠率重用 update_odds_and_results／matches_and_odds.json（endIndex=40）；只更新資料庫既有賽事的 HAD；不新增球賽、不改基本欄位、不含正式賽果。",
+        "Update odds reuses update_odds_and_results / matches_and_odds.json (endIndex=40); HAD only on existing DB matches; no INSERT, no basic-field overwrite, no official results.",
+        "更新赔率重用 update_odds_and_results／matches_and_odds.json（endIndex=40）；只更新数据库既有赛事的 HAD；不新增球赛、不改基本字段、不含正式赛果。",
+    ),
+    (
+        "soccer.daily.task.results_scope_note",
+        "更新賽果重用 match_results；日期窗為每日賽事 MIN/MAX match_date（不完整則按日切塊）。有已確認 FT 即寫入往績（source=hkjc；不依 status）後刪每日並寫 tombstone；僅 HT 不刪。",
+        "Update results reuses match_results; date window = daily MIN/MAX match_date (day-chunk if incomplete). Confirmed FT writes history (source=hkjc; status ignored) then deletes daily + tombstone; HT-only keeps daily.",
+        "更新赛果重用 match_results；日期窗为每日赛事 MIN/MAX match_date（不完整则按日切块）。有已确认 FT 即写入往绩（source=hkjc；不依 status）后删每日并写 tombstone；仅 HT 不删。",
+    ),
+    (
+        "soccer.daily.task.single_process_note",
+        "排程僅支援單程序 Web；多 worker 環境尚未具備跨程序防重複。各任務共用程序內下載／入庫鎖以串列執行。",
+        "Scheduler supports single-process Web only; multi-worker duplicate prevention is not available. Tasks share an in-process download/ingest lock and run serially.",
+        "排程仅支持单进程 Web；多 worker 环境尚未具备跨进程防重复。各任务共用进程内下载／入库锁以串行执行。",
+    ),
     ("soccer.daily.request_type", "請求類型", "Request type", "请求类型"),
     ("soccer.daily.request_type.matches_odds", "下載賽事及賠率", "Download matches and odds", "下载赛事及赔率"),
     ("soccer.daily.request_type.update_odds_results", "更新賠率及賽果", "Update odds and results", "更新赔率及赛果"),
@@ -1136,6 +1210,48 @@ def history_column_i18n_maps(
         raw_label = (text_map.get(f"soccer.history.col.{key}") or "").strip()
         labels[key] = raw_label if raw_label else key
         raw_desc = (text_map.get(f"soccer.history.col.desc.{key}") or "").strip()
+        descs[key] = raw_desc
+    return labels, descs
+
+
+# Daily Matches catalog key → translation key (matches soccer_daily.html COL_LABEL).
+_DAILY_COLUMN_LABEL_TEXT_KEYS: dict[str, str] = {
+    "match_date": "soccer.daily.col.date",
+    "kickoff_hhmm": "soccer.daily.col.time",
+    "match_code": "soccer.daily.col.match_code",
+    "icon": "soccer.daily.col.icon",
+    "competition_code": "soccer.daily.col.competition_code",
+    "competition_name_zh": "soccer.daily.col.competition_name",
+    "home_team": "soccer.daily.col.home",
+    "away_team": "soccer.daily.col.away",
+    "home_odds": "soccer.daily.odds.home",
+    "draw_odds": "soccer.daily.odds.draw",
+    "away_odds": "soccer.daily.odds.away",
+    "score_ht": "soccer.daily.col.ht",
+    "score_2h": "soccer.daily.col.2h",
+    "score_ft": "soccer.daily.col.ft",
+    "ui_et": "soccer.daily.col.et",
+    "score_pen": "soccer.daily.col.pen",
+    "result_status": "soccer.daily.col.result_status",
+}
+
+
+def daily_column_i18n_maps(
+    text_map: dict[str, str],
+    catalog_keys: list[str] | tuple[str, ...],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """
+    Labels/descriptions for daily-matches layout UI and export headers.
+
+    Uses the same text-key aliases as the daily Matches table (not history keys).
+    """
+    labels: dict[str, str] = {}
+    descs: dict[str, str] = {}
+    for key in catalog_keys:
+        label_text_key = _DAILY_COLUMN_LABEL_TEXT_KEYS.get(key) or f"soccer.daily.col.{key}"
+        raw_label = (text_map.get(label_text_key) or "").strip()
+        labels[key] = raw_label if raw_label else key
+        raw_desc = (text_map.get(f"soccer.daily.col.desc.{key}") or "").strip()
         descs[key] = raw_desc
     return labels, descs
 

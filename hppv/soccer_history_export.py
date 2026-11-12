@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Sequence
+from typing import Any, Iterable, Iterator, Mapping, Sequence
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
@@ -205,10 +205,10 @@ def resolve_export_columns(
     *,
     columns_raw: Sequence[dict[str, Any]],
     catalog_keys: Iterable[str],
-    text_map: dict[str, str],
+    labels: Mapping[str, str],
 ) -> tuple[ExportColumn, ...]:
+    """Build ordered export columns from a frozen UI column snapshot."""
     allowed = frozenset(str(k) for k in catalog_keys)
-    labels, _descs = history_column_i18n_maps(text_map, tuple(allowed))
     out: list[ExportColumn] = []
     seen: set[str] = set()
     for item in columns_raw:
@@ -266,10 +266,11 @@ def parse_history_export_request(
         text_map = load_active_text_map(db_path, lang)
     except Exception:
         text_map = {}
+    label_map, _descs = history_column_i18n_maps(text_map, tuple(str(k) for k in catalog_keys))
     columns = resolve_export_columns(
         columns_raw=cols_raw,
         catalog_keys=catalog_keys,
-        text_map=text_map,
+        labels=label_map,
     )
     return HistoryExportRequest(
         file_type=file_type,
@@ -346,19 +347,18 @@ def _csv_cell(value: str) -> str:
     return text
 
 
-def build_csv_export(
-    db_path: Path,
-    req: HistoryExportRequest,
+def build_csv_from_rows(
+    columns: Sequence[ExportColumn],
+    rows: Iterable[dict[str, str]],
 ) -> HistoryExportResult:
     buf = io.StringIO(newline="")
     writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
-    writer.writerow([c.label for c in req.columns])
+    writer.writerow([c.label for c in columns])
     row_count = 0
-    for batch in iter_history_export_rows(db_path, req):
-        for row in batch:
-            cells = [_csv_cell(v) for v in _project_row(row, req.columns)]
-            writer.writerow(cells)
-            row_count += 1
+    for row in rows:
+        cells = [_csv_cell(v) for v in _project_row(row, columns)]
+        writer.writerow(cells)
+        row_count += 1
     # UTF-8 BOM for Excel-friendly Chinese CSV
     data = ("\ufeff" + buf.getvalue()).encode("utf-8")
     return HistoryExportResult(
@@ -369,33 +369,33 @@ def build_csv_export(
     )
 
 
-def build_xlsx_export(
-    db_path: Path,
-    req: HistoryExportRequest,
+def build_xlsx_from_rows(
+    columns: Sequence[ExportColumn],
+    rows: Sequence[dict[str, str]],
+    *,
+    sheet_name: str = "export",
 ) -> HistoryExportResult:
-    headers = [c.label for c in req.columns]
-    rows: list[list[str]] = []
-    for batch in iter_history_export_rows(db_path, req):
-        for row in batch:
-            rows.append(_project_row(row, req.columns))
-    df = pd.DataFrame(rows, columns=headers)
+    headers = [c.label for c in columns]
+    body = [_project_row(row, columns) for row in rows]
+    df = pd.DataFrame(body, columns=headers)
     output = io.BytesIO()
+    safe_sheet = (sheet_name or "export")[:31] or "export"
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df.to_excel(writer, index=False, sheet_name="history")
-        worksheet = writer.sheets["history"]
+        df.to_excel(writer, index=False, sheet_name=safe_sheet)
+        worksheet = writer.sheets[safe_sheet]
         # xlsxwriter width unit ≈ character width; map UI px → roughly px/7.
-        for idx, col in enumerate(req.columns):
+        for idx, col in enumerate(columns):
             worksheet.set_column(idx, idx, max(8, round(col.width / 7.0, 2)))
     return HistoryExportResult(
         content=output.getvalue(),
         mime=_MIME_BY_TYPE["xlsx"],
-        row_count=len(rows),
+        row_count=len(body),
         file_type="xlsx",
     )
 
 
-def _estimate_jpeg_size(req: HistoryExportRequest, row_count: int) -> tuple[int, int]:
-    width = JPEG_PAD_PX * 2 + sum(max(40, c.width) for c in req.columns)
+def _estimate_jpeg_size(columns: Sequence[ExportColumn], row_count: int) -> tuple[int, int]:
+    width = JPEG_PAD_PX * 2 + sum(max(40, c.width) for c in columns)
     height = (
         JPEG_PAD_PX * 2
         + JPEG_HEADER_HEIGHT_PX
@@ -404,14 +404,14 @@ def _estimate_jpeg_size(req: HistoryExportRequest, row_count: int) -> tuple[int,
     return int(width), int(height)
 
 
-def build_jpeg_export(
-    db_path: Path,
-    req: HistoryExportRequest,
+def build_jpeg_from_rows(
+    columns: Sequence[ExportColumn],
+    rows: Sequence[dict[str, str]],
 ) -> HistoryExportResult:
     from PIL import Image, ImageDraw, ImageFont
 
-    row_count = count_history_export_rows(db_path, req)
-    width, height = _estimate_jpeg_size(req, row_count)
+    row_count = len(rows)
+    width, height = _estimate_jpeg_size(columns, row_count)
     pixels = width * height
     if (
         width > JPEG_MAX_WIDTH_PX
@@ -430,6 +430,212 @@ def build_jpeg_export(
     y = JPEG_PAD_PX
 
     # Header background
+    draw.rectangle(
+        [0, y, width, y + JPEG_HEADER_HEIGHT_PX],
+        fill=(232, 246, 238),
+    )
+    x = x0
+    for col in columns:
+        draw.text((x + 4, y + 5), col.label, fill=(27, 61, 102), font=header_font)
+        x += max(40, col.width)
+    y += JPEG_HEADER_HEIGHT_PX
+    draw.line([(0, y), (width, y)], fill=(200, 210, 220), width=1)
+
+    written = 0
+    for row in rows:
+        x = x0
+        cells = _project_row(row, columns)
+        if written % 2 == 1:
+            draw.rectangle(
+                [0, y, width, y + JPEG_ROW_HEIGHT_PX],
+                fill=(244, 246, 249),
+            )
+        for col, cell in zip(columns, cells, strict=True):
+            draw.text((x + 4, y + 3), cell, fill=(30, 40, 50), font=font)
+            x += max(40, col.width)
+        y += JPEG_ROW_HEIGHT_PX
+        written += 1
+
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=90, optimize=True)
+    return HistoryExportResult(
+        content=out.getvalue(),
+        mime=_MIME_BY_TYPE["jpeg"],
+        row_count=written,
+        file_type="jpeg",
+    )
+
+
+def build_pdf_from_rows(
+    columns: Sequence[ExportColumn],
+    rows: Sequence[dict[str, str]],
+    *,
+    title: str = "match-export",
+) -> HistoryExportResult:
+    font_name = _ensure_pdf_font()
+    page_w, _page_h = landscape(A4)
+    margin = PDF_MARGIN_MM * mm
+    usable_w = page_w - 2 * margin
+    raw_widths = [float(max(40, c.width)) for c in columns]
+    total_raw = sum(raw_widths) or 1.0
+    scale = usable_w / total_raw
+    col_widths = [w * scale for w in raw_widths]
+
+    # Keep layout width ratios; fit to page. Font floor = 8pt (configurable).
+    # If fitted columns cannot host readable 8pt glyphs, refuse before building.
+    font_pt = PDF_MIN_FONT_PT
+    min_readable_col_pt = PDF_MIN_FONT_PT * 1.2
+    if any(w < min_readable_col_pt for w in col_widths):
+        raise HistoryExportError("pdf_columns_too_wide")
+    if len(columns) * min_readable_col_pt > usable_w + 0.01:
+        raise HistoryExportError("pdf_columns_too_wide")
+
+    style = ParagraphStyle(
+        name="MatchExportCell",
+        fontName=font_name,
+        fontSize=font_pt,
+        leading=font_pt + 2,
+        encoding="utf-8",
+    )
+    header_style = ParagraphStyle(
+        name="MatchExportHeader",
+        fontName=font_name,
+        fontSize=font_pt,
+        leading=font_pt + 2,
+        textColor=colors.HexColor("#1b3d66"),
+        encoding="utf-8",
+    )
+
+    def _p(text: str, st: ParagraphStyle) -> Paragraph:
+        safe = (
+            (text or "")
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        return Paragraph(safe, st)
+
+    header_row = [_p(c.label, header_style) for c in columns]
+    data_rows: list[list[Any]] = [
+        [_p(v, style) for v in _project_row(row, columns)] for row in rows
+    ]
+    row_count = len(data_rows)
+
+    output = io.BytesIO()
+    doc = SimpleDocTemplate(
+        output,
+        pagesize=landscape(A4),
+        leftMargin=margin,
+        rightMargin=margin,
+        topMargin=margin,
+        bottomMargin=margin,
+        title=title or "match-export",
+    )
+    table = Table([header_row, *data_rows], colWidths=col_widths, repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("FONTNAME", (0, 0), (-1, -1), font_name),
+                ("FONTSIZE", (0, 0), (-1, -1), font_pt),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8f6ee")),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c5d0dc")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                (
+                    "ROWBACKGROUNDS",
+                    (0, 1),
+                    (-1, -1),
+                    [colors.white, colors.HexColor("#f4f6f9")],
+                ),
+            ]
+        )
+    )
+    try:
+        doc.build([Spacer(1, 1), table])
+    except Exception as e:
+        # ReportLab layout failures for over-wide tables → specified user message.
+        msg = str(e).lower()
+        if "too large" in msg or "layout" in msg:
+            raise HistoryExportError("pdf_columns_too_wide") from e
+        raise HistoryExportError("export_failed", str(e)) from e
+    return HistoryExportResult(
+        content=output.getvalue(),
+        mime=_MIME_BY_TYPE["pdf"],
+        row_count=row_count,
+        file_type="pdf",
+    )
+
+
+def build_export_from_rows(
+    file_type: str,
+    columns: Sequence[ExportColumn],
+    rows: Sequence[dict[str, str]],
+    *,
+    sheet_name: str = "export",
+    pdf_title: str = "match-export",
+) -> HistoryExportResult:
+    """Shared XLSX/CSV/JPEG/PDF builders for history and daily exports."""
+    if file_type == "xlsx":
+        return build_xlsx_from_rows(columns, rows, sheet_name=sheet_name)
+    if file_type == "csv":
+        return build_csv_from_rows(columns, rows)
+    if file_type == "jpeg":
+        return build_jpeg_from_rows(columns, rows)
+    if file_type == "pdf":
+        return build_pdf_from_rows(columns, rows, title=pdf_title)
+    raise HistoryExportError("invalid_file_type", file_type)
+
+
+def build_csv_export(
+    db_path: Path,
+    req: HistoryExportRequest,
+) -> HistoryExportResult:
+    def _rows() -> Iterator[dict[str, str]]:
+        for batch in iter_history_export_rows(db_path, req):
+            yield from batch
+
+    return build_csv_from_rows(req.columns, _rows())
+
+
+def build_xlsx_export(
+    db_path: Path,
+    req: HistoryExportRequest,
+) -> HistoryExportResult:
+    rows: list[dict[str, str]] = []
+    for batch in iter_history_export_rows(db_path, req):
+        rows.extend(batch)
+    return build_xlsx_from_rows(req.columns, rows, sheet_name="history")
+
+
+def build_jpeg_export(
+    db_path: Path,
+    req: HistoryExportRequest,
+) -> HistoryExportResult:
+    """History JPEG: count first for size gate, then stream rows into the image."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    row_count = count_history_export_rows(db_path, req)
+    width, height = _estimate_jpeg_size(req.columns, row_count)
+    pixels = width * height
+    if (
+        width > JPEG_MAX_WIDTH_PX
+        or height > JPEG_MAX_HEIGHT_PX
+        or pixels > JPEG_MAX_PIXELS
+    ):
+        raise HistoryExportError("jpeg_too_large")
+
+    font_path = _noto_font_path()
+    font = ImageFont.truetype(str(font_path), 14)
+    header_font = ImageFont.truetype(str(font_path), 14)
+
+    img = Image.new("RGB", (width, height), color=(255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    x0 = JPEG_PAD_PX
+    y = JPEG_PAD_PX
+
     draw.rectangle(
         [0, y, width, y + JPEG_HEADER_HEIGHT_PX],
         fill=(232, 246, 238),
@@ -473,103 +679,10 @@ def build_pdf_export(
     db_path: Path,
     req: HistoryExportRequest,
 ) -> HistoryExportResult:
-    font_name = _ensure_pdf_font()
-    page_w, page_h = landscape(A4)
-    margin = PDF_MARGIN_MM * mm
-    usable_w = page_w - 2 * margin
-    raw_widths = [float(max(40, c.width)) for c in req.columns]
-    total_raw = sum(raw_widths) or 1.0
-    scale = usable_w / total_raw
-    col_widths = [w * scale for w in raw_widths]
-
-    # Keep layout width ratios; fit to page. Font floor = 8pt (configurable).
-    # If fitted columns cannot host readable 8pt glyphs, refuse before building.
-    font_pt = PDF_MIN_FONT_PT
-    min_readable_col_pt = PDF_MIN_FONT_PT * 1.2
-    if any(w < min_readable_col_pt for w in col_widths):
-        raise HistoryExportError("pdf_columns_too_wide")
-    if len(req.columns) * min_readable_col_pt > usable_w + 0.01:
-        raise HistoryExportError("pdf_columns_too_wide")
-
-    style = ParagraphStyle(
-        name="HistoryExportCell",
-        fontName=font_name,
-        fontSize=font_pt,
-        leading=font_pt + 2,
-        encoding="utf-8",
-    )
-    header_style = ParagraphStyle(
-        name="HistoryExportHeader",
-        fontName=font_name,
-        fontSize=font_pt,
-        leading=font_pt + 2,
-        textColor=colors.HexColor("#1b3d66"),
-        encoding="utf-8",
-    )
-
-    def _p(text: str, st: ParagraphStyle) -> Paragraph:
-        safe = (
-            (text or "")
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-        )
-        return Paragraph(safe, st)
-
-    header_row = [_p(c.label, header_style) for c in req.columns]
-    data_rows: list[list[Any]] = []
-    row_count = 0
+    rows: list[dict[str, str]] = []
     for batch in iter_history_export_rows(db_path, req):
-        for row in batch:
-            data_rows.append([_p(v, style) for v in _project_row(row, req.columns)])
-            row_count += 1
-
-    output = io.BytesIO()
-    doc = SimpleDocTemplate(
-        output,
-        pagesize=landscape(A4),
-        leftMargin=margin,
-        rightMargin=margin,
-        topMargin=margin,
-        bottomMargin=margin,
-        title="match-history-export",
-    )
-    table = Table([header_row, *data_rows], colWidths=col_widths, repeatRows=1)
-    table.setStyle(
-        TableStyle(
-            [
-                ("FONTNAME", (0, 0), (-1, -1), font_name),
-                ("FONTSIZE", (0, 0), (-1, -1), font_pt),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8f6ee")),
-                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c5d0dc")),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 3),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                (
-                    "ROWBACKGROUNDS",
-                    (0, 1),
-                    (-1, -1),
-                    [colors.white, colors.HexColor("#f4f6f9")],
-                ),
-            ]
-        )
-    )
-    try:
-        doc.build([Spacer(1, 1), table])
-    except Exception as e:
-        # ReportLab layout failures for over-wide tables → specified user message.
-        msg = str(e).lower()
-        if "too large" in msg or "layout" in msg:
-            raise HistoryExportError("pdf_columns_too_wide") from e
-        raise HistoryExportError("export_failed", str(e)) from e
-    return HistoryExportResult(
-        content=output.getvalue(),
-        mime=_MIME_BY_TYPE["pdf"],
-        row_count=row_count,
-        file_type="pdf",
-    )
+        rows.extend(batch)
+    return build_pdf_from_rows(columns=req.columns, rows=rows, title="match-history-export")
 
 
 def build_history_export(
@@ -590,6 +703,7 @@ def build_history_export(
 __all__ = [
     "EXPORT_BATCH_SIZE",
     "EXPORT_FILE_TYPES",
+    "ExportColumn",
     "HistoryExportError",
     "HistoryExportRequest",
     "HistoryExportResult",
@@ -597,7 +711,12 @@ __all__ = [
     "JPEG_MAX_PIXELS",
     "JPEG_MAX_WIDTH_PX",
     "PDF_MIN_FONT_PT",
+    "build_csv_from_rows",
+    "build_export_from_rows",
     "build_history_export",
+    "build_jpeg_from_rows",
+    "build_pdf_from_rows",
+    "build_xlsx_from_rows",
     "count_history_export_rows",
     "default_export_basename",
     "ascii_fallback_filename",
@@ -607,5 +726,6 @@ __all__ = [
     "hong_kong_today_ymd",
     "iter_history_export_rows",
     "parse_history_export_request",
+    "resolve_export_columns",
     "validate_export_filename",
 ]
