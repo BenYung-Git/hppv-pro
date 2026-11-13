@@ -8,6 +8,20 @@
     --odds-home: #1a5fb4;
     --odds-draw: #1a6b3a;
     --odds-away: #c6461a;
+    /* Team chips (daily): home blue; away cream/brown (not purple; distinct from odds). */
+    --team-home-fg: #1a4f8c;
+    --team-away-fg: #704800;
+    --team-home-bg: #d4e5f7;
+    --team-away-bg: #fff3d6;
+    /* History team-name FT outcome chips (exact user colours; white text on W/D/L). */
+    --team-result-win-fg: #ffffff;
+    --team-result-win-bg: #ff0000;
+    --team-result-draw-fg: #ffffff;
+    --team-result-draw-bg: #0000ff;
+    --team-result-lose-fg: #ffffff;
+    --team-result-lose-bg: #008000;
+    --team-result-neutral-fg: #4a5563;
+    --team-result-neutral-bg: #e8ebef;
     --row-alt: #f4f6f9;
     --card-border: #d5e0d9;
   }
@@ -100,9 +114,6 @@
     z-index: 5;
   }
   .soccer-daily .matches-chrome .disclaimer {
-    margin-bottom: 8px;
-  }
-  .soccer-daily .matches-chrome .mapping-note {
     margin-bottom: 8px;
   }
   .soccer-daily .matches-list-scroll {
@@ -384,6 +395,78 @@
     overflow-wrap: anywhere;
     word-break: break-word;
   }
+  /*
+   * Home/away: compact name chips on inner spans only.
+   * Never set display:flex/grid on td — keeps table-cell column alignment.
+   * No side bars (away right bar looked like a text caret).
+   */
+  /* Center chip in cell via table-cell text/vertical-align — never display:flex on td. */
+  .soccer-daily td.team-name {
+    cursor: default;
+    text-align: center;
+    vertical-align: middle;
+  }
+  .soccer-daily .team-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: fit-content;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 3px 9px;
+    border: none;
+    border-radius: 6px;
+    box-shadow: none;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.35;
+    text-align: center;
+    vertical-align: middle;
+    cursor: default;
+    text-decoration: none;
+  }
+  .soccer-daily .team-chip.team-home {
+    background: var(--team-home-bg);
+    color: var(--team-home-fg);
+  }
+  .soccer-daily .team-chip.team-away {
+    background: var(--team-away-bg);
+    color: var(--team-away-fg);
+  }
+  /* History only: FT win/draw/lose chip fills (override daily home/away colours). */
+  .soccer-daily #tab-panel-history .team-chip.team-home,
+  .soccer-daily #tab-panel-history .team-chip.team-away {
+    background: var(--team-result-neutral-bg);
+    color: var(--team-result-neutral-fg);
+  }
+  .soccer-daily #tab-panel-history .team-chip.team-result-win {
+    background: var(--team-result-win-bg);
+    color: var(--team-result-win-fg);
+  }
+  .soccer-daily #tab-panel-history .team-chip.team-result-draw {
+    background: var(--team-result-draw-bg);
+    color: var(--team-result-draw-fg);
+  }
+  .soccer-daily #tab-panel-history .team-chip.team-result-lose {
+    background: var(--team-result-lose-bg);
+    color: var(--team-result-lose-fg);
+  }
+  .soccer-daily #tab-panel-history .team-chip.team-result-neutral {
+    background: var(--team-result-neutral-bg);
+    color: var(--team-result-neutral-fg);
+  }
+  .soccer-daily .team-chip .team-text {
+    min-width: 0;
+    text-align: center;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  /* Desktop/table: column headers already say 主隊/客隊 — hide role text. */
+  .soccer-daily .team-chip .team-role {
+    display: none;
+  }
   .soccer-daily .odds-home { color: var(--odds-home); font-weight: 700; }
   .soccer-daily .odds-draw { color: var(--odds-draw); font-weight: 700; }
   .soccer-daily .odds-away { color: var(--odds-away); font-weight: 700; }
@@ -426,8 +509,37 @@
     align-items: center;
     margin-bottom: 12px;
   }
-  .soccer-daily .card-teams .home { text-align: left; font-weight: 700; }
-  .soccer-daily .card-teams .away { text-align: right; font-weight: 700; }
+  /* Card layout only — scoped so table td never inherits flex display. */
+  .soccer-daily .card-teams .home.team-name,
+  .soccer-daily .card-teams .away.team-name {
+    display: block;
+    cursor: default;
+  }
+  .soccer-daily .card-teams .home.team-name {
+    text-align: left;
+  }
+  .soccer-daily .card-teams .away.team-name {
+    text-align: right;
+  }
+  .soccer-daily .card-teams .home .team-chip {
+    justify-content: flex-start;
+  }
+  .soccer-daily .card-teams .away .team-chip {
+    justify-content: flex-end;
+  }
+  /* Mobile cards only: keep 主/客 text inside the same chip (not colour-only). */
+  .soccer-daily .card-teams .team-chip .team-role {
+    display: inline;
+    flex: 0 0 auto;
+    font-size: inherit;
+    font-weight: 800;
+    line-height: inherit;
+    background: transparent;
+    border: none;
+    padding: 0;
+    min-width: 0;
+    height: auto;
+  }
   .soccer-daily .card-teams .vs {
     text-align: center;
     color: #5a6878;
@@ -740,15 +852,6 @@
     white-space: nowrap;
     border: 0;
   }
-  .soccer-daily .mapping-note {
-    margin: 0 0 12px;
-    padding: 8px 10px;
-    border-radius: 8px;
-    border: 1px solid #e2d3a8;
-    background: #fff8e8;
-    color: #6a5500;
-    font-size: 13px;
-  }
   .soccer-daily .void-mark {
     display: inline-flex;
     align-items: center;
@@ -868,6 +971,11 @@
       height: calc(100dvh - 8.5rem);
       min-height: 18rem;
     }
+    /* History has no card layout — keep table visible on narrow widths.
+       Table chips still omit 主/客 text (headers remain); only cards show role. */
+    .soccer-daily #history-list-scroll .table-wrap {
+      display: block;
+    }
   }
 </style>
 
@@ -887,6 +995,10 @@
   <path d="M8 32 L56 12 L40 52 L30 36 Z" fill="#1f3d66"/>
   <path d="M30 36 L56 12" stroke="#7aa2d6" stroke-width="3"/>
 </svg>
+{%- endmacro %}
+
+{% macro team_name_inner(name, side, result=None) -%}
+<span class="team-chip team-{{ side }}{% if result %} team-result-{{ result }}{% endif %}"><span class="team-role" aria-hidden="true">{% if side == 'home' %}{{ t('soccer.daily.team_badge_home') }}{% else %}{{ t('soccer.daily.team_badge_away') }}{% endif %}</span><span class="team-text">{{ name }}</span></span>
 {%- endmacro %}
 
 {% macro icon_layout_save() -%}
@@ -990,15 +1102,6 @@
               {% endif %}
             </div>
             <div class="filter-wrap">
-              <label for="match-status-filter">{{ t('soccer.daily.filter.status') }}</label>
-              <select id="match-status-filter">
-                <option value="results" {% if page_meta.status == 'results' %}selected{% endif %}>{{ t('soccer.daily.filter.results') }}</option>
-                <option value="prematch" {% if page_meta.status == 'prematch' or not page_meta.status %}selected{% endif %}>{{ t('soccer.daily.filter.prematch') }}</option>
-                <option value="inplay" {% if page_meta.status == 'inplay' %}selected{% endif %}>{{ t('soccer.daily.filter.inplay') }}</option>
-                <option value="void" {% if page_meta.status == 'void' %}selected{% endif %}>{{ t('soccer.daily.filter.void') }}</option>
-              </select>
-            </div>
-            <div class="filter-wrap">
               <label for="match-search">{{ t('soccer.daily.search_label') }}</label>
               <input id="match-search" type="search"
                      placeholder="{{ t('soccer.daily.search_placeholder') }}"
@@ -1055,7 +1158,6 @@
                   {% if _at_last %}disabled{% endif %}>≫</button>
         </nav>
       </div>
-      <p class="mapping-note" id="status-mapping-note">{{ t('soccer.daily.filter.mapping_pending') }}</p>
       {% if not date_invalid and not load_error %}
       <p class="disclaimer muted" id="matches-odds-disclaimer">{{ t('soccer.daily.odds_disclaimer') }}</p>
       {% endif %}
@@ -1072,10 +1174,14 @@
     </div>
     {% else %}
     <div id="matches-panel-body">
-    {% if not matches %}
+    {% if not page_meta.get('loaded') %}
+    <div class="state-box" id="matches-pending-box">
+      <p>{{ t('soccer.daily.loading') }}</p>
+    </div>
+    {% elif not matches %}
     <div class="state-box" id="matches-empty-box">
-      <p>{{ t('soccer.daily.empty') }}</p>
-      <p class="muted">{{ t('soccer.daily.sync_hint') }}</p>
+      <p>{{ t('soccer.daily.empty_filtered') }}</p>
+      <p class="muted"><button type="button" class="date-nav-btn" id="matches-empty-go-history">{{ t('soccer.daily.go_history') }}</button></p>
     </div>
     {% else %}
 
@@ -1106,8 +1212,8 @@
             <td class="c-center">{{ soccer_ball('sm') }}</td>
             <td class="c-left">{{ m.competition_code }}</td>
             <td class="c-left comp-name">{{ m.competition_name_zh }}</td>
-            <td class="c-left team-name">{{ m.home_team }}</td>
-            <td class="c-left team-name">{{ m.away_team }}</td>
+            <td class="c-left team-name">{{ team_name_inner(m.home_team, 'home') }}</td>
+            <td class="c-left team-name">{{ team_name_inner(m.away_team, 'away') }}</td>
             <td class="c-center {% if m.home_odds == '—' %}odds-empty{% else %}odds-home{% endif %}">{{ m.home_odds }}</td>
             <td class="c-center {% if m.draw_odds == '—' %}odds-empty{% else %}odds-draw{% endif %}">{{ m.draw_odds }}</td>
             <td class="c-center {% if m.away_odds == '—' %}odds-empty{% else %}odds-away{% endif %}">{{ m.away_odds }}</td>
@@ -1132,9 +1238,9 @@
           <span class="muted">{{ t('soccer.daily.col.match_code') }} {{ m.match_code }}</span>
         </div>
         <div class="card-teams">
-          <div class="home team-name">{{ m.home_team }}</div>
+          <div class="home team-name">{{ team_name_inner(m.home_team, 'home') }}</div>
           <div class="vs">{{ t('soccer.daily.vs') }}</div>
-          <div class="away team-name">{{ m.away_team }}</div>
+          <div class="away team-name">{{ team_name_inner(m.away_team, 'away') }}</div>
         </div>
         <div class="card-odds">
           <div class="cell">
@@ -1374,8 +1480,8 @@
                   <td class="c-center">{{ m.match_date }}</td>
                   <td class="c-center">{{ m.kickoff_hhmm }}</td>
                   <td class="c-center comp-name">{{ m.competition_name }}</td>
-                  <td class="c-left team-name">{{ m.home_team }}</td>
-                  <td class="c-left team-name">{{ m.away_team }}</td>
+                  <td class="c-left team-name">{{ team_name_inner(m.home_team, 'home', m.home_team_result|default('neutral')) }}</td>
+                  <td class="c-left team-name">{{ team_name_inner(m.away_team, 'away', m.away_team_result|default('neutral')) }}</td>
                   <td class="c-center">{{ m.score_ht }}</td>
                   <td class="c-center">{{ m.score_ft }}</td>
                 </tr>
@@ -1690,6 +1796,11 @@
     updatedAtLabel: {{ t('soccer.daily.updated_at_label')|tojson }},
     updatedAtNever: {{ t('soccer.daily.updated_at_never')|tojson }},
     emptyMsg: {{ t('soccer.daily.empty')|tojson }},
+    emptyFiltered: {{ t('soccer.daily.empty_filtered')|tojson }},
+    dailyLoading: {{ t('soccer.daily.loading')|tojson }},
+    dailyLoadRetry: {{ t('soccer.daily.load_retry')|tojson }},
+    dailyGoHistory: {{ t('soccer.daily.go_history')|tojson }},
+    dailyReadError: {{ t('soccer.daily.read_error')|tojson }},
     syncHint: {{ t('soccer.daily.sync_hint')|tojson }},
     colMatchCode: {{ t('soccer.daily.col.match_code')|tojson }},
     vs: {{ t('soccer.daily.vs')|tojson }},
@@ -1697,6 +1808,8 @@
     oddsDraw: {{ t('soccer.daily.odds.draw')|tojson }},
     oddsAway: {{ t('soccer.daily.odds.away')|tojson }},
     iconAlt: {{ t('soccer.daily.icon_alt')|tojson }},
+    teamBadgeHome: {{ t('soccer.daily.team_badge_home')|tojson }},
+    teamBadgeAway: {{ t('soccer.daily.team_badge_away')|tojson }},
     ingestOddsSection: {{ t('soccer.daily.ingest_odds_section')|tojson }},
     ingestResultsSection: {{ t('soccer.daily.ingest_results_section')|tojson }},
     ingestResultsPending: {{ t('soccer.daily.ingest_results_pending')|tojson }},
@@ -1885,6 +1998,11 @@
   let committedAllMatches = pageMetaInit.all_matches !== false;
   let listN = Number(pageMetaInit.n) || 1;
   let listTotalCount = Number(pageMetaInit.total_count) || 0;
+  // pending | loading | ready | empty | error — never treat SSR skip as empty success.
+  let dailyListStatus = pageMetaInit.loaded
+    ? ({{ load_error|tojson }} ? "error" : (listTotalCount > 0 ? "ready" : "empty"))
+    : "pending";
+  let dailyLoadErrorDetail = "";
   const allMatchesCheckbox = document.getElementById("match-all-matches");
   const allMatchesHidden = document.getElementById("match-all-matches-hidden");
   const dateInputEl = document.getElementById("match-date");
@@ -2007,8 +2125,9 @@
     if (historyUiReady && name === "history") {
       syncHistoryUrl();
       ensureHistoryLoaded();
-    } else if (name === "matches" && typeof syncListUrl === "function") {
-      syncListUrl();
+    } else if (name === "matches") {
+      if (typeof ensureDailyLoaded === "function") ensureDailyLoaded();
+      else if (typeof syncListUrl === "function") syncListUrl();
     }
     if (name === "download") maybeAutoLoadPreset();
   }
@@ -2310,6 +2429,31 @@
     return kind;
   }
 
+  function fillTeamNameEl(el, name, side, resultKind) {
+    if (!el) return;
+    const role = side === "away" ? "away" : "home";
+    // Keep team-name on the cell/div; put team-home/away only on inner chip.
+    el.classList.add("team-name");
+    el.classList.remove("team-home", "team-away");
+    el.replaceChildren();
+    const chip = document.createElement("span");
+    let cls = "team-chip team-" + role;
+    if (resultKind === "win" || resultKind === "draw" || resultKind === "lose" || resultKind === "neutral") {
+      cls += " team-result-" + resultKind;
+    }
+    chip.className = cls;
+    const badge = document.createElement("span");
+    badge.className = "team-role";
+    badge.setAttribute("aria-hidden", "true");
+    badge.textContent = role === "home" ? MSG.teamBadgeHome : MSG.teamBadgeAway;
+    const text = document.createElement("span");
+    text.className = "team-text";
+    text.textContent = name == null || name === "" ? "—" : String(name);
+    chip.appendChild(badge);
+    chip.appendChild(text);
+    el.appendChild(chip);
+  }
+
   function soccerBallSvg() {
     return '<svg class="soccer-icon sm" viewBox="0 0 64 64" role="img" aria-label="' + MSG.iconAlt + '">' +
       '<circle cx="32" cy="32" r="30" fill="#2ecc71" stroke="#1b7a3d" stroke-width="3"/>' +
@@ -2360,21 +2504,42 @@
     if (btnLast) btnLast.disabled = atLast;
   }
 
-  function syncListUrl() {
-    if (activeTabName && activeTabName !== "matches" && !layoutModeOpen) return;
+  function appendDailyUrlParams(params) {
     const dateInput = document.getElementById("match-date");
-    if (!dateInput || !dateInput.value) return;
-    const params = new URLSearchParams();
     params.set("all_matches", committedAllMatches ? "1" : "0");
-    params.set("date", dateInput.value);
-    params.set("n", String(listN));
+    if (dateInput && dateInput.value) params.set("date", dateInput.value);
+    params.set("n", String(listN || 1));
     if (committedQ) params.set("q", committedQ);
     if (committedStatus) params.set("status", committedStatus);
     const sort = currentSortParam();
     if (sort) params.set("sort", sort);
+  }
+
+  function appendHistoryUrlParams(params) {
+    if (!historyUiReady) return;
+    params.set("history_all_matches", historyAllMatches ? "1" : "0");
+    if (historyDateInput && historyDateInput.value) {
+      params.set("history_date", historyDateInput.value);
+    }
+    params.set("history_n", String(historyN || 1));
+    if (historyQ) params.set("history_q", historyQ);
+    params.set("history_q_op", historyQOp || "approx");
+    const sort = historySort || (typeof historyCurrentSortParam === "function" ? historyCurrentSortParam() : "");
+    if (sort) params.set("history_sort", sort);
+  }
+
+  function syncListUrl() {
+    if (activeTabName && activeTabName !== "matches" && !layoutModeOpen) return;
+    const params = new URLSearchParams();
     if (layoutModeOpen) params.set("tab", "layout");
     else params.set("tab", "matches");
-    window.history.replaceState(null, "", window.location.pathname + "?" + params.toString());
+    appendDailyUrlParams(params);
+    appendHistoryUrlParams(params);
+    const qs = params.toString();
+    const next = window.location.pathname + (qs ? "?" + qs : "");
+    if (window.location.pathname + window.location.search !== next) {
+      window.history.replaceState({ soccerTab: "matches" }, "", next);
+    }
   }
 
   function highlightCurrentRow() {
@@ -2393,11 +2558,8 @@
     const dateInput = document.getElementById("match-date");
     if (!dateInput || !dateInput.value) return false;
     const seq = ++listFetchSeq;
-    const prev = {
-      matches: currentMatches,
-      n: listN,
-      totalCount: listTotalCount,
-    };
+    dailyListStatus = "loading";
+    renderMatchesLoadState();
     try {
       const params = new URLSearchParams();
       params.set("all_matches", committedAllMatches ? "1" : "0");
@@ -2408,9 +2570,15 @@
       const sort = currentSortParam();
       if (sort) params.set("sort", sort);
       const resp = await fetch("/api/soccer/daily-matches?" + params.toString());
-      const data = await resp.json();
+      let data = null;
+      try { data = await resp.json(); } catch (_e) { data = null; }
       if (seq !== listFetchSeq) return false;
-      if (!resp.ok || !data || !data.ok) return false;
+      if (!resp.ok || !data || !data.ok) {
+        dailyListStatus = "error";
+        dailyLoadErrorDetail = (data && data.error) ? String(data.error) : ("http_" + resp.status);
+        renderMatchesLoadState();
+        return false;
+      }
       currentMatches = data.matches || [];
       listN = Number(data.n) || 1;
       listTotalCount = Number(data.total_count) || 0;
@@ -2422,17 +2590,48 @@
       if (typeof data.date === "string" && data.date && !committedAllMatches) {
         dateInput.value = data.date;
       }
+      dailyListStatus = listTotalCount > 0 ? "ready" : "empty";
+      dailyLoadErrorDetail = "";
       syncListUrl();
       updatePagerControls();
       renderMatches();
       return true;
     } catch (_e) {
       if (seq !== listFetchSeq) return false;
-      currentMatches = prev.matches;
-      listN = prev.n;
-      listTotalCount = prev.totalCount;
-      updatePagerControls();
+      dailyListStatus = "error";
+      dailyLoadErrorDetail = "network";
+      renderMatchesLoadState();
       return false;
+    }
+  }
+
+  function ensureDailyLoaded() {
+    syncListUrl();
+    if (dailyListStatus === "loading") return;
+    if (dailyListStatus === "ready" || dailyListStatus === "empty") return;
+    fetchMatchesList(listN || 1);
+  }
+
+  function renderMatchesLoadState() {
+    const panel = document.getElementById("matches-panel-body");
+    if (!panel) return;
+    if (dailyListStatus === "loading" || dailyListStatus === "pending") {
+      panel.innerHTML = '<div class="state-box" id="matches-pending-box"><p></p></div>';
+      panel.querySelector("p").textContent = MSG.dailyLoading;
+      return;
+    }
+    if (dailyListStatus === "error") {
+      panel.innerHTML =
+        '<div class="state-box error" id="matches-error-box" role="alert"><p></p>' +
+        '<p><button type="button" class="date-nav-btn" id="matches-load-retry"></button></p></div>';
+      panel.querySelector("p").textContent =
+        MSG.dailyReadError + (dailyLoadErrorDetail ? "（" + dailyLoadErrorDetail + "）" : "");
+      const btn = panel.querySelector("#matches-load-retry");
+      btn.textContent = MSG.dailyLoadRetry;
+      btn.addEventListener("click", () => {
+        dailyListStatus = "pending";
+        ensureDailyLoaded();
+      });
     }
   }
 
@@ -2482,11 +2681,19 @@
     updatePagerControls();
     const panel = document.getElementById("matches-panel-body");
     if (!panel) return;
-    // Server already applied current filter (date + q + status when mapped); full list.
+    if (dailyListStatus === "pending" || dailyListStatus === "loading" || dailyListStatus === "error") {
+      renderMatchesLoadState();
+      return;
+    }
+    // Loaded success for current filter (may be empty).
     if (!currentMatches.length) {
-      panel.innerHTML = '<div class="state-box" id="matches-empty-box"><p></p><p class="muted"></p></div>';
-      panel.querySelector("p").textContent = committedQ ? MSG.searchNoMatch : MSG.emptyMsg;
-      panel.querySelector(".muted").textContent = MSG.syncHint;
+      panel.innerHTML =
+        '<div class="state-box" id="matches-empty-box"><p></p>' +
+        '<p class="muted"><button type="button" class="date-nav-btn" id="matches-empty-go-history"></button></p></div>';
+      panel.querySelector("p").textContent = committedQ ? MSG.searchNoMatch : MSG.emptyFiltered;
+      const go = panel.querySelector("#matches-empty-go-history");
+      go.textContent = MSG.dailyGoHistory;
+      go.addEventListener("click", () => activateTab("history"));
       return;
     }
     const cols = appliedColumns();
@@ -2526,13 +2733,18 @@
           td.textContent = m.away_odds;
         } else {
           if (c.key === "competition_name_zh") td.classList.add("comp-name");
-          if (c.key === "home_team" || c.key === "away_team") {
-            td.className = "c-left team-name";
-          }
-          const text = cellValue(m, c.key);
-          td.textContent = text;
-          if ((c.key.indexOf("score_") === 0 || c.key === "result_status" || c.key === "ui_et") && text === EMPTY_CELL) {
-            td.title = MSG.resultNotConnected;
+          if (c.key === "home_team") {
+            td.className = "c-left";
+            fillTeamNameEl(td, cellValue(m, c.key), "home");
+          } else if (c.key === "away_team") {
+            td.className = "c-left";
+            fillTeamNameEl(td, cellValue(m, c.key), "away");
+          } else {
+            const text = cellValue(m, c.key);
+            td.textContent = text;
+            if ((c.key.indexOf("score_") === 0 || c.key === "result_status" || c.key === "ui_et") && text === EMPTY_CELL) {
+              td.title = MSG.resultNotConnected;
+            }
           }
         }
         tr.appendChild(td);
@@ -2565,8 +2777,8 @@
       art.querySelector(".comp-name").textContent = m.competition_name_zh;
       art.querySelector(".ko").textContent = (showMatchDate && m.match_date ? (m.match_date + " ") : "") + m.kickoff_hhmm;
       art.querySelector(".mc").textContent = MSG.colMatchCode + " " + m.match_code;
-      art.querySelector(".home").textContent = m.home_team;
-      art.querySelector(".away").textContent = m.away_team;
+      fillTeamNameEl(art.querySelector(".home"), m.home_team, "home");
+      fillTeamNameEl(art.querySelector(".away"), m.away_team, "away");
       const valueEls = art.querySelectorAll(".card-odds .cell .value, .card-odds .cell [class^='value']");
       let vi = 0;
       for (const c of cols) {
@@ -3052,7 +3264,7 @@
   let historyQOp = (historyPageInit.q_op || "approx").toString().trim() || "approx";
   let historySort = historyPageInit.sort || "kickoff_hhmm:desc";
   let historyFetchSeq = 0;
-  let historyLoadedOnce = {{ (active_tab == 'history')|tojson }};
+  let historyLoadedOnce = {{ (history_page_meta.get('loaded') if history_page_meta is defined else false)|tojson }};
 
   const historyAllCheckbox = document.getElementById("history-all-matches");
   const historyAllHidden = document.getElementById("history-all-matches-hidden");
@@ -3257,17 +3469,15 @@
 
   function syncHistoryUrl() {
     if (activeTabName !== "history" && !historyLayoutModeOpen) return;
-    if (!historyDateInput || !historyDateInput.value) return;
     const params = new URLSearchParams();
     params.set("tab", historyLayoutModeOpen ? "history-layout" : "history");
-    params.set("all_matches", historyAllMatches ? "1" : "0");
-    params.set("date", historyDateInput.value);
-    params.set("n", String(historyN));
-    if (historyQ) params.set("q", historyQ);
-    params.set("q_op", historyQOp || "approx");
-    const sort = historySort || historyCurrentSortParam();
-    if (sort) params.set("sort", sort);
-    window.history.replaceState(null, "", window.location.pathname + "?" + params.toString());
+    appendHistoryUrlParams(params);
+    appendDailyUrlParams(params);
+    const qs = params.toString();
+    const next = window.location.pathname + (qs ? "?" + qs : "");
+    if (window.location.pathname + window.location.search !== next) {
+      window.history.replaceState({ soccerTab: "history" }, "", next);
+    }
   }
 
   function renderHistoryMatches(matches) {
@@ -3301,11 +3511,19 @@
       }
       for (const c of cols) {
         const td = document.createElement("td");
-        td.className = (c.key === "home_team" || c.key === "away_team") ? "c-left team-name" : "c-center";
+        td.className = "c-center";
         if (c.key === "competition_name") td.classList.add("comp-name");
         td.style.width = c.width + "px";
-        const text = m[c.key];
-        td.textContent = text == null || text === "" ? "—" : String(text);
+        if (c.key === "home_team") {
+          td.className = "c-left";
+          fillTeamNameEl(td, m[c.key], "home", m.home_team_result || "neutral");
+        } else if (c.key === "away_team") {
+          td.className = "c-left";
+          fillTeamNameEl(td, m[c.key], "away", m.away_team_result || "neutral");
+        } else {
+          const text = m[c.key];
+          td.textContent = text == null || text === "" ? "—" : String(text);
+        }
         tr.appendChild(td);
       }
       tbody.appendChild(tr);
@@ -3364,7 +3582,10 @@
   }
 
   function ensureHistoryLoaded() {
-    if (historyLoadedOnce && historyMatches && historyMatches.length > 0) return;
+    if (historyLoadedOnce) {
+      syncHistoryUrl();
+      return;
+    }
     submitHistoryCriteria({ n: historyN || 1 });
   }
 
@@ -4041,13 +4262,69 @@
   historyUiReady = true;
   if (activeTabName === "history") {
     historySort = historySort || historyCurrentSortParam();
-    if (historyMatches && historyMatches.length) {
+    if (historyLoadedOnce) {
       renderHistoryMatches(historyMatches);
       syncHistoryUrl();
     } else {
       ensureHistoryLoaded();
     }
   }
+  if (activeTabName === "matches") {
+    if (dailyListStatus === "pending" || dailyListStatus === "error") {
+      ensureDailyLoaded();
+    } else {
+      syncListUrl();
+    }
+  }
+  const emptyGoHist = document.getElementById("matches-empty-go-history");
+  if (emptyGoHist) {
+    emptyGoHist.addEventListener("click", () => activateTab("history"));
+  }
+
+  window.addEventListener("popstate", () => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = (params.get("tab") || "matches").toLowerCase();
+    const mapped = tab === "history-layout" ? "history" : (tab === "layout" ? "matches" : tab);
+    if (params.has("all_matches")) {
+      applyAllMatchesControls(params.get("all_matches") !== "0");
+    }
+    if (params.get("date") && dateInputEl) dateInputEl.value = params.get("date");
+    if (params.has("q")) {
+      committedQ = params.get("q") || "";
+      if (searchInput) searchInput.value = committedQ;
+    }
+    if (params.has("status")) committedStatus = params.get("status") || "prematch";
+    if (params.has("n")) listN = Number(params.get("n")) || 1;
+    if (params.has("history_all_matches")) {
+      applyHistoryAllMatchesControls(params.get("history_all_matches") !== "0");
+    } else if (mapped === "history" && params.has("all_matches") && !params.has("history_date")) {
+      // Legacy history bookmark in popstate.
+      applyHistoryAllMatchesControls(params.get("all_matches") !== "0");
+    }
+    if (params.get("history_date") && historyDateInput) {
+      historyDateInput.value = params.get("history_date");
+    } else if (mapped === "history" && params.get("date") && historyDateInput && !params.has("history_date")) {
+      historyDateInput.value = params.get("date");
+    }
+    if (params.has("history_q")) {
+      historyQ = params.get("history_q") || "";
+      if (historySearchInput) historySearchInput.value = historyQ;
+    }
+    if (params.has("history_q_op")) {
+      historyQOp = params.get("history_q_op") || "approx";
+      if (historySearchOp) historySearchOp.value = historyQOp;
+    }
+    if (params.has("history_n")) historyN = Number(params.get("history_n")) || 1;
+    if (params.has("history_sort")) historySort = params.get("history_sort") || historySort;
+    activateTab(mapped === "download" || mapped === "tasks" || mapped === "matches" || mapped === "history" ? mapped : "matches");
+    if (mapped === "matches") {
+      dailyListStatus = "pending";
+      ensureDailyLoaded();
+    } else if (mapped === "history") {
+      historyLoadedOnce = false;
+      ensureHistoryLoaded();
+    }
+  });
 })();
 </script>
 {% endblock %}

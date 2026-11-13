@@ -269,13 +269,13 @@ def test_page_has_tasks_tab_ui_defaults() -> None:
     assert 'id="btn-layout-save"' in html
     assert 'id="btn-layout-cancel"' in html
     assert "function setLayoutMode(" in html
-    assert 'id="match-status-filter"' in html
-    assert 'value="prematch" selected' in html
+    # Status filter UI hidden until source mapping is connected.
+    assert 'id="match-status-filter"' not in html
+    assert "status-mapping-note" not in html
     assert "update_odds_and_results" in html
     assert "match_results" in html
     assert "match_results_by_year" in html
     assert 'value="matches_and_odds" selected' in html
-    assert "status-mapping-note" in html
 
     # Backend is source of truth: HTML must not hard-check enabled.
     assert 'id="task-odds-enabled"' in html

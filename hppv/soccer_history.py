@@ -11,6 +11,7 @@ from typing import Any
 
 from hppv.footylogic_schema import FOOTYLOGIC_MATCHES_TABLE
 from hppv.soccer_db import get_connection, table_exists
+from hppv.soccer_ingest import HKJC_RESULT_CONFIRM_STATUS, HKJC_RESULT_VOID_STATUS
 from hppv.soccer_matches import (
     EMPTY_DISPLAY,
     SoccerDataError,
@@ -23,6 +24,15 @@ from hppv.soccer_matches import (
     parse_requested_date,
     resolve_all_matches_arg,
 )
+
+# History HT/FT display for official MATCHVOIDED (result_confirm_status marker).
+HISTORY_VOID_SCORE_DISPLAY = "失效"
+
+# Presentation-only FT outcome classes for history team-name colouring.
+HISTORY_TEAM_RESULT_WIN = "win"
+HISTORY_TEAM_RESULT_DRAW = "draw"
+HISTORY_TEAM_RESULT_LOSE = "lose"
+HISTORY_TEAM_RESULT_NEUTRAL = "neutral"
 
 logger = logging.getLogger(__name__)
 
@@ -155,9 +165,80 @@ def _format_history_physical_value(col: str, value: Any, *, source_key: str) -> 
     return format_text_field(value)
 
 
+def _parse_valid_ft_goal(raw: Any) -> int | None:
+    """Accept a real non-negative int goal count only. Never coerce NULL/blank to 0."""
+    if isinstance(raw, bool) or raw is None:
+        return None
+    if isinstance(raw, int):
+        return raw if raw >= 0 else None
+    text = str(raw).strip()
+    if text == "" or text == EMPTY_DISPLAY:
+        return None
+    if text.isdigit():
+        return int(text)
+    return None
+
+
+def history_team_result_classes(
+    score_ft_home: Any,
+    score_ft_away: Any,
+    *,
+    result_confirm_status: Any = None,
+) -> tuple[str, str]:
+    """
+    Presentation-only FT outcome for history team-name colours.
+
+    Returns (home_class, away_class) in {win, draw, lose, neutral}.
+    Void / unconfirmed / missing FT → both neutral. Never uses HT.
+    """
+    confirm = str(result_confirm_status or "").strip()
+    if confirm == HKJC_RESULT_VOID_STATUS:
+        return HISTORY_TEAM_RESULT_NEUTRAL, HISTORY_TEAM_RESULT_NEUTRAL
+    if confirm != HKJC_RESULT_CONFIRM_STATUS:
+        return HISTORY_TEAM_RESULT_NEUTRAL, HISTORY_TEAM_RESULT_NEUTRAL
+    home = _parse_valid_ft_goal(score_ft_home)
+    away = _parse_valid_ft_goal(score_ft_away)
+    if home is None or away is None:
+        return HISTORY_TEAM_RESULT_NEUTRAL, HISTORY_TEAM_RESULT_NEUTRAL
+    if home > away:
+        return HISTORY_TEAM_RESULT_WIN, HISTORY_TEAM_RESULT_LOSE
+    if home < away:
+        return HISTORY_TEAM_RESULT_LOSE, HISTORY_TEAM_RESULT_WIN
+    return HISTORY_TEAM_RESULT_DRAW, HISTORY_TEAM_RESULT_DRAW
+
+
 def _row_to_history_view(row: Any) -> dict[str, str]:
     keys = list(row.keys()) if hasattr(row, "keys") else []
     source_key = str(row["source_key"] or "") if "source_key" in keys else ""
+    confirm = (
+        str(row["result_confirm_status"] or "")
+        if "result_confirm_status" in keys
+        else ""
+    )
+    ft_home_raw = row["score_ft_home"] if "score_ft_home" in keys else None
+    ft_away_raw = row["score_ft_away"] if "score_ft_away" in keys else None
+    is_void = confirm == HKJC_RESULT_VOID_STATUS
+    if is_void:
+        score_ht = HISTORY_VOID_SCORE_DISPLAY
+        score_ft = HISTORY_VOID_SCORE_DISPLAY
+    else:
+        score_ht = format_score_pair(
+            row["score_ht_home"] if "score_ht_home" in keys else None,
+            row["score_ht_away"] if "score_ht_away" in keys else None,
+            match_id=source_key,
+            field="score_ht",
+        )
+        score_ft = format_score_pair(
+            ft_home_raw,
+            ft_away_raw,
+            match_id=source_key,
+            field="score_ft",
+        )
+    home_result, away_result = history_team_result_classes(
+        ft_home_raw,
+        ft_away_raw,
+        result_confirm_status=confirm,
+    )
     view: dict[str, str] = {
         "source_key": source_key or EMPTY_DISPLAY,
         "match_date": format_text_field(row["match_date_hkt"] if "match_date_hkt" in keys else None),
@@ -177,18 +258,11 @@ def _row_to_history_view(row: Any) -> dict[str, str]:
             row["away_team_name"] if "away_team_name" in keys else None,
             row["away_team_id"] if "away_team_id" in keys else None,
         ),
-        "score_ht": format_score_pair(
-            row["score_ht_home"] if "score_ht_home" in keys else None,
-            row["score_ht_away"] if "score_ht_away" in keys else None,
-            match_id=source_key,
-            field="score_ht",
-        ),
-        "score_ft": format_score_pair(
-            row["score_ft_home"] if "score_ft_home" in keys else None,
-            row["score_ft_away"] if "score_ft_away" in keys else None,
-            match_id=source_key,
-            field="score_ft",
-        ),
+        "score_ht": score_ht,
+        "score_ft": score_ft,
+        # UI-only; not layout/export columns.
+        "home_team_result": home_result,
+        "away_team_result": away_result,
     }
     # Expose every physical column so layout/API stay schema-driven.
     for col in keys:

@@ -552,7 +552,7 @@ def _layout_context() -> dict[str, Any]:
 
 
 def _soccer_list_query_state(layout_settings: dict[str, Any]) -> dict[str, Any]:
-    """Parse list filter from URL: n / q / status / sort (date handled separately)."""
+    """Parse daily list filter from URL (date / all_matches handled separately)."""
     q = (request.args.get("q") or "").strip()
     status = normalize_status_filter(request.args.get("status"))
     # Prefer n= (record cursor); accept legacy page= as the same cursor value.
@@ -575,6 +575,18 @@ def _soccer_list_query_state(layout_settings: dict[str, Any]) -> dict[str, Any]:
 
 _SOCCER_TABS = frozenset({"matches", "history", "download", "tasks"})
 
+# Prefixed history URL keys (daily keeps unprefixed date/all_matches/q/…).
+_HISTORY_URL_KEYS = frozenset(
+    {
+        "history_date",
+        "history_all_matches",
+        "history_q",
+        "history_q_op",
+        "history_n",
+        "history_sort",
+    }
+)
+
 
 def _soccer_active_tab(raw: str | None = None) -> tuple[str, bool, bool]:
     """
@@ -592,14 +604,129 @@ def _soccer_active_tab(raw: str | None = None) -> tuple[str, bool, bool]:
     return "matches", False, False
 
 
+def _args_has(args: Any, key: str) -> bool:
+    try:
+        return key in args
+    except TypeError:
+        return False
+
+
+def _resolve_soccer_tab_scopes(
+    args: Any, *, active_tab: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """
+    Isolate daily vs history list criteria from one request.args.
+
+    New URLs: daily uses date/all_matches/q/…; history uses history_* keys.
+    Legacy (no history_*): unprefixed date/all_matches/q apply only to the
+    active tab; the other tab gets defaults (all_matches=True, today).
+    Never silently apply one date/all_matches pair to both tabs.
+    """
+    today = hong_kong_today()
+    has_history_prefix = any(_args_has(args, k) for k in _HISTORY_URL_KEYS)
+
+    def _default_scope() -> dict[str, Any]:
+        return {
+            "all_matches": True,
+            "selected": today,
+            "date_invalid": False,
+            "compat_legacy": False,
+        }
+
+    if has_history_prefix:
+        daily_all = resolve_all_matches_arg(args)
+        daily_selected, daily_invalid = parse_requested_date(args.get("date"))
+        if daily_invalid and not daily_all:
+            daily_scope = {
+                "all_matches": daily_all,
+                "selected": None,
+                "date_invalid": True,
+                "compat_legacy": False,
+            }
+        else:
+            daily_scope = {
+                "all_matches": daily_all,
+                "selected": today if (daily_invalid or daily_selected is None) else daily_selected,
+                "date_invalid": False,
+                "compat_legacy": False,
+            }
+        if _args_has(args, "history_all_matches"):
+            hist_all = parse_all_matches_flag(args.get("history_all_matches"))
+        else:
+            hist_all = True
+        hist_selected, hist_invalid = parse_requested_date(args.get("history_date"))
+        if hist_invalid and not hist_all:
+            hist_scope = {
+                "all_matches": hist_all,
+                "selected": None,
+                "date_invalid": True,
+                "compat_legacy": False,
+            }
+        else:
+            hist_scope = {
+                "all_matches": hist_all,
+                "selected": today if (hist_invalid or hist_selected is None) else hist_selected,
+                "date_invalid": False,
+                "compat_legacy": False,
+            }
+        return daily_scope, hist_scope
+
+    # Legacy shared params → active tab only.
+    legacy_all = resolve_all_matches_arg(args)
+    legacy_selected, legacy_invalid = parse_requested_date(args.get("date"))
+    if active_tab == "history":
+        daily_scope = _default_scope()
+        if legacy_invalid and not legacy_all:
+            hist_scope = {
+                "all_matches": legacy_all,
+                "selected": None,
+                "date_invalid": True,
+                "compat_legacy": True,
+            }
+        else:
+            hist_scope = {
+                "all_matches": legacy_all,
+                "selected": today if (legacy_invalid or legacy_selected is None) else legacy_selected,
+                "date_invalid": False,
+                "compat_legacy": True,
+            }
+        return daily_scope, hist_scope
+
+    hist_scope = _default_scope()
+    if legacy_invalid and not legacy_all:
+        daily_scope = {
+            "all_matches": legacy_all,
+            "selected": None,
+            "date_invalid": True,
+            "compat_legacy": False,
+        }
+    else:
+        daily_scope = {
+            "all_matches": legacy_all,
+            "selected": today if (legacy_invalid or legacy_selected is None) else legacy_selected,
+            "date_invalid": False,
+            "compat_legacy": False,
+        }
+    return daily_scope, hist_scope
+
+
 def _history_list_query_state(layout_settings: dict[str, Any]) -> dict[str, Any]:
-    """History list args — isolated from daily layout / status filter."""
-    n_raw = request.args.get("n")
-    if n_raw is None or str(n_raw).strip() == "":
-        n_raw = request.args.get("page")
-    q = (request.args.get("q") or "").strip()
-    q_op = normalize_history_search_op(request.args.get("q_op"))
-    parsed_sort = parse_history_sort_param(request.args.get("sort"))
+    """History list args — prefixed history_* with legacy fallback when absent."""
+    args = request.args
+    has_prefix = any(_args_has(args, k) for k in _HISTORY_URL_KEYS)
+    if has_prefix:
+        n_raw = args.get("history_n")
+        q = (args.get("history_q") or "").strip()
+        q_op = normalize_history_search_op(args.get("history_q_op"))
+        parsed_sort = parse_history_sort_param(args.get("history_sort"))
+    else:
+        # Legacy: only when history is the active consumer (caller still decides).
+        n_raw = args.get("n")
+        if n_raw is None or str(n_raw).strip() == "":
+            n_raw = args.get("page")
+        q = (args.get("q") or "").strip()
+        q_op = normalize_history_search_op(args.get("q_op"))
+        parsed_sort = parse_history_sort_param(args.get("sort"))
     sort_specs = (
         parsed_sort
         if parsed_sort is not None
@@ -637,27 +764,22 @@ def _empty_history_page_meta(
 def soccer_daily() -> str:
     """Soccer database UI (daily matches + related tabs)."""
     active_tab, open_layout_panel, open_history_layout_panel = _soccer_active_tab()
-    all_matches = resolve_all_matches_arg(request.args)
-    selected, date_invalid = parse_requested_date(request.args.get("date"))
+    daily_scope, hist_scope = _resolve_soccer_tab_scopes(
+        request.args, active_tab=active_tab
+    )
+    all_matches = bool(daily_scope["all_matches"])
+    date_invalid = bool(daily_scope["date_invalid"])
+    selected = daily_scope["selected"]
     matches: list[dict[str, str]] = []
     load_error = False
-    prev_date = ""
-    next_date = ""
-    selected_date = ""
-    page_meta = {
-        "n": 1,
-        "total_count": 0,
-        "q": "",
-        "status": DEFAULT_STATUS_FILTER,
-        "status_filter_applied": False,
-        "all_matches": all_matches,
-    }
     history_matches: list[dict[str, str]] = []
     history_load_error = False
-    history_date_invalid = False
-    history_page_meta = _empty_history_page_meta(all_matches=True)
-    history_all_matches = True
-    history_selected_date = ""
+    history_date_invalid = bool(hist_scope["date_invalid"])
+    history_all_matches = bool(hist_scope["all_matches"])
+    history_selected = hist_scope["selected"]
+    history_selected_date = (
+        "" if history_selected is None else history_selected.isoformat()
+    )
     sync_at = get_last_success_at(SOCCER_DB_PATH, REQUEST_KEY_MATCHES_AND_ODDS)
     sync_at_hkt = None
     if sync_at:
@@ -667,39 +789,71 @@ def soccer_daily() -> str:
             sync_at_hkt = None
     layout_ctx = _layout_context()
     list_state = _soccer_list_query_state(layout_ctx["layout_settings"])
+    # When legacy params belong to history, do not reuse shared q/n for daily.
+    if hist_scope.get("compat_legacy") and active_tab == "history":
+        list_state = {
+            **list_state,
+            "q": "",
+            "n_raw": 1,
+            "status": DEFAULT_STATUS_FILTER,
+        }
+    hist_state = _history_list_query_state(layout_ctx["history_layout_settings"])
+    if not any(_args_has(request.args, k) for k in _HISTORY_URL_KEYS):
+        if active_tab != "history":
+            # Prefixed absent + not on history → history list defaults (ignore legacy q).
+            hist_state = {
+                "n_raw": 1,
+                "q": "",
+                "q_op": DEFAULT_HISTORY_SEARCH_OP,
+                "sort_specs": history_sort_specs_from_layout(
+                    layout_ctx["history_layout_settings"]
+                ),
+                "sort": history_sort_param(
+                    history_sort_specs_from_layout(layout_ctx["history_layout_settings"])
+                ),
+            }
 
-    # Shared date chrome defaults (history / daily each keep own JS state after load).
+    # Daily chrome (never overwritten by history date).
     if date_invalid or selected is None:
-        selected_for_chrome = hong_kong_today()
+        selected_date = ""
+        prev_date = ""
+        next_date = ""
     else:
-        selected_for_chrome = selected
-    selected_date = selected_for_chrome.isoformat()
-    prev_date = shift_date(selected_for_chrome, -1).isoformat()
-    next_date = shift_date(selected_for_chrome, 1).isoformat()
+        selected_date = selected.isoformat()
+        prev_date = shift_date(selected, -1).isoformat()
+        next_date = shift_date(selected, 1).isoformat()
 
-    if active_tab == "history":
-        history_all_matches = all_matches
-        hist_state = _history_list_query_state(layout_ctx["history_layout_settings"])
-        history_page_meta = _empty_history_page_meta(
-            all_matches=history_all_matches,
-            q=hist_state["q"],
-            q_op=hist_state["q_op"],
-            sort=hist_state["sort"],
-        )
-        if date_invalid and not history_all_matches:
-            history_date_invalid = True
+    page_meta = {
+        "n": 1,
+        "total_count": 0,
+        "q": list_state["q"],
+        "status": list_state["status"],
+        "status_filter_applied": False,
+        "all_matches": all_matches,
+        "loaded": False,
+    }
+    history_page_meta = _empty_history_page_meta(
+        all_matches=history_all_matches,
+        q=hist_state["q"],
+        q_op=hist_state["q_op"],
+        sort=hist_state["sort"],
+    )
+    history_page_meta["loaded"] = False
+
+    load_daily = active_tab == "matches" or open_layout_panel
+    load_history = active_tab == "history" or open_history_layout_panel
+
+    if load_history:
+        if history_date_invalid and not history_all_matches:
             history_selected_date = ""
         else:
-            if date_invalid or selected is None:
-                selected = hong_kong_today()
-            history_selected_date = selected.isoformat()
-            selected_date = history_selected_date
-            prev_date = shift_date(selected, -1).isoformat()
-            next_date = shift_date(selected, 1).isoformat()
+            if history_selected is None:
+                history_selected = hong_kong_today()
+                history_selected_date = history_selected.isoformat()
             try:
                 hist = fetch_history_filtered(
                     SOCCER_DB_PATH,
-                    None if history_all_matches else selected,
+                    None if history_all_matches else history_selected,
                     n=hist_state["n_raw"],
                     q=hist_state["q"],
                     q_op=hist_state["q_op"],
@@ -715,41 +869,41 @@ def soccer_daily() -> str:
                     "q_op": hist.q_op,
                     "all_matches": history_all_matches,
                     "sort": hist.sort,
+                    "loaded": True,
                 }
             except SoccerDataError as e:
                 history_load_error = True
+                history_page_meta["loaded"] = True
                 logging.getLogger(__name__).exception("soccer history read failed: %s", e)
-    elif date_invalid and not all_matches:
-        return render_template(
-            "soccer_daily.html",
-            date_invalid=True,
-            load_error=False,
-            matches=[],
-            selected_date="",
-            prev_date="",
-            next_date="",
-            sync_at_hkt=sync_at_hkt,
-            page_meta=page_meta,
-            all_matches=all_matches,
-            active_tab=active_tab,
-            open_layout_panel=open_layout_panel,
-            open_history_layout_panel=False,
-            history_matches=[],
-            history_load_error=False,
-            history_date_invalid=False,
-            history_page_meta=history_page_meta,
-            history_all_matches=True,
-            history_selected_date="",
-            **layout_ctx,
-        )
-    else:
-        if date_invalid or selected is None:
-            selected = hong_kong_today()
-        selected_date = selected.isoformat()
-        prev_date = shift_date(selected, -1).isoformat()
-        next_date = shift_date(selected, 1).isoformat()
+
+    if load_daily:
+        if date_invalid and not all_matches:
+            page_meta["loaded"] = True
+            return render_template(
+                "soccer_daily.html",
+                date_invalid=True,
+                load_error=False,
+                matches=[],
+                selected_date="",
+                prev_date="",
+                next_date="",
+                sync_at_hkt=sync_at_hkt,
+                page_meta=page_meta,
+                all_matches=all_matches,
+                active_tab=active_tab,
+                open_layout_panel=open_layout_panel,
+                open_history_layout_panel=open_history_layout_panel,
+                history_matches=history_matches,
+                history_load_error=history_load_error,
+                history_date_invalid=history_date_invalid,
+                history_page_meta=history_page_meta,
+                history_all_matches=history_all_matches,
+                history_selected_date=history_selected_date
+                or hong_kong_today().isoformat(),
+                **layout_ctx,
+            )
+        assert selected is not None
         try:
-            # Full current-filter list (no 20/page). n = cursor for "N / total_count".
             result = fetch_matches_filtered(
                 SOCCER_DB_PATH,
                 None if all_matches else selected,
@@ -767,9 +921,11 @@ def soccer_daily() -> str:
                 "status": result.status,
                 "status_filter_applied": result.status_filter_applied,
                 "all_matches": all_matches,
+                "loaded": True,
             }
         except SoccerDataError as e:
             load_error = True
+            page_meta["loaded"] = True
             logging.getLogger(__name__).exception("soccer daily read failed: %s", e)
 
     return render_template(
@@ -777,9 +933,11 @@ def soccer_daily() -> str:
         date_invalid=False,
         load_error=load_error,
         matches=matches,
-        selected_date=selected_date,
-        prev_date=prev_date,
-        next_date=next_date,
+        selected_date=selected_date or hong_kong_today().isoformat(),
+        prev_date=prev_date
+        or shift_date(hong_kong_today(), -1).isoformat(),
+        next_date=next_date
+        or shift_date(hong_kong_today(), 1).isoformat(),
         sync_at_hkt=sync_at_hkt,
         page_meta=page_meta,
         all_matches=all_matches,
@@ -791,7 +949,8 @@ def soccer_daily() -> str:
         history_date_invalid=history_date_invalid,
         history_page_meta=history_page_meta,
         history_all_matches=history_all_matches,
-        history_selected_date=history_selected_date or selected_date,
+        history_selected_date=history_selected_date
+        or hong_kong_today().isoformat(),
         **layout_ctx,
     )
 

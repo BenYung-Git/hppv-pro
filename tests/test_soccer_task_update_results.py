@@ -198,6 +198,160 @@ def test_inplay_matchended_with_ft_writes_and_deletes(soccer_db: Path) -> None:
         assert row["hkjc_front_end_id"] == "FB8335"
 
 
+def test_matchvoided_empty_results_writes_history_and_deletes_daily(
+    soccer_db: Path,
+) -> None:
+    _insert_daily(soccer_db, "50080133", match_date="2026-11-12")
+    item = _official_item(
+        "50080133",
+        status="MATCHVOIDED",
+        ht=None,
+        ft=None,
+        front_end="FB8688",
+    )
+    item["homeTeam"] = {
+        "id": "H8688",
+        "name_ch": "賓菲加女足",
+        "name_en": "Benfica Women",
+    }
+    item["awayTeam"] = {
+        "id": "A8688",
+        "name_ch": "奧地利維也納女足",
+        "name_en": "Austria Wien Women",
+    }
+    assert item["results"] == []
+    ing = ingest_official_results_to_history(
+        soccer_db,
+        _envelope([item]),
+        variables={"startIndex": 0, "endIndex": 0},
+        history_scope=HISTORY_SCOPE_PAYLOAD_ALL,
+    )
+    assert ing.code == "success"
+    assert ing.inserted == 1
+    assert ing.daily_deleted == 1
+    assert "void_applied=1" in ing.detail
+    with get_connection(soccer_db) as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM soccer_daily WHERE match_id='50080133'"
+            ).fetchone()[0]
+            == 0
+        )
+        row = conn.execute(
+            f"SELECT * FROM {FOOTYLOGIC_MATCHES_TABLE} WHERE source_key=?",
+            ("hkjc|50080133",),
+        ).fetchone()
+        assert row is not None
+        assert row["result_confirm_status"] == "hkjc_match_voided"
+        assert row["has_score"] == 0
+        assert row["score_complete"] == 0
+        assert row["score_ft_home"] is None
+        assert row["score_ft_away"] is None
+        assert row["score_ht_home"] is None
+        assert row["score_ht_away"] is None
+        assert row["hkjc_front_end_id"] == "FB8688"
+        tomb = conn.execute(
+            f"SELECT reason FROM {SOCCER_DAILY_REMOVED_TABLE} WHERE match_id=?",
+            ("50080133",),
+        ).fetchone()
+        assert tomb["reason"] == "official_void_to_history"
+
+
+def test_matchvoided_payload_all_without_daily(soccer_db: Path) -> None:
+    item = _official_item(
+        "50080085",
+        status="MATCHVOIDED",
+        ht=None,
+        ft=None,
+        front_end="FB8738",
+    )
+    ing = ingest_official_results_to_history(
+        soccer_db,
+        _envelope([item]),
+        variables={"startIndex": 0, "endIndex": 0},
+        history_scope=HISTORY_SCOPE_PAYLOAD_ALL,
+    )
+    assert ing.code == "success"
+    assert ing.inserted == 1
+    assert ing.daily_deleted == 0
+    with get_connection(soccer_db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM soccer_daily").fetchone()[0] == 0
+        row = conn.execute(
+            f"SELECT result_confirm_status FROM {FOOTYLOGIC_MATCHES_TABLE} "
+            "WHERE source_key=?",
+            ("hkjc|50080085",),
+        ).fetchone()
+        assert row["result_confirm_status"] == "hkjc_match_voided"
+
+
+def test_matchvoided_clears_prior_scores_and_idempotent(soccer_db: Path) -> None:
+    _insert_daily(soccer_db, "50099")
+    ingest_official_results_to_history(
+        soccer_db,
+        _envelope([_official_item("50099", ht=(1, 0), ft=(2, 1))]),
+        variables={"startIndex": 0, "endIndex": 0},
+    )
+    void_item = _official_item(
+        "50099", status="MATCHVOIDED", ht=None, ft=None, front_end="FB9099"
+    )
+    first = ingest_official_results_to_history(
+        soccer_db,
+        _envelope([void_item]),
+        variables={"startIndex": 0, "endIndex": 0},
+        history_scope=HISTORY_SCOPE_PAYLOAD_ALL,
+    )
+    assert first.code == "success"
+    assert first.updated == 1
+    assert first.daily_deleted == 0
+    second = ingest_official_results_to_history(
+        soccer_db,
+        _envelope([void_item]),
+        variables={"startIndex": 0, "endIndex": 0},
+        history_scope=HISTORY_SCOPE_PAYLOAD_ALL,
+    )
+    assert second.code == "success"
+    assert second.updated == 1
+    assert second.inserted == 0
+    assert second.daily_deleted == 0
+    with get_connection(soccer_db) as conn:
+        assert (
+            conn.execute(
+                f"SELECT COUNT(*) FROM {FOOTYLOGIC_MATCHES_TABLE} "
+                "WHERE source_key='hkjc|50099'"
+            ).fetchone()[0]
+            == 1
+        )
+        row = conn.execute(
+            f"SELECT score_ft_home, score_ht_home, has_score, result_confirm_status "
+            f"FROM {FOOTYLOGIC_MATCHES_TABLE} WHERE source_key=?",
+            ("hkjc|50099",),
+        ).fetchone()
+        assert row["score_ft_home"] is None
+        assert row["score_ht_home"] is None
+        assert row["has_score"] == 0
+        assert row["result_confirm_status"] == "hkjc_match_voided"
+
+
+def test_empty_results_without_matchvoided_still_skipped(soccer_db: Path) -> None:
+    _insert_daily(soccer_db, "50100")
+    item = _official_item("50100", status="MATCHENDED", ht=None, ft=None)
+    ing = ingest_official_results_to_history(
+        soccer_db,
+        _envelope([item]),
+        variables={"startIndex": 0, "endIndex": 0},
+    )
+    assert ing.code.startswith("skipped")
+    assert ing.skipped_unconfirmed == 1
+    assert ing.daily_deleted == 0
+    with get_connection(soccer_db) as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM soccer_daily WHERE match_id='50100'"
+            ).fetchone()[0]
+            == 1
+        )
+
+
 def test_ht_only_keeps_daily(soccer_db: Path) -> None:
     _insert_daily(soccer_db, "50002")
     resp = _envelope([_official_item("50002", ht=(1, 0), ft=None)])

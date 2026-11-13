@@ -16,11 +16,18 @@ from hppv.soccer_history import (
     HISTORY_SEARCH_OP_EQ,
     HISTORY_SEARCH_OP_STARTS,
     HISTORY_SEARCH_OPS_VISIBLE,
+    HISTORY_TEAM_RESULT_DRAW,
+    HISTORY_TEAM_RESULT_LOSE,
+    HISTORY_TEAM_RESULT_NEUTRAL,
+    HISTORY_TEAM_RESULT_WIN,
+    HISTORY_VOID_SCORE_DISPLAY,
     fetch_history_filtered,
     format_name_or_id,
+    history_team_result_classes,
     normalize_history_search_op,
     parse_history_sort_param,
 )
+from hppv.soccer_ingest import HKJC_RESULT_CONFIRM_STATUS, HKJC_RESULT_VOID_STATUS
 from hppv.soccer_history_export import parse_history_export_request
 from hppv.soccer_matches import EMPTY_DISPLAY, SoccerDataError
 
@@ -405,7 +412,8 @@ def test_history_api_and_tab_ui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     # Daily matches UI still present and layout entry remains on daily toolbar only.
     daily_html = client.get("/soccer/daily?tab=matches").get_data(as_text=True)
     assert 'id="btn-open-layout"' in daily_html
-    assert 'id="match-status-filter"' in daily_html
+    assert 'id="match-status-filter"' not in daily_html
+    assert "status-mapping-note" not in daily_html
 
 
 def test_history_sort_param_default() -> None:
@@ -442,3 +450,65 @@ def test_history_translation_keys_seeded(tmp_path: Path) -> None:
             ).fetchone()
             assert row is not None, key
             assert row["zh_hant"] and row["en"] and row["zh_hans"]
+
+
+def test_history_team_result_classes_ft_rules() -> None:
+    assert history_team_result_classes(
+        2, 1, result_confirm_status=HKJC_RESULT_CONFIRM_STATUS
+    ) == (HISTORY_TEAM_RESULT_WIN, HISTORY_TEAM_RESULT_LOSE)
+    assert history_team_result_classes(
+        0, 3, result_confirm_status=HKJC_RESULT_CONFIRM_STATUS
+    ) == (HISTORY_TEAM_RESULT_LOSE, HISTORY_TEAM_RESULT_WIN)
+    assert history_team_result_classes(
+        0, 0, result_confirm_status=HKJC_RESULT_CONFIRM_STATUS
+    ) == (HISTORY_TEAM_RESULT_DRAW, HISTORY_TEAM_RESULT_DRAW)
+    assert history_team_result_classes(
+        None, None, result_confirm_status=HKJC_RESULT_VOID_STATUS
+    ) == (HISTORY_TEAM_RESULT_NEUTRAL, HISTORY_TEAM_RESULT_NEUTRAL)
+    # Missing FT must not become 0-0 draw.
+    assert history_team_result_classes(
+        None, None, result_confirm_status=HKJC_RESULT_CONFIRM_STATUS
+    ) == (HISTORY_TEAM_RESULT_NEUTRAL, HISTORY_TEAM_RESULT_NEUTRAL)
+    assert history_team_result_classes(
+        1, None, result_confirm_status=HKJC_RESULT_CONFIRM_STATUS
+    ) == (HISTORY_TEAM_RESULT_NEUTRAL, HISTORY_TEAM_RESULT_NEUTRAL)
+    assert history_team_result_classes(
+        1, 0, result_confirm_status="source_score_unconfirmed"
+    ) == (HISTORY_TEAM_RESULT_NEUTRAL, HISTORY_TEAM_RESULT_NEUTRAL)
+
+
+def test_history_void_status_shows_void_for_ht_ft(tmp_path: Path) -> None:
+    db = tmp_path / "void_hist.sqlite3"
+    conn = sqlite3.connect(db)
+    conn.executescript(footylogic_schema_sql())
+    conn.execute(
+        f"""
+        INSERT INTO {FOOTYLOGIC_MATCHES_TABLE} (
+          source_key, source, competition_id, season_id, month, competition_name,
+          home_team_id, away_team_id, home_team_name, away_team_name,
+          kickoff_utc, kickoff_hkt, match_date_hkt,
+          score_ft_home, score_ft_away, score_ht_home, score_ht_away,
+          has_score, score_complete, result_confirm_status, event_json,
+          source_last_updated, created_at, updated_at,
+          hkjc_match_id, hkjc_front_end_id
+        ) VALUES (
+          'hkjc|50080133', 'hkjc', 'UCL', NULL, '2026-11', '女足賽',
+          'h', 'a', '賓菲加女足', '奧地利維也納女足',
+          '2026-11-12T12:00:00Z', '2026-11-12T20:00:00+08:00', '2026-11-12',
+          NULL, NULL, NULL, NULL,
+          0, 0, ?, '{{}}',
+          't', 't', 't',
+          '50080133', 'FB8688'
+        )
+        """,
+        (HKJC_RESULT_VOID_STATUS,),
+    )
+    conn.commit()
+    conn.close()
+    result = fetch_history_filtered(db, date(2026, 11, 12), n=1)
+    assert result.total_count == 1
+    assert result.matches[0]["score_ht"] == HISTORY_VOID_SCORE_DISPLAY
+    assert result.matches[0]["score_ft"] == HISTORY_VOID_SCORE_DISPLAY
+    assert result.matches[0]["result_confirm_status"] == HKJC_RESULT_VOID_STATUS
+    assert result.matches[0]["home_team_result"] == HISTORY_TEAM_RESULT_NEUTRAL
+    assert result.matches[0]["away_team_result"] == HISTORY_TEAM_RESULT_NEUTRAL

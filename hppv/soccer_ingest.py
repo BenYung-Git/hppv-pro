@@ -29,8 +29,11 @@ REQUEST_KEY_MATCH_RESULTS_BY_YEAR = "match_results_by_year"
 REQUEST_KEY_UPDATE_RESULTS = "update_results"
 
 TOMBSTONE_REASON_OFFICIAL_FT = "official_ft_to_history"
+TOMBSTONE_REASON_OFFICIAL_VOID = "official_void_to_history"
 HKJC_SOURCE = "hkjc"
 HKJC_RESULT_CONFIRM_STATUS = "hkjc_official_ft_confirmed"
+# Official MATCHVOIDED → history marker (scores cleared; HT/FT display as 失效).
+HKJC_RESULT_VOID_STATUS = "hkjc_match_voided"
 
 # Official frontend ch(e, n): resultType==1 goals; stageId 3=HT, 5=FT (not 9/ET this round).
 RESULT_TYPE_GOALS = 1
@@ -38,6 +41,7 @@ STAGE_ID_HT = 3
 STAGE_ID_FT = 5
 STATUS_MATCHENDED = "MATCHENDED"
 STATUS_INPLAYMATCHENDED = "INPLAYMATCHENDED"
+STATUS_MATCHVOIDED = "MATCHVOIDED"
 
 # Verified from HKJC foPools HAD combinations[].str (not array order).
 HAD_STR_HOME = "H"
@@ -811,6 +815,16 @@ def parse_official_result_item(raw: Any) -> ParsedOfficialResult:
     if not isinstance(results, list):
         raise SoccerIngestError("structure_mismatch", f"results not a list match_id={match_id}")
 
+    # Explicit MATCHVOIDED only — never infer void from empty results.
+    if status == STATUS_MATCHVOIDED:
+        return ParsedOfficialResult(
+            match_id=match_id,
+            source_status=status,
+            ht=None,
+            ft=None,
+            sh=None,
+        )
+
     ht = select_official_stage_score(results, stage_id=STAGE_ID_HT, match_id=match_id)
     ft = select_official_stage_score(results, stage_id=STAGE_ID_FT, match_id=match_id)
     sh: OfficialScorePair | None = None
@@ -1340,10 +1354,16 @@ def _upsert_hkjc_history_row(
     kickoff_hkt: str,
     match_date: str,
     stamp: str,
+    voided: bool = False,
 ) -> str:
     """
     Insert or update one hkjc|{id} row. Returns 'inserted' or 'updated'.
-    Missing source fields stay NULL; ON CONFLICT does not clear existing values.
+
+    Normal confirmed-FT path: missing score fields stay NULL; ON CONFLICT does
+    not clear existing score values.
+
+    MATCHVOIDED path: clear HT/FT/2H scores and mark result_confirm_status as
+    void so prior scores cannot keep showing as valid results.
     """
     source_key = hkjc_history_source_key(parsed.match_id)
     month = match_date[:7]
@@ -1359,14 +1379,59 @@ def _upsert_hkjc_history_row(
     home_id = _team_source_id(raw.get("homeTeam"))
     away_id = _team_source_id(raw.get("awayTeam"))
     front_end = str(raw.get("frontEndId") or "").strip() or None
-    score_ft_home = parsed.ft.home if parsed.ft is not None else None
-    score_ft_away = parsed.ft.away if parsed.ft is not None else None
-    score_ht_home = parsed.ht.home if parsed.ht is not None else None
-    score_ht_away = parsed.ht.away if parsed.ht is not None else None
-    score_2h_home = parsed.sh.home if parsed.sh is not None else None
-    score_2h_away = parsed.sh.away if parsed.sh is not None else None
-    has_score = 1 if parsed.ft is not None else 0
-    score_complete = 1 if (parsed.ft is not None and parsed.ht is not None) else 0
+    if voided:
+        score_ft_home = score_ft_away = None
+        score_ht_home = score_ht_away = None
+        score_2h_home = score_2h_away = None
+        has_score = 0
+        score_complete = 0
+        confirm_status = HKJC_RESULT_VOID_STATUS
+        score_update_sql = f"""
+            score_ft_home=NULL,
+            score_ft_away=NULL,
+            score_ht_home=NULL,
+            score_ht_away=NULL,
+            score_2h_home=NULL,
+            score_2h_away=NULL,
+            has_score=0,
+            score_complete=0,
+        """
+    else:
+        score_ft_home = parsed.ft.home if parsed.ft is not None else None
+        score_ft_away = parsed.ft.away if parsed.ft is not None else None
+        score_ht_home = parsed.ht.home if parsed.ht is not None else None
+        score_ht_away = parsed.ht.away if parsed.ht is not None else None
+        score_2h_home = parsed.sh.home if parsed.sh is not None else None
+        score_2h_away = parsed.sh.away if parsed.sh is not None else None
+        has_score = 1 if parsed.ft is not None else 0
+        score_complete = 1 if (parsed.ft is not None and parsed.ht is not None) else 0
+        confirm_status = HKJC_RESULT_CONFIRM_STATUS
+        score_update_sql = f"""
+            score_ft_home=CASE
+                WHEN excluded.score_ft_home IS NOT NULL THEN excluded.score_ft_home
+                ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_ft_home END,
+            score_ft_away=CASE
+                WHEN excluded.score_ft_away IS NOT NULL THEN excluded.score_ft_away
+                ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_ft_away END,
+            score_ht_home=CASE
+                WHEN excluded.score_ht_home IS NOT NULL THEN excluded.score_ht_home
+                ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_ht_home END,
+            score_ht_away=CASE
+                WHEN excluded.score_ht_away IS NOT NULL THEN excluded.score_ht_away
+                ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_ht_away END,
+            score_2h_home=CASE
+                WHEN excluded.score_2h_home IS NOT NULL THEN excluded.score_2h_home
+                ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_2h_home END,
+            score_2h_away=CASE
+                WHEN excluded.score_2h_away IS NOT NULL THEN excluded.score_2h_away
+                ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_2h_away END,
+            has_score=CASE
+                WHEN excluded.has_score=1 THEN 1
+                ELSE {FOOTYLOGIC_MATCHES_TABLE}.has_score END,
+            score_complete=CASE
+                WHEN excluded.score_complete=1 THEN 1
+                ELSE {FOOTYLOGIC_MATCHES_TABLE}.score_complete END,
+        """
     event_json = json.dumps(raw, ensure_ascii=False, separators=(",", ":"), default=str)
 
     existing = conn.execute(
@@ -1408,27 +1473,7 @@ def _upsert_hkjc_history_row(
             kickoff_hkt=excluded.kickoff_hkt,
             match_date_hkt=excluded.match_date_hkt,
             month=excluded.month,
-            score_ft_home=CASE
-                WHEN excluded.score_ft_home IS NOT NULL THEN excluded.score_ft_home
-                ELSE {t}.score_ft_home END,
-            score_ft_away=CASE
-                WHEN excluded.score_ft_away IS NOT NULL THEN excluded.score_ft_away
-                ELSE {t}.score_ft_away END,
-            score_ht_home=CASE
-                WHEN excluded.score_ht_home IS NOT NULL THEN excluded.score_ht_home
-                ELSE {t}.score_ht_home END,
-            score_ht_away=CASE
-                WHEN excluded.score_ht_away IS NOT NULL THEN excluded.score_ht_away
-                ELSE {t}.score_ht_away END,
-            score_2h_home=CASE
-                WHEN excluded.score_2h_home IS NOT NULL THEN excluded.score_2h_home
-                ELSE {t}.score_2h_home END,
-            score_2h_away=CASE
-                WHEN excluded.score_2h_away IS NOT NULL THEN excluded.score_2h_away
-                ELSE {t}.score_2h_away END,
-            has_score=CASE WHEN excluded.has_score=1 THEN 1 ELSE {t}.has_score END,
-            score_complete=CASE
-                WHEN excluded.score_complete=1 THEN 1 ELSE {t}.score_complete END,
+            {score_update_sql}
             result_confirm_status=excluded.result_confirm_status,
             event_json=excluded.event_json,
             source_last_updated=excluded.source_last_updated,
@@ -1457,7 +1502,7 @@ def _upsert_hkjc_history_row(
             score_2h_away,
             has_score,
             score_complete,
-            HKJC_RESULT_CONFIRM_STATUS,
+            confirm_status,
             event_json,
             stamp,
             stamp,
@@ -1485,14 +1530,17 @@ def ingest_official_results_to_history(
     history_scope: str = HISTORY_SCOPE_DAILY_ONLY,
 ) -> IngestResult:
     """
-    Official matchResults with confirmed FT → upsert footylogic_matches
-    (source=hkjc). If the match is in soccer_daily, DELETE + tombstone in the
-    same per-match transaction.
+    Official matchResults → upsert footylogic_matches (source=hkjc). If the
+    match is in soccer_daily, DELETE + tombstone in the same per-match
+    transaction.
 
-    Official FT gate (select_official_stage_score / parse_official_result_item):
-      resultType==1 (goals), resultConfirmType>1, payoutConfirmed is True,
-      stageId==5 (FT). HT is stageId==3 with the same confirm rules.
-      Source match status is not a gate.
+    Eligible branches:
+      1) status==MATCHVOIDED (exact): write/update void history even when
+         results=[]; clear scores; result_confirm_status=hkjc_match_voided.
+      2) Confirmed FT (select_official_stage_score):
+         resultType==1, resultConfirmType>1, payoutConfirmed is True,
+         stageId==5 (FT). HT is stageId==3 with the same confirm rules.
+         Non-void source status is not a gate.
 
     history_scope:
       daily_only — skip ids not in soccer_daily (auto task).
@@ -1541,6 +1589,7 @@ def ingest_official_results_to_history(
     ft_applied = 0
     ht_applied = 0
     sh_applied = 0
+    void_applied = 0
 
     with get_connection(db_path) as conn:
         if not table_exists(conn, SOCCER_DAILY_TABLE):
@@ -1574,8 +1623,9 @@ def ingest_official_results_to_history(
                 )
             seen.add(parsed.match_id)
 
-            # Status ignored: confirmed FT via stage rules is the finish gate.
-            if parsed.ft is None:
+            is_void = parsed.source_status == STATUS_MATCHVOIDED
+            # Void is an independent finish branch; otherwise confirmed FT is required.
+            if not is_void and parsed.ft is None:
                 skipped_unconfirmed += 1
                 continue
             in_daily = parsed.match_id in daily_ids
@@ -1590,6 +1640,11 @@ def ingest_official_results_to_history(
                 skipped_no_kickoff += 1
                 continue
 
+            tomb_reason = (
+                TOMBSTONE_REASON_OFFICIAL_VOID
+                if is_void
+                else TOMBSTONE_REASON_OFFICIAL_FT
+            )
             try:
                 conn.execute("BEGIN;")
                 action = _upsert_hkjc_history_row(
@@ -1600,6 +1655,7 @@ def ingest_official_results_to_history(
                     kickoff_hkt=kickoff_hkt,
                     match_date=match_date,
                     stamp=stamp,
+                    voided=is_void,
                 )
                 if in_daily:
                     del_cur = conn.execute(
@@ -1621,7 +1677,7 @@ def ingest_official_results_to_history(
                             removed_at = excluded.removed_at,
                             reason = excluded.reason;
                         """,
-                        (parsed.match_id, stamp, TOMBSTONE_REASON_OFFICIAL_FT),
+                        (parsed.match_id, stamp, tomb_reason),
                     )
                 conn.commit()
             except Exception:
@@ -1635,11 +1691,14 @@ def ingest_official_results_to_history(
             if in_daily:
                 daily_deleted += 1
                 daily_ids.discard(parsed.match_id)
-            ft_applied += 1
-            if parsed.ht is not None:
-                ht_applied += 1
-            if parsed.sh is not None:
-                sh_applied += 1
+            if is_void:
+                void_applied += 1
+            else:
+                ft_applied += 1
+                if parsed.ht is not None:
+                    ht_applied += 1
+                if parsed.sh is not None:
+                    sh_applied += 1
 
         if daily_deleted == 0 and inserted == 0 and updated == 0:
             return IngestResult(
@@ -1651,7 +1710,7 @@ def ingest_official_results_to_history(
                 had_incomplete=0,
                 last_success_at=get_last_success_at(db_path, request_key),
                 detail=(
-                    f"no confirmed-FT rows moved; skipped_status={skipped_status} "
+                    f"no confirmed-FT/void rows moved; skipped_status={skipped_status} "
                     f"skipped_unconfirmed={skipped_unconfirmed} "
                     f"skipped_no_kickoff={skipped_no_kickoff} "
                     f"skipped_not_in_daily={skipped_not_in_daily}"
@@ -1680,7 +1739,8 @@ def ingest_official_results_to_history(
 
     detail = (
         f"history inserted={inserted} updated={updated} daily_deleted={daily_deleted}; "
-        f"ht_applied={ht_applied} ft_applied={ft_applied} sh_applied={sh_applied}; "
+        f"ht_applied={ht_applied} ft_applied={ft_applied} sh_applied={sh_applied} "
+        f"void_applied={void_applied}; "
         f"skipped_status={skipped_status} skipped_unconfirmed={skipped_unconfirmed} "
         f"skipped_no_kickoff={skipped_no_kickoff} "
         f"skipped_not_in_daily={skipped_not_in_daily}"
