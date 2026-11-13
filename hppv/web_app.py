@@ -94,6 +94,7 @@ from hppv.soccer_graphql import (
     send_soccer_graphql,
 )
 from hppv.soccer_ingest import (
+    HISTORY_SCOPE_PAYLOAD_ALL,
     REQUEST_KEY_MATCHES_AND_ODDS,
     REQUEST_KEY_MATCH_RESULTS,
     REQUEST_KEY_MATCH_RESULTS_BY_YEAR,
@@ -103,6 +104,7 @@ from hppv.soccer_ingest import (
     get_last_success_at,
     ingest_matches_and_odds,
     ingest_official_match_results,
+    ingest_official_results_to_history,
     update_odds_for_existing_matches,
 )
 from hppv.soccer_layout import (
@@ -127,9 +129,11 @@ from hppv.soccer_requests import (
 )
 from hppv.soccer_task_scheduler import (
     SoccerTaskError,
+    download_match_results_complete,
     get_update_matches_scheduler,
     get_update_odds_scheduler,
     get_update_results_scheduler,
+    soccer_shared_job_lock,
 )
 from hppv.translations import (
     DEFAULT_LANG,
@@ -830,12 +834,190 @@ def api_soccer_request_preset(preset_id: str) -> Any:
     return jsonify({"ok": True, "display": display})
 
 
+def _ingest_public_dict(request_key: str) -> dict[str, Any]:
+    ingest: dict[str, Any] = {
+        "status": "not_attempted",
+        "code": "",
+        "processed": 0,
+        "inserted": 0,
+        "updated": 0,
+        "had_complete": 0,
+        "had_incomplete": 0,
+        "skipped_missing": 0,
+        "results_applied": False,
+        "request_key": request_key,
+        "ht_applied": 0,
+        "ft_applied": 0,
+        "sh_applied": 0,
+        "skipped_status": 0,
+        "skipped_unconfirmed": 0,
+        "skipped_insufficient": 0,
+        "skipped_no_kickoff": 0,
+        "skipped_not_in_daily": 0,
+        "daily_deleted": 0,
+        "match_num_total": None,
+        "matches_returned": None,
+        "last_success_at": get_last_success_at(SOCCER_DB_PATH, request_key),
+        "last_success_at_hkt": None,
+        "detail": "",
+        "date_window": None,
+        "fetch_mode": None,
+        "history_scope": None,
+        "download_status": None,
+    }
+    if ingest["last_success_at"]:
+        try:
+            ingest["last_success_at_hkt"] = format_hkt_display(
+                str(ingest["last_success_at"])
+            )
+        except Exception:
+            ingest["last_success_at_hkt"] = None
+    return ingest
+
+
+def _apply_ingest_result(ingest: dict[str, Any], ing: Any, request_key: str) -> None:
+    ingest.update(
+        {
+            "status": "success" if ing.code == "success" else "skipped",
+            "code": ing.code,
+            "processed": ing.processed,
+            "inserted": ing.inserted,
+            "updated": ing.updated,
+            "had_complete": ing.had_complete,
+            "had_incomplete": ing.had_incomplete,
+            "skipped_missing": getattr(ing, "skipped_missing", 0) or 0,
+            "results_applied": ing.results_applied,
+            "request_key": ing.request_key,
+            "ht_applied": ing.ht_applied,
+            "ft_applied": ing.ft_applied,
+            "sh_applied": ing.sh_applied,
+            "skipped_status": ing.skipped_status,
+            "skipped_unconfirmed": ing.skipped_unconfirmed,
+            "skipped_insufficient": getattr(ing, "skipped_insufficient", 0) or 0,
+            "skipped_no_kickoff": getattr(ing, "skipped_no_kickoff", 0) or 0,
+            "skipped_not_in_daily": getattr(ing, "skipped_not_in_daily", 0) or 0,
+            "daily_deleted": getattr(ing, "daily_deleted", 0) or 0,
+            "match_num_total": ing.match_num_total,
+            "matches_returned": ing.matches_returned,
+            "last_success_at": ing.last_success_at
+            or get_last_success_at(SOCCER_DB_PATH, request_key),
+            "detail": ing.detail,
+        }
+    )
+    if ingest["last_success_at"]:
+        ingest["last_success_at_hkt"] = format_hkt_display(
+            str(ingest["last_success_at"])
+        )
+
+
+def _api_soccer_manual_match_results(payload: Any) -> Any:
+    """
+    Manual「下載正式賽果」: payload date window → complete download (+ day chunk)
+    → ingest_official_results_to_history (payload_all). Shares task job lock.
+    Does not rewrite dates to soccer_daily MIN/MAX.
+    """
+    vars_in = dict(payload.variables or {})
+    start_date = vars_in.get("startDate")
+    end_date = vars_in.get("endDate")
+    if not isinstance(start_date, str) or not start_date.strip():
+        return jsonify({"ok": False, "error": "invalid_fields"}), 400
+    if not isinstance(end_date, str) or not end_date.strip():
+        return jsonify({"ok": False, "error": "invalid_fields"}), 400
+    start_date = start_date.strip()
+    end_date = end_date.strip()
+
+    ingest = _ingest_public_dict(REQUEST_KEY_MATCH_RESULTS)
+    ingest["history_scope"] = HISTORY_SCOPE_PAYLOAD_ALL
+    ingest["date_window"] = {"startDate": start_date, "endDate": end_date}
+
+    try:
+        with soccer_shared_job_lock():
+            response_obj, variables, fetch_meta = download_match_results_complete(
+                payload,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            ingest["download_status"] = "success"
+            ingest["fetch_mode"] = fetch_meta.get("fetch_mode")
+            if isinstance(fetch_meta.get("date_window"), dict):
+                ingest["date_window"] = fetch_meta["date_window"]
+            ing = ingest_official_results_to_history(
+                SOCCER_DB_PATH,
+                response_obj,
+                request_key=REQUEST_KEY_MATCH_RESULTS,
+                variables=variables,
+                history_scope=HISTORY_SCOPE_PAYLOAD_ALL,
+            )
+            _apply_ingest_result(ingest, ing, REQUEST_KEY_MATCH_RESULTS)
+    except SoccerTaskError as e:
+        logging.getLogger(__name__).warning(
+            "manual match_results download failed code=%s detail=%s",
+            e.code,
+            e.detail,
+        )
+        ingest["download_status"] = "failed"
+        ingest["status"] = "failed"
+        ingest["code"] = e.code
+        ingest["detail"] = e.detail
+        status = 429 if e.code == "rate_limited" else 400
+        return jsonify({"ok": False, "error": e.code, "ingest": ingest}), status
+    except SoccerIngestError as e:
+        logging.getLogger(__name__).warning(
+            "manual match_results ingest failed code=%s detail=%s",
+            e.code,
+            e.detail,
+        )
+        ingest["download_status"] = (
+            "failed" if e.code == "incomplete_results" else "success"
+        )
+        ingest["status"] = "failed"
+        ingest["code"] = e.code
+        ingest["detail"] = e.detail
+        return jsonify(
+            {
+                "ok": True,
+                "outcome": "success" if ingest["download_status"] == "success" else "http_error",
+                "http_status": 200 if ingest["download_status"] == "success" else None,
+                "elapsed_ms": 0,
+                "body": "",
+                "truncated": False,
+                "match_count": ingest.get("matches_returned") or 0,
+                "has_had_odds": False,
+                "ingest": ingest,
+            }
+        )
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "manual match_results unexpected: %s", e
+        )
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+
+    body_text = json.dumps(response_obj, ensure_ascii=False)
+    match_count = int(ingest.get("matches_returned") or fetch_meta.get("match_count") or 0)
+    return jsonify(
+        {
+            "ok": True,
+            "outcome": "success",
+            "http_status": fetch_meta.get("http_status"),
+            "elapsed_ms": fetch_meta.get("elapsed_ms") or 0,
+            "body": body_text,
+            "truncated": bool(fetch_meta.get("truncated")),
+            "match_count": match_count,
+            "has_had_odds": False,
+            "ingest": ingest,
+        }
+    )
+
+
 @app.post("/api/soccer/graphql/send")
 def api_soccer_graphql_send() -> Any:
     """
     Validate Request-box payload, POST to HKJC GraphQL, and ingest matches/odds
     into soccer_daily when the response is a complete matches payload.
     No login/auth (same as other Web APIs).
+
+    match_results uses the shared history ingest path (same as update_results task)
+    with the payload date window — not soccer_daily MIN/MAX.
     """
     raw = request.get_data(as_text=True) or ""
     # Prefer JSON body field `payload` (string) or raw JSON object.
@@ -857,6 +1039,22 @@ def api_soccer_graphql_send() -> Any:
 
     try:
         payload = parse_and_validate_send_payload(raw)
+    except SoccerGraphQLSendError as e:
+        logging.getLogger(__name__).warning(
+            "soccer graphql send rejected/failed code=%s detail=%s",
+            e.code,
+            e.detail,
+        )
+        status = 429 if e.code == "rate_limited" else 400
+        return jsonify({"ok": False, "error": e.code}), status
+    except Exception as e:
+        logging.getLogger(__name__).exception("soccer graphql send unexpected: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+
+    if request_key == REQUEST_KEY_MATCH_RESULTS:
+        return _api_soccer_manual_match_results(payload)
+
+    try:
         result = send_soccer_graphql(payload)
     except SoccerGraphQLSendError as e:
         logging.getLogger(__name__).warning(
@@ -870,34 +1068,7 @@ def api_soccer_graphql_send() -> Any:
         logging.getLogger(__name__).exception("soccer graphql send unexpected: %s", e)
         return jsonify({"ok": False, "error": "read_failed"}), 500
 
-    ingest: dict[str, Any] = {
-        "status": "not_attempted",
-        "code": "",
-        "processed": 0,
-        "inserted": 0,
-        "updated": 0,
-        "had_complete": 0,
-        "had_incomplete": 0,
-        "skipped_missing": 0,
-        "results_applied": False,
-        "request_key": request_key,
-        "ht_applied": 0,
-        "ft_applied": 0,
-        "sh_applied": 0,
-        "skipped_status": 0,
-        "skipped_unconfirmed": 0,
-        "skipped_insufficient": 0,
-        "match_num_total": None,
-        "matches_returned": None,
-        "last_success_at": get_last_success_at(SOCCER_DB_PATH, request_key),
-        "last_success_at_hkt": None,
-        "detail": "",
-    }
-    if ingest["last_success_at"]:
-        try:
-            ingest["last_success_at_hkt"] = format_hkt_display(str(ingest["last_success_at"]))
-        except Exception:
-            ingest["last_success_at_hkt"] = None
+    ingest = _ingest_public_dict(request_key)
 
     # Ingest only from backend-validated complete JSON object (never truncated text).
     if result.truncated:
@@ -911,14 +1082,14 @@ def api_soccer_graphql_send() -> Any:
     else:
         try:
             response_obj = json.loads(result.body_text)
-            if request_key in (REQUEST_KEY_MATCH_RESULTS, REQUEST_KEY_MATCH_RESULTS_BY_YEAR):
-                # Only year preset may INSERT missing historical rows; short match_results stays update-only.
+            if request_key == REQUEST_KEY_MATCH_RESULTS_BY_YEAR:
+                # by_year unchanged: still soccer_daily official-results path.
                 ing = ingest_official_match_results(
                     SOCCER_DB_PATH,
                     response_obj,
                     request_key=request_key,
                     variables=payload.variables,
-                    allow_insert=(request_key == REQUEST_KEY_MATCH_RESULTS_BY_YEAR),
+                    allow_insert=True,
                 )
             elif request_key == REQUEST_KEY_UPDATE_ODDS_AND_RESULTS:
                 ing = update_odds_for_existing_matches(
@@ -928,35 +1099,7 @@ def api_soccer_graphql_send() -> Any:
                 ing = ingest_matches_and_odds(
                     SOCCER_DB_PATH, response_obj, request_key=request_key
                 )
-            ingest.update(
-                {
-                    "status": "success" if ing.code == "success" else "skipped",
-                    "code": ing.code,
-                    "processed": ing.processed,
-                    "inserted": ing.inserted,
-                    "updated": ing.updated,
-                    "had_complete": ing.had_complete,
-                    "had_incomplete": ing.had_incomplete,
-                    "skipped_missing": ing.skipped_missing,
-                    "results_applied": ing.results_applied,
-                    "request_key": ing.request_key,
-                    "ht_applied": ing.ht_applied,
-                    "ft_applied": ing.ft_applied,
-                    "sh_applied": ing.sh_applied,
-                    "skipped_status": ing.skipped_status,
-                    "skipped_unconfirmed": ing.skipped_unconfirmed,
-                    "skipped_insufficient": ing.skipped_insufficient,
-                    "match_num_total": ing.match_num_total,
-                    "matches_returned": ing.matches_returned,
-                    "last_success_at": ing.last_success_at
-                    or get_last_success_at(SOCCER_DB_PATH, request_key),
-                    "detail": ing.detail,
-                }
-            )
-            if ingest["last_success_at"]:
-                ingest["last_success_at_hkt"] = format_hkt_display(
-                    str(ingest["last_success_at"])
-                )
+            _apply_ingest_result(ingest, ing, request_key)
         except SoccerIngestError as e:
             logging.getLogger(__name__).warning(
                 "soccer ingest failed code=%s detail=%s", e.code, e.detail

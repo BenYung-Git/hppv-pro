@@ -209,13 +209,16 @@ def test_by_year_creates_unknown_match(
         assert row["score_ft_home"] == 2
 
 
-def test_short_match_results_still_skips_unknown(
+def test_manual_match_results_writes_history_without_daily(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Manual match_results upserts footylogic even when id is not in soccer_daily."""
     from hppv import web_app as wa
+    from hppv import soccer_task_scheduler as sched
     from hppv.soccer_graphql import SoccerGraphQLSendResult
     from hppv.soccer_db import get_connection
     from hppv.soccer_ingest import REQUEST_KEY_MATCH_RESULTS
+    from hppv.footylogic_schema import FOOTYLOGIC_MATCHES_TABLE
 
     db = tmp_path / "soccer.sqlite3"
     init_soccer_db(db)
@@ -233,6 +236,7 @@ def test_short_match_results_still_skips_unknown(
                         "kickOffTime": "2015-11-04T19:00:00.000+08:00",
                         "homeTeam": {"name_ch": "主"},
                         "awayTeam": {"name_ch": "客"},
+                        "tournament": {"code": "EPL", "name_ch": "英超", "name_en": "EPL"},
                         "results": [
                             {
                                 "homeResult": 0,
@@ -269,14 +273,14 @@ def test_short_match_results_still_skips_unknown(
             has_had_odds=False,
         )
 
-    monkeypatch.setattr(wa, "send_soccer_graphql", fake_send)
+    monkeypatch.setattr(sched, "send_soccer_graphql", fake_send)
     reset_rate_limit_for_tests()
     client = wa.app.test_client()
     payload = {
         "operationName": "matchResults",
         "variables": {
-            "startDate": "2026-11-04",
-            "endDate": "2026-11-05",
+            "startDate": "2015-11-04",
+            "endDate": "2015-11-04",
             "startIndex": 0,
             "endIndex": 0,
             "teamId": None,
@@ -291,9 +295,19 @@ def test_short_match_results_still_skips_unknown(
         },
     )
     assert resp.status_code == 200
-    ing = resp.get_json()["ingest"]
-    assert ing["code"] == "skipped_no_existing"
-    assert ing["skipped_missing"] == 1
-    assert ing["inserted"] == 0
+    body = resp.get_json()
+    ing = body["ingest"]
+    assert ing["history_scope"] == "payload_all"
+    assert ing["download_status"] == "success"
+    assert ing["code"] == "success"
+    assert ing["inserted"] == 1
+    assert ing["daily_deleted"] == 0
+    assert ing["date_window"] == {"startDate": "2015-11-04", "endDate": "2015-11-04"}
     with get_connection(db) as conn:
         assert conn.execute("SELECT count(*) AS c FROM soccer_daily").fetchone()["c"] == 0
+        row = conn.execute(
+            f"SELECT source_key, score_ft_home FROM {FOOTYLOGIC_MATCHES_TABLE} "
+            "WHERE source_key='hkjc|unknown-short'"
+        ).fetchone()
+        assert row is not None
+        assert row["score_ft_home"] == 1

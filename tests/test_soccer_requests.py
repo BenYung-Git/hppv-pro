@@ -168,9 +168,13 @@ def test_match_results_by_year_loads_dynamic_previous_year(tmp_path: Path) -> No
     shown = json.loads(display)
     assert shown["variables"]["startDate"] == "2025-01-01"
     assert shown["variables"]["endDate"] == "2025-12-31"
-    # Static short-range preset remains unchanged.
-    payload2, _ = load_soccer_request_preset(tmp_path, "match_results")
-    assert payload2.variables["startDate"] == "2026-11-04"
+    # Short match_results load uses today's HKT date (not file sample dates).
+    payload2, _ = load_soccer_request_preset(
+        tmp_path, "match_results", today=date(2026, 11, 12)
+    )
+    assert payload2.variables["startDate"] == "2026-11-12"
+    assert payload2.variables["endDate"] == "2026-11-12"
+    assert payload2.variables["endIndex"] == 0
 
 
 def test_api_match_results_by_year_display_not_hardcoded_2025(

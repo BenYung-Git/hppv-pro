@@ -12,6 +12,8 @@ from hppv.footylogic_schema import FOOTYLOGIC_MATCHES_TABLE
 from hppv.schema import SOCCER_DAILY_REMOVED_TABLE
 from hppv.soccer_db import get_connection, init_soccer_db
 from hppv.soccer_ingest import (
+    HISTORY_SCOPE_DAILY_ONLY,
+    HISTORY_SCOPE_PAYLOAD_ALL,
     ingest_matches_and_odds,
     ingest_official_results_to_history,
 )
@@ -319,6 +321,89 @@ def test_tombstone_blocks_update_matches_reinsert(soccer_db: Path) -> None:
         assert (
             conn.execute(
                 "SELECT COUNT(*) FROM soccer_daily WHERE match_id='50005'"
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_payload_all_upserts_not_in_daily(soccer_db: Path) -> None:
+    resp = _envelope([_official_item("hist-only")])
+    ing = ingest_official_results_to_history(
+        soccer_db,
+        resp,
+        variables={"startIndex": 0, "endIndex": 0},
+        history_scope=HISTORY_SCOPE_PAYLOAD_ALL,
+    )
+    assert ing.code == "success"
+    assert ing.inserted == 1
+    assert ing.daily_deleted == 0
+    assert ing.skipped_not_in_daily == 0
+    with get_connection(soccer_db) as conn:
+        assert (
+            conn.execute("SELECT COUNT(*) FROM soccer_daily").fetchone()[0] == 0
+        )
+        assert (
+            conn.execute(
+                f"SELECT COUNT(*) FROM {FOOTYLOGIC_MATCHES_TABLE} "
+                "WHERE source_key='hkjc|hist-only'"
+            ).fetchone()[0]
+            == 1
+        )
+
+
+def test_daily_only_still_skips_not_in_daily(soccer_db: Path) -> None:
+    resp = _envelope([_official_item("hist-skip")])
+    ing = ingest_official_results_to_history(
+        soccer_db,
+        resp,
+        variables={"startIndex": 0, "endIndex": 0},
+        history_scope=HISTORY_SCOPE_DAILY_ONLY,
+    )
+    assert ing.code.startswith("skipped")
+    assert ing.skipped_not_in_daily == 1
+    assert ing.inserted == 0
+    with get_connection(soccer_db) as conn:
+        assert (
+            conn.execute(
+                f"SELECT COUNT(*) FROM {FOOTYLOGIC_MATCHES_TABLE} "
+                "WHERE source_key='hkjc|hist-skip'"
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_tombstone_does_not_block_manual_history_fix(soccer_db: Path) -> None:
+    _insert_daily(soccer_db, "50006")
+    ingest_official_results_to_history(
+        soccer_db,
+        _envelope([_official_item("50006", ft=(1, 0))]),
+        variables={"startIndex": 0, "endIndex": 0},
+    )
+    # Second manual-style pass with corrected FT; no daily row, tombstone present.
+    ing = ingest_official_results_to_history(
+        soccer_db,
+        _envelope([_official_item("50006", ft=(2, 0))]),
+        variables={"startIndex": 0, "endIndex": 0},
+        history_scope=HISTORY_SCOPE_PAYLOAD_ALL,
+    )
+    assert ing.code == "success"
+    assert ing.updated == 1
+    assert ing.daily_deleted == 0
+    with get_connection(soccer_db) as conn:
+        row = conn.execute(
+            f"SELECT score_ft_home FROM {FOOTYLOGIC_MATCHES_TABLE} WHERE source_key=?",
+            ("hkjc|50006",),
+        ).fetchone()
+        assert row["score_ft_home"] == 2
+        assert (
+            conn.execute(
+                f"SELECT COUNT(*) FROM {SOCCER_DAILY_REMOVED_TABLE} WHERE match_id='50006'"
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM soccer_daily WHERE match_id='50006'"
             ).fetchone()[0]
             == 0
         )

@@ -22,6 +22,7 @@ from hppv.schema import SOCCER_TASK_SETTINGS_TABLE
 from hppv.soccer_db import get_connection, init_soccer_db, table_exists
 from hppv.soccer_graphql import SoccerGraphQLSendError, send_soccer_graphql
 from hppv.soccer_ingest import (
+    HISTORY_SCOPE_DAILY_ONLY,
     REQUEST_KEY_MATCHES_AND_ODDS,
     REQUEST_KEY_MATCH_RESULTS,
     REQUEST_KEY_UPDATE_ODDS_AND_RESULTS,
@@ -615,6 +616,11 @@ def run_update_odds_once(db_path: Path, requests_dir: Path) -> dict[str, Any]:
     return detail
 
 
+def soccer_shared_job_lock() -> threading.RLock:
+    """Process-local lock shared by tasks and manual GraphQL+ingest."""
+    return _SHARED_JOB_LOCK
+
+
 def _fetch_match_results_json(
     payload: Any,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -639,6 +645,100 @@ def _fetch_match_results_json(
     except json.JSONDecodeError as e:
         raise SoccerTaskError("invalid_json", str(e)) from e
     return response_obj, send_detail
+
+
+def inclusive_calendar_dates(start_date: str, end_date: str) -> list[str]:
+    """Inclusive YYYY-MM-DD list from start_date through end_date."""
+    from datetime import date, timedelta
+
+    start = date.fromisoformat(str(start_date).strip())
+    end = date.fromisoformat(str(end_date).strip())
+    if end < start:
+        raise SoccerTaskError(
+            "invalid_fields", f"endDate {end_date!r} before startDate {start_date!r}"
+        )
+    out: list[str] = []
+    cur = start
+    while cur <= end:
+        out.append(cur.isoformat())
+        cur += timedelta(days=1)
+    return out
+
+
+def download_match_results_complete(
+    base_payload: Any,
+    *,
+    start_date: str,
+    end_date: str,
+    chunk_dates: list[str] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """
+    Fetch matchResults for [start_date, end_date] with endIndex=0.
+
+    If the window is incomplete, re-fetch each day in chunk_dates (default:
+    every calendar day in the range) and merge by match id.
+
+    Returns (response_obj, variables_for_ingest, meta).
+    """
+    window_payload = apply_match_results_date_window(
+        base_payload, start_date=start_date, end_date=end_date
+    )
+    response_obj, send_detail = _fetch_match_results_json(window_payload)
+    variables = dict(window_payload.variables or {})
+    meta: dict[str, Any] = {
+        **send_detail,
+        "fetch_mode": "window_endIndex_0",
+        "date_window": {"startDate": start_date, "endDate": end_date},
+    }
+    matches, total, _ = extract_match_results_envelope(response_obj)
+    try:
+        assert_match_results_completeness(
+            matches_returned=len(matches),
+            match_num_total=total,
+            variables=variables,
+        )
+        return response_obj, variables, meta
+    except SoccerIngestError as e:
+        if e.code != "incomplete_results":
+            raise SoccerTaskError(e.code, e.detail) from e
+
+    dates = list(chunk_dates) if chunk_dates is not None else inclusive_calendar_dates(
+        start_date, end_date
+    )
+    meta["fetch_mode"] = "day_chunk_fallback"
+    meta["day_chunks"] = dates
+    merged: dict[str, Any] = {}
+    for day in dates:
+        day_payload = apply_match_results_date_window(
+            base_payload, start_date=day, end_date=day
+        )
+        day_obj, day_send = _fetch_match_results_json(day_payload)
+        meta.setdefault("day_fetches", []).append({"date": day, **day_send})
+        day_matches, day_total, _ = extract_match_results_envelope(day_obj)
+        day_vars = dict(day_payload.variables or {})
+        assert_match_results_completeness(
+            matches_returned=len(day_matches),
+            match_num_total=day_total,
+            variables=day_vars,
+        )
+        for item in day_matches:
+            if isinstance(item, dict) and item.get("id") is not None:
+                merged[str(item["id"]).strip()] = item
+    response_obj = {
+        "data": {
+            "matchNumByDate": {"total": len(merged)},
+            "matches": list(merged.values()),
+        }
+    }
+    variables = {
+        "startDate": start_date,
+        "endDate": end_date,
+        "startIndex": 0,
+        "endIndex": 0,
+        "teamId": None,
+    }
+    meta["match_count"] = len(merged)
+    return response_obj, variables, meta
 
 
 def run_update_results_once(db_path: Path, requests_dir: Path) -> dict[str, Any]:
@@ -680,69 +780,25 @@ def run_update_results_once(db_path: Path, requests_dir: Path) -> dict[str, Any]
     except SoccerRequestPresetError as e:
         raise SoccerTaskError(e.code, e.detail) from e
 
-    window_payload = apply_match_results_date_window(
-        base_payload, start_date=start_date, end_date=end_date
+    # Task keeps daily pending date scope; chunk by distinct daily dates only.
+    response_obj, variables, fetch_meta = download_match_results_complete(
+        base_payload,
+        start_date=start_date,
+        end_date=end_date,
+        chunk_dates=soccer_daily_distinct_dates(db_path),
     )
-    response_obj, send_detail = _fetch_match_results_json(window_payload)
-    detail.update(send_detail)
-    detail["fetch_mode"] = "window_endIndex_0"
-    variables = dict(window_payload.variables or {})
+    detail.update(fetch_meta)
 
-    # Incomplete whole window → day-chunk with verified endIndex=0.
     try:
         ing = ingest_official_results_to_history(
             db_path,
             response_obj,
             request_key=REQUEST_KEY_UPDATE_RESULTS,
             variables=variables,
+            history_scope=HISTORY_SCOPE_DAILY_ONLY,
         )
     except SoccerIngestError as e:
-        if e.code != "incomplete_results":
-            raise SoccerTaskError(e.code, e.detail) from e
-        detail["fetch_mode"] = "day_chunk_fallback"
-        dates = soccer_daily_distinct_dates(db_path)
-        detail["day_chunks"] = dates
-        merged: dict[str, Any] = {}
-        for day in dates:
-            day_payload = apply_match_results_date_window(
-                base_payload, start_date=day, end_date=day
-            )
-            day_obj, day_send = _fetch_match_results_json(day_payload)
-            detail.setdefault("day_fetches", []).append(
-                {"date": day, **day_send}
-            )
-            matches, total, _ = extract_match_results_envelope(day_obj)
-            day_vars = dict(day_payload.variables or {})
-            assert_match_results_completeness(
-                matches_returned=len(matches),
-                match_num_total=total,
-                variables=day_vars,
-            )
-            for item in matches:
-                if isinstance(item, dict) and item.get("id") is not None:
-                    merged[str(item["id"]).strip()] = item
-        response_obj = {
-            "data": {
-                "matchNumByDate": {"total": len(merged)},
-                "matches": list(merged.values()),
-            }
-        }
-        variables = {
-            "startDate": start_date,
-            "endDate": end_date,
-            "startIndex": 0,
-            "endIndex": 0,
-            "teamId": None,
-        }
-        try:
-            ing = ingest_official_results_to_history(
-                db_path,
-                response_obj,
-                request_key=REQUEST_KEY_UPDATE_RESULTS,
-                variables=variables,
-            )
-        except SoccerIngestError as e2:
-            raise SoccerTaskError(e2.code, e2.detail) from e2
+        raise SoccerTaskError(e.code, e.detail) from e
 
     detail.update(
         {

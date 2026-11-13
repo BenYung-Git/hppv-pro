@@ -1716,7 +1716,18 @@
     ingestCompletenessPage: {{ t('soccer.daily.ingest_completeness_page')|tojson }},
     ingestCompletenessIncomplete: {{ t('soccer.daily.ingest_completeness_incomplete')|tojson }},
     ingestRangeHint: {{ t('soccer.daily.ingest_range_hint')|tojson }},
+    ingestRangeHintMatchResults: {{ t('soccer.daily.ingest_range_hint_match_results')|tojson }},
     ingestDownloadVsSaved: {{ t('soccer.daily.ingest_download_vs_saved')|tojson }},
+    downloadSection: {{ t('soccer.daily.download_section')|tojson }},
+    downloadSuccess: {{ t('soccer.daily.download_success')|tojson }},
+    downloadFailed: {{ t('soccer.daily.download_failed')|tojson }},
+    ingestHistorySection: {{ t('soccer.daily.ingest_history_section')|tojson }},
+    ingestHistorySuccess: {{ t('soccer.daily.ingest_history_success')|tojson }},
+    ingestHistoryNoChange: {{ t('soccer.daily.ingest_history_no_change')|tojson }},
+    ingestDailyDeleted: {{ t('soccer.daily.ingest_daily_deleted')|tojson }},
+    ingestSkippedNoKickoff: {{ t('soccer.daily.ingest_skipped_no_kickoff')|tojson }},
+    ingestHistoryUpdated: {{ t('soccer.daily.ingest_history_updated')|tojson }},
+    ingestFetchMode: {{ t('soccer.daily.ingest_fetch_mode')|tojson }},
     syncOddsLabel: {{ t('soccer.daily.sync_odds_label')|tojson }},
     syncResultsLabel: {{ t('soccer.daily.sync_results_label')|tojson }},
     resultNotConnected: {{ t('soccer.daily.result.not_connected')|tojson }},
@@ -2170,13 +2181,39 @@
     const ing = data.ingest || {};
     const isOddsUpdate = ing.request_key === "update_odds_and_results";
     const isResults = isOfficialResultsKey(ing.request_key);
+    const isHistoryResults = ing.request_key === "match_results" && ing.history_scope === "payload_all";
     const reqVars = readRequestBoxVariables();
+    const dateWindow = (ing.date_window && typeof ing.date_window === "object")
+      ? ing.date_window
+      : reqVars;
     let text =
       MSG.requestResult + "：" + outcome + "\n" +
       MSG.labelHttp + "：" + httpDisp + "\n" +
       MSG.labelElapsed + "：" + (data.elapsed_ms || 0) + " ms\n\n";
     if (isOddsUpdate) {
       text += MSG.ingestOddsSection + "：" + ingestReason(ing) + "\n";
+    } else if (isHistoryResults) {
+      const dlOk = ing.download_status === "success";
+      text += MSG.downloadSection + "：" + (dlOk ? MSG.downloadSuccess : MSG.downloadFailed) + "\n";
+      if (dateWindow) {
+        text +=
+          MSG.ingestDateRange + "：" +
+          String(dateWindow.startDate || "—") + " ～ " + String(dateWindow.endDate || "—") + "\n";
+      }
+      if (ing.fetch_mode) {
+        text += MSG.ingestFetchMode + "：" + String(ing.fetch_mode) + "\n";
+      }
+      // Completeness needs endIndex from Request box; date_window only has dates.
+      text += resultsCompletenessLabel(ing, reqVars) + "\n";
+      text += MSG.ingestRangeHintMatchResults + "\n";
+      const histOk = ing.status === "success" && ing.code === "success";
+      const histChanged = ((ing.inserted || 0) + (ing.updated || 0)) > 0;
+      let histLine = ingestReason(ing);
+      if (histOk && histChanged) histLine = MSG.ingestHistorySuccess;
+      else if (ing.code === "skipped_no_existing" || (histOk && !histChanged)) {
+        histLine = MSG.ingestHistoryNoChange;
+      }
+      text += MSG.ingestHistorySection + "：" + histLine + "\n";
     } else if (isResults) {
       text += MSG.ingestResultsSection + "：" + ingestReason(ing) + "\n";
       if (reqVars) {
@@ -2190,7 +2227,32 @@
       text += MSG.ingestSection + "：" + ingestReason(ing) + "\n";
     }
     if ((ing.status === "success" && ing.code === "success") || ing.code === "skipped_no_existing") {
-      if (isResults) {
+      if (isHistoryResults) {
+        const savedCount = (ing.updated || 0) + (ing.inserted || 0);
+        text +=
+          MSG.ingestDownloadVsSaved + "：" +
+          (ing.matches_returned == null ? "—" : String(ing.matches_returned)) +
+          " / " + savedCount + "\n" +
+          MSG.ingestProcessed + "：" + (ing.processed || 0) + "\n" +
+          MSG.ingestHistoryInserted + "：" + (ing.inserted || 0) + "\n" +
+          MSG.ingestHistoryUpdated + "：" + (ing.updated || 0) + "\n" +
+          MSG.ingestDailyDeleted + "：" + (ing.daily_deleted || 0) + "\n" +
+          MSG.ingestHtApplied + "：" + (ing.ht_applied || 0) + "\n" +
+          MSG.ingestFtApplied + "：" + (ing.ft_applied || 0) + "\n" +
+          MSG.ingestShApplied + "：" + (ing.sh_applied || 0) + "\n" +
+          MSG.ingestSkippedUnconfirmed + "：" + (ing.skipped_unconfirmed || 0) + "\n" +
+          MSG.ingestSkippedNoKickoff + "：" + (ing.skipped_no_kickoff || 0) + "\n" +
+          MSG.ingestMatchesReturned + "：" + (ing.matches_returned == null ? "—" : String(ing.matches_returned)) + "\n" +
+          MSG.ingestMatchNumTotal + "：" + (ing.match_num_total == null ? "—" : String(ing.match_num_total)) + "\n";
+        if (ing.detail) {
+          text += "detail：" + String(ing.detail) + "\n";
+        }
+        if (ing.status === "success" && savedCount > 0) {
+          text += MSG.syncResultsLabel + "：" + (ing.last_success_at_hkt || MSG.updatedAtNever) + "\n";
+        } else if (ing.code === "skipped_no_existing" || savedCount === 0) {
+          text += MSG.ingestHistoryNoChange + "\n";
+        }
+      } else if (isResults) {
         const savedCount = (ing.updated || 0) + (ing.inserted || 0);
         text +=
           MSG.ingestDownloadVsSaved + "：" +

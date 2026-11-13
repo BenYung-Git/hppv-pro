@@ -1469,6 +1469,11 @@ def _upsert_hkjc_history_row(
     return action
 
 
+# history_scope values for ingest_official_results_to_history
+HISTORY_SCOPE_DAILY_ONLY = "daily_only"  # task: only rows present in soccer_daily
+HISTORY_SCOPE_PAYLOAD_ALL = "payload_all"  # manual: all confirmed-FT rows in payload
+
+
 def ingest_official_results_to_history(
     db_path: Path,
     response_obj: Any,
@@ -1477,16 +1482,27 @@ def ingest_official_results_to_history(
     now_utc: str | None = None,
     variables: dict[str, Any] | None = None,
     only_daily_ids: set[str] | None = None,
+    history_scope: str = HISTORY_SCOPE_DAILY_ONLY,
 ) -> IngestResult:
     """
     Official matchResults with confirmed FT → upsert footylogic_matches
-    (source=hkjc), then DELETE soccer_daily + tombstone in one per-match
-    transaction.
+    (source=hkjc). If the match is in soccer_daily, DELETE + tombstone in the
+    same per-match transaction.
 
-    Source status is not a gate: presence in matchResults with confirmed FT
-    means the match is treated as finished. HT-only / no kickOffTime / write
-    failure → daily row kept.
+    Official FT gate (select_official_stage_score / parse_official_result_item):
+      resultType==1 (goals), resultConfirmType>1, payoutConfirmed is True,
+      stageId==5 (FT). HT is stageId==3 with the same confirm rules.
+      Source match status is not a gate.
+
+    history_scope:
+      daily_only — skip ids not in soccer_daily (auto task).
+      payload_all — upsert all eligible payload rows; delete daily only when
+        present (manual download). Tombstone never blocks history upsert.
     """
+    if history_scope not in (HISTORY_SCOPE_DAILY_ONLY, HISTORY_SCOPE_PAYLOAD_ALL):
+        raise SoccerIngestError(
+            "invalid_fields", f"unknown history_scope={history_scope!r}"
+        )
     if not db_path.is_file():
         raise SoccerIngestError("db_missing", f"database missing: {db_path}")
 
@@ -1558,11 +1574,12 @@ def ingest_official_results_to_history(
                 )
             seen.add(parsed.match_id)
 
-            # Status ignored: matchResults + confirmed FT = finished.
+            # Status ignored: confirmed FT via stage rules is the finish gate.
             if parsed.ft is None:
                 skipped_unconfirmed += 1
                 continue
-            if parsed.match_id not in daily_ids:
+            in_daily = parsed.match_id in daily_ids
+            if history_scope == HISTORY_SCOPE_DAILY_ONLY and not in_daily:
                 skipped_not_in_daily += 1
                 continue
             try:
@@ -1584,26 +1601,28 @@ def ingest_official_results_to_history(
                     match_date=match_date,
                     stamp=stamp,
                 )
-                del_cur = conn.execute(
-                    f"DELETE FROM {SOCCER_DAILY_TABLE} WHERE match_id = ?;",
-                    (parsed.match_id,),
-                )
-                if del_cur.rowcount != 1:
-                    raise SoccerIngestError(
-                        "daily_delete_failed",
-                        f"expected 1 deleted row match_id={parsed.match_id} "
-                        f"rowcount={del_cur.rowcount}",
+                if in_daily:
+                    del_cur = conn.execute(
+                        f"DELETE FROM {SOCCER_DAILY_TABLE} WHERE match_id = ?;",
+                        (parsed.match_id,),
                     )
-                conn.execute(
-                    f"""
-                    INSERT INTO {SOCCER_DAILY_REMOVED_TABLE} (match_id, removed_at, reason)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(match_id) DO UPDATE SET
-                        removed_at = excluded.removed_at,
-                        reason = excluded.reason;
-                    """,
-                    (parsed.match_id, stamp, TOMBSTONE_REASON_OFFICIAL_FT),
-                )
+                    if del_cur.rowcount != 1:
+                        raise SoccerIngestError(
+                            "daily_delete_failed",
+                            f"expected 1 deleted row match_id={parsed.match_id} "
+                            f"rowcount={del_cur.rowcount}",
+                        )
+                    conn.execute(
+                        f"""
+                        INSERT INTO {SOCCER_DAILY_REMOVED_TABLE}
+                            (match_id, removed_at, reason)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(match_id) DO UPDATE SET
+                            removed_at = excluded.removed_at,
+                            reason = excluded.reason;
+                        """,
+                        (parsed.match_id, stamp, TOMBSTONE_REASON_OFFICIAL_FT),
+                    )
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -1613,13 +1632,14 @@ def ingest_official_results_to_history(
                 inserted += 1
             else:
                 updated += 1
-            daily_deleted += 1
+            if in_daily:
+                daily_deleted += 1
+                daily_ids.discard(parsed.match_id)
             ft_applied += 1
             if parsed.ht is not None:
                 ht_applied += 1
             if parsed.sh is not None:
                 sh_applied += 1
-            daily_ids.discard(parsed.match_id)
 
         if daily_deleted == 0 and inserted == 0 and updated == 0:
             return IngestResult(

@@ -15,6 +15,8 @@ HKT = ZoneInfo("Asia/Hong_Kong")
 # Registered presets only. Frontend sends the key; never treat key as a file path.
 # update_odds_and_results reuses the verified matchList/HAD query file (no unverified result query).
 # match_results is the verified official matchResults query (separate from odds update).
+# On load, match_results startDate/endDate are set to today's HKT date (same-day window);
+# the Request box remains the editable date UI. File JSON dates are not long-term defaults.
 # match_results_by_year reuses the same verified query file; startDate/endDate are filled at load
 # with the previous complete calendar year (no template engine).
 SOCCER_REQUEST_PRESETS: dict[str, str] = {
@@ -24,6 +26,7 @@ SOCCER_REQUEST_PRESETS: dict[str, str] = {
     "match_results_by_year": "match_results.json",
 }
 
+PRESET_MATCH_RESULTS = "match_results"
 PRESET_MATCH_RESULTS_BY_YEAR = "match_results_by_year"
 
 
@@ -173,6 +176,10 @@ def load_soccer_request_preset(
     """
     Load a registered preset payload.
 
+    For match_results: reuse verified query file, then set startDate/endDate to
+    today's HKT date (inclusive same-day window) at load time — Request box is
+    the editable date entry; file-stored sample dates are not used as defaults.
+
     For match_results_by_year: reuse verified match_results.json query, then set
     startDate/endDate to the previous complete calendar year at load time.
 
@@ -211,7 +218,12 @@ def load_soccer_request_preset(
     if payload.query.strip() == "":
         raise SoccerRequestPresetError("empty_query", "query is empty")
 
-    if preset_id == PRESET_MATCH_RESULTS_BY_YEAR:
+    if preset_id == PRESET_MATCH_RESULTS:
+        day = (today or datetime.now(HKT).date()).isoformat()
+        payload = apply_match_results_date_window(
+            payload, start_date=day, end_date=day
+        )
+    elif preset_id == PRESET_MATCH_RESULTS_BY_YEAR:
         payload = apply_previous_calendar_year_variables(payload, today=today)
 
     return payload, format_payload_for_request_box(payload)
