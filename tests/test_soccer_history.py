@@ -9,11 +9,14 @@ import pytest
 
 from hppv.footylogic_schema import FOOTYLOGIC_MATCHES_TABLE, footylogic_schema_sql
 from hppv.soccer_history import (
+    DEFAULT_HISTORY_SEARCH_KEYS,
     DEFAULT_HISTORY_SEARCH_OP,
     HISTORY_PAGE_SIZE,
     HISTORY_SEARCH_OP_APPROX,
     HISTORY_SEARCH_OP_CONTAINS,
     HISTORY_SEARCH_OP_EQ,
+    HISTORY_SEARCH_OP_NE,
+    HISTORY_SEARCH_OP_NOT_CONTAINS,
     HISTORY_SEARCH_OP_STARTS,
     HISTORY_SEARCH_OPS_VISIBLE,
     HISTORY_TEAM_RESULT_DRAW,
@@ -21,14 +24,19 @@ from hppv.soccer_history import (
     HISTORY_TEAM_RESULT_NEUTRAL,
     HISTORY_TEAM_RESULT_WIN,
     HISTORY_VOID_SCORE_DISPLAY,
+    HistorySearchError,
     fetch_history_filtered,
     format_name_or_id,
+    history_search_keys_from_layout,
     history_team_result_classes,
     normalize_history_search_op,
     parse_history_sort_param,
 )
 from hppv.soccer_ingest import HKJC_RESULT_CONFIRM_STATUS, HKJC_RESULT_VOID_STATUS
-from hppv.soccer_history_export import parse_history_export_request
+from hppv.soccer_history_export import (
+    count_history_export_rows,
+    parse_history_export_request,
+)
 from hppv.soccer_matches import EMPTY_DISPLAY, SoccerDataError
 
 
@@ -205,10 +213,12 @@ def test_history_id_fallback_and_search(tmp_path: Path) -> None:
     assert found.total_count == 1
     assert found.matches[0]["home_team"] == "主隊甲"
     assert found.q_op == DEFAULT_HISTORY_SEARCH_OP
+    assert list(found.search_keys) == list(DEFAULT_HISTORY_SEARCH_KEYS)
 
-    # Search is home/away only — competition id must not match.
+    # Default keys include competition_name (NULL name falls back to competition_id).
     by_comp = fetch_history_filtered(db, None, n=1, q="c2")
-    assert by_comp.total_count == 0
+    assert by_comp.total_count == 1
+    assert by_comp.matches[0]["competition_name"] == "c2"
 
     # Missing home name falls back to home_team_id.
     by_home_id = fetch_history_filtered(db, None, n=1, q="h3")
@@ -219,6 +229,12 @@ def test_history_id_fallback_and_search(tmp_path: Path) -> None:
     by_away = fetch_history_filtered(db, None, n=1, q="客隊戊")
     assert by_away.total_count == 1
     assert by_away.matches[0]["away_team"] == "客隊戊"
+
+    # Hide competition_name → competition id no longer matches.
+    home_away_only = fetch_history_filtered(
+        db, None, n=1, q="c2", search_keys=["home_team", "away_team"]
+    )
+    assert home_away_only.total_count == 0
 
 
 def test_history_search_ops_and_export_q_op(tmp_path: Path) -> None:
@@ -512,3 +528,211 @@ def test_history_void_status_shows_void_for_ht_ft(tmp_path: Path) -> None:
     assert result.matches[0]["result_confirm_status"] == HKJC_RESULT_VOID_STATUS
     assert result.matches[0]["home_team_result"] == HISTORY_TEAM_RESULT_NEUTRAL
     assert result.matches[0]["away_team_result"] == HISTORY_TEAM_RESULT_NEUTRAL
+
+
+def test_history_search_keys_from_layout_visible_whitelist() -> None:
+    assert history_search_keys_from_layout(None) == list(DEFAULT_HISTORY_SEARCH_KEYS)
+    layout = {
+        "zebra_enabled": True,
+        "zebra_color_id": "row_alt_gray",
+        "columns": [
+            {"key": "match_date", "visible": True, "width": 100, "sort": ""},
+            {"key": "competition_name", "visible": True, "width": 160, "sort": ""},
+            {"key": "home_team", "visible": False, "width": 140, "sort": ""},
+            {"key": "away_team", "visible": True, "width": 140, "sort": ""},
+            {"key": "score_ft", "visible": True, "width": 90, "sort": ""},
+            {"key": "kickoff_hhmm", "visible": True, "width": 90, "sort": "desc"},
+        ],
+    }
+    assert history_search_keys_from_layout(layout) == ["competition_name", "away_team"]
+    # Order / width must not change semantics (same keys, different order).
+    layout["columns"] = list(reversed(layout["columns"]))
+    assert set(history_search_keys_from_layout(layout)) == {
+        "competition_name",
+        "away_team",
+    }
+    # Hide all searchable → empty (not silent fallback to defaults).
+    for col in layout["columns"]:
+        if col["key"] in DEFAULT_HISTORY_SEARCH_KEYS:
+            col["visible"] = False
+    assert history_search_keys_from_layout(layout) == []
+
+
+def test_history_search_respects_layout_keys_and_ops(tmp_path: Path) -> None:
+    db = _init_history_db(tmp_path)
+    # Seed an extra row whose competition name overlaps a team-like token.
+    conn = sqlite3.connect(db)
+    conn.execute(
+        f"""
+        INSERT INTO {FOOTYLOGIC_MATCHES_TABLE} (
+          source_key, source, competition_id, season_id, month, competition_name,
+          home_team_id, away_team_id, home_team_name, away_team_name,
+          kickoff_utc, kickoff_hkt, match_date_hkt,
+          score_ft_home, score_ft_away, score_ht_home, score_ht_away,
+          has_score, score_complete, result_confirm_status, event_json,
+          source_last_updated, created_at, updated_at
+        ) VALUES (
+          'fl|ucl|s|hx|ax|2026-11-03T12:00:00.000Z', 'footylogic', 'ucl', 's1', '2026-11',
+          '歐洲聯賽冠軍盃', 'hx', 'ax', '主隊歐冠', '客隊歐冠',
+          '2026-11-03T12:00:00.000Z', '2026-11-03T20:00:00+08:00', '2026-11-03',
+          1, 0, 0, 0, 1, 1, 'source_score_unconfirmed', '{{}}',
+          NULL, 't', 't'
+        )
+        """
+    )
+    conn.execute(
+        f"""
+        INSERT INTO {FOOTYLOGIC_MATCHES_TABLE} (
+          source_key, source, competition_id, season_id, month, competition_name,
+          home_team_id, away_team_id, home_team_name, away_team_name,
+          kickoff_utc, kickoff_hkt, match_date_hkt,
+          score_ft_home, score_ft_away, score_ht_home, score_ht_away,
+          has_score, score_complete, result_confirm_status, event_json,
+          source_last_updated, created_at, updated_at
+        ) VALUES (
+          'fl|wucl|s|hy|ay|2026-11-02T12:00:00.000Z', 'footylogic', 'wucl', 's1', '2026-11',
+          '女子歐洲聯賽冠軍盃', 'hy', 'ay', '女主', '女客',
+          '2026-11-02T12:00:00.000Z', '2026-11-02T20:00:00+08:00', '2026-11-02',
+          2, 2, 1, 1, 1, 1, 'source_score_unconfirmed', '{{}}',
+          NULL, 't', 't'
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    eq_all = fetch_history_filtered(
+        db,
+        None,
+        n=1,
+        q="歐洲聯賽冠軍盃",
+        q_op=HISTORY_SEARCH_OP_EQ,
+        search_keys=["competition_name", "home_team", "away_team"],
+    )
+    assert eq_all.total_count == 1
+    assert eq_all.matches[0]["competition_name"] == "歐洲聯賽冠軍盃"
+
+    approx_all = fetch_history_filtered(
+        db,
+        None,
+        n=1,
+        q="歐洲聯賽冠軍盃",
+        q_op=HISTORY_SEARCH_OP_APPROX,
+        search_keys=["competition_name", "home_team", "away_team"],
+    )
+    names = {m["competition_name"] for m in approx_all.matches}
+    assert "歐洲聯賽冠軍盃" in names
+    assert "女子歐洲聯賽冠軍盃" in names
+    assert approx_all.total_count == 2
+
+    # Hide competition_name → competition keyword no longer matches.
+    no_comp = fetch_history_filtered(
+        db,
+        None,
+        n=1,
+        q="歐洲聯賽冠軍盃",
+        q_op=HISTORY_SEARCH_OP_EQ,
+        search_keys=["home_team", "away_team"],
+    )
+    assert no_comp.total_count == 0
+
+    # Positive OR: home-only key still finds team.
+    home_only = fetch_history_filtered(
+        db, None, n=1, q="主隊甲", q_op=HISTORY_SEARCH_OP_EQ, search_keys=["home_team"]
+    )
+    assert home_only.total_count == 1
+
+    # Negative AND across fields: ne excludes when ANY field equals → wait, AND means
+    # all fields != needle. Row with home=主隊甲 still kept if competition/away differ
+    # when only home is searchable and equals → excluded.
+    ne_home = fetch_history_filtered(
+        db, None, n=1, q="主隊甲", q_op=HISTORY_SEARCH_OP_NE, search_keys=["home_team"]
+    )
+    assert all(m["home_team"] != "主隊甲" for m in ne_home.matches)
+
+    not_contains = fetch_history_filtered(
+        db,
+        None,
+        n=1,
+        q="歐洲聯賽冠軍盃",
+        q_op=HISTORY_SEARCH_OP_NOT_CONTAINS,
+        search_keys=["competition_name"],
+    )
+    assert all("歐洲聯賽冠軍盃" not in m["competition_name"] for m in not_contains.matches)
+
+    # Empty searchable keys + non-empty q → explicit error (not silent all-rows).
+    with pytest.raises(HistorySearchError) as exc:
+        fetch_history_filtered(db, None, n=1, q="英超", search_keys=[])
+    assert exc.value.code == "no_searchable_fields"
+
+    # Empty q with no searchable keys is allowed (no text filter).
+    all_rows = fetch_history_filtered(db, None, n=1, q="", search_keys=[])
+    assert all_rows.total_count == 5
+
+    # all_matches keeps date off; dated filter still applies.
+    dated = fetch_history_filtered(
+        db,
+        date(2026, 11, 3),
+        n=1,
+        q="歐洲聯賽冠軍盃",
+        q_op=HISTORY_SEARCH_OP_EQ,
+        search_keys=["competition_name"],
+    )
+    assert dated.total_count == 1
+    assert dated.all_matches is False
+
+
+def test_history_list_and_export_share_search_keys(tmp_path: Path) -> None:
+    db = _init_history_db(tmp_path)
+    listed = fetch_history_filtered(
+        db,
+        None,
+        n=1,
+        q="英超",
+        q_op=HISTORY_SEARCH_OP_EQ,
+        search_keys=["competition_name", "home_team", "away_team"],
+    )
+    req = parse_history_export_request(
+        {
+            "file_type": "csv",
+            "filename": "t.csv",
+            "q": "英超",
+            "q_op": "eq",
+            "all_matches": True,
+            "sort": "kickoff_hhmm:desc",
+            "columns": [
+                {"key": "competition_name", "width": 160},
+                {"key": "home_team", "width": 120},
+                {"key": "away_team", "width": 120},
+                {"key": "score_ft", "width": 90},
+            ],
+            "lang": "zh-Hant",
+        },
+        catalog_keys=[
+            "competition_name",
+            "home_team",
+            "away_team",
+            "score_ft",
+            "match_date",
+        ],
+        db_path=db,
+    )
+    assert list(req.search_keys) == ["competition_name", "home_team", "away_team"]
+    assert count_history_export_rows(db, req) == listed.total_count
+
+    # Export without searchable visible columns + q → rejected.
+    with pytest.raises(Exception) as exc:
+        parse_history_export_request(
+            {
+                "file_type": "csv",
+                "filename": "t.csv",
+                "q": "英超",
+                "q_op": "eq",
+                "all_matches": True,
+                "columns": [{"key": "score_ft", "width": 90}],
+                "lang": "zh-Hant",
+            },
+            catalog_keys=["score_ft", "competition_name"],
+            db_path=db,
+        )
+    assert getattr(exc.value, "code", "") == "no_searchable_fields"

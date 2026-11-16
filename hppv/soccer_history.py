@@ -52,28 +52,33 @@ _HISTORY_SORT_SQL: dict[str, str] = {
     "source_key": "source_key",
 }
 
-# Raw team text (name preferred, else id). Used by case-sensitive operators.
-_HISTORY_TEAM_TEXT_SQL: dict[str, str] = {
+# Text-search expressions (name preferred, else id). Used by case-sensitive ops.
+# Whitelist only — date / kickoff / scores are not text-searchable in v1.
+_HISTORY_TEXT_SEARCH_SQL: dict[str, str] = {
+    "competition_name": "ifnull(competition_name, ifnull(competition_id, ''))",
     "home_team": "ifnull(home_team_name, ifnull(home_team_id, ''))",
     "away_team": "ifnull(away_team_name, ifnull(away_team_id, ''))",
 }
 
-# Legacy multi-key map kept for callers that still pass search_keys explicitly.
-_HISTORY_SEARCH_SQL: dict[str, str] = {
-    "home_team": f"lower({_HISTORY_TEAM_TEXT_SQL['home_team']})",
-    "away_team": f"lower({_HISTORY_TEAM_TEXT_SQL['away_team']})",
-    "competition_name": "lower(ifnull(competition_name, ''))",
-    "competition_id": "lower(ifnull(competition_id, ''))",
-    "home_team_id": "lower(ifnull(home_team_id, ''))",
-    "away_team_id": "lower(ifnull(away_team_id, ''))",
-    "source_key": "lower(ifnull(source_key, ''))",
-}
+HISTORY_TEXT_SEARCH_WHITELIST: frozenset[str] = frozenset(_HISTORY_TEXT_SEARCH_SQL)
 
-# History Search compares home + away only (OR).
+# Default layout shows competition_name + home + away (all searchable).
 DEFAULT_HISTORY_SEARCH_KEYS: tuple[str, ...] = (
+    "competition_name",
     "home_team",
     "away_team",
 )
+
+# Alias retained for older call sites / tests that still reference team-only map.
+_HISTORY_TEAM_TEXT_SQL: dict[str, str] = {
+    "home_team": _HISTORY_TEXT_SEARCH_SQL["home_team"],
+    "away_team": _HISTORY_TEXT_SEARCH_SQL["away_team"],
+}
+
+# Legacy multi-key map (not the live execution path for _build_q_clause).
+_HISTORY_SEARCH_SQL: dict[str, str] = {
+    key: f"lower({expr})" for key, expr in _HISTORY_TEXT_SEARCH_SQL.items()
+}
 
 # Visible search operators (UI). Codes are stable API values.
 HISTORY_SEARCH_OP_APPROX = "approx"
@@ -140,6 +145,16 @@ class HistoryListResult:
     sort: str
     q_op: str = DEFAULT_HISTORY_SEARCH_OP
     field_keys: tuple[str, ...] = ()
+    search_keys: tuple[str, ...] = ()
+
+
+class HistorySearchError(SoccerDataError):
+    """Validation failure for history text search (stable code for API/UI)."""
+
+    def __init__(self, code: str, detail: str = "") -> None:
+        super().__init__(detail or code)
+        self.code = code
+        self.detail = detail or code
 
 
 def normalize_history_search_op(raw: Any) -> str:
@@ -148,6 +163,46 @@ def normalize_history_search_op(raw: Any) -> str:
     if text in HISTORY_SEARCH_OPS_ALL:
         return text
     return DEFAULT_HISTORY_SEARCH_OP
+
+
+def history_search_keys_from_visible_keys(keys: list[str] | tuple[str, ...] | None) -> list[str]:
+    """Filter an ordered key list to the text-search whitelist (preserves order)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in keys or ():
+        key = str(raw or "").strip()
+        if key not in HISTORY_TEXT_SEARCH_WHITELIST or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def history_search_keys_from_layout(layout_settings: dict[str, Any] | None) -> list[str]:
+    """
+    Resolve searchable keys from the effective match_history layout.
+
+    Only visible whitelist columns participate. Missing/invalid layout → default keys.
+    A valid layout that hides every searchable column → empty list.
+    """
+    if not isinstance(layout_settings, dict):
+        return list(DEFAULT_HISTORY_SEARCH_KEYS)
+    cols = layout_settings.get("columns")
+    if not isinstance(cols, list):
+        return list(DEFAULT_HISTORY_SEARCH_KEYS)
+    visible: list[str] = []
+    for item in cols:
+        if not isinstance(item, dict) or not item.get("visible"):
+            continue
+        visible.append(str(item.get("key") or ""))
+    return history_search_keys_from_visible_keys(visible)
+
+
+def resolve_history_search_keys(search_keys: list[str] | None) -> list[str]:
+    """None → default keys; otherwise whitelist-filter (may be empty)."""
+    if search_keys is None:
+        return list(DEFAULT_HISTORY_SEARCH_KEYS)
+    return history_search_keys_from_visible_keys(search_keys)
 
 
 def format_name_or_id(name: Any, source_id: Any) -> str:
@@ -334,13 +389,17 @@ def _build_order_clause(sort_specs: list[tuple[str, str]]) -> str:
     return ", ".join(parts)
 
 
-def _team_text_keys(search_keys: list[str] | None) -> list[str]:
-    keys = [k for k in (search_keys or list(DEFAULT_HISTORY_SEARCH_KEYS)) if k in _HISTORY_TEAM_TEXT_SQL]
-    return keys or list(DEFAULT_HISTORY_SEARCH_KEYS)
+def _combine_text_clause(expr_for_key: Any, keys: list[str], *, joiner: str) -> str:
+    joiner_sql = f" {joiner.strip().upper()} "
+    return "(" + joiner_sql.join(expr_for_key(k) for k in keys) + ")"
 
 
-def _or_team_clause(expr_for_key: Any, keys: list[str]) -> str:
-    return "(" + " OR ".join(expr_for_key(k) for k in keys) + ")"
+def _or_text_clause(expr_for_key: Any, keys: list[str]) -> str:
+    return _combine_text_clause(expr_for_key, keys, joiner="OR")
+
+
+def _and_text_clause(expr_for_key: Any, keys: list[str]) -> str:
+    return _combine_text_clause(expr_for_key, keys, joiner="AND")
 
 
 def _build_q_clause(
@@ -350,29 +409,38 @@ def _build_q_clause(
     search_keys: list[str] | None,
 ) -> tuple[str | None, list[Any]]:
     """
-    Build text filter on home/away team fields.
+    Build text filter on layout-resolved searchable fields.
 
-    Positive ops: home OR away matches → include.
-    Negative ops (ne / not_contains): NOT (home OR away match) → neither matches.
-    approx: legacy lower+instr (case-insensitive). Other visible ops: case-sensitive.
+    Positive ops (approx/eq/contains/starts/ends): any field matches → OR.
+    Negative ops (ne / not_contains): every field fails → AND.
+    approx: lower+instr (case-insensitive). Other visible ops: case-sensitive.
+    Non-empty q with zero searchable keys → HistorySearchError.
     """
     op = normalize_history_search_op(q_op)
-    keys = _team_text_keys(search_keys)
+    keys = resolve_history_search_keys(search_keys)
     raw_needle = (q or "").strip()
 
+    def _require_keys() -> None:
+        if not keys:
+            raise HistorySearchError(
+                "no_searchable_fields",
+                "no visible text-search columns in current layout",
+            )
+
     if op == HISTORY_SEARCH_OP_EMPTY:
-        # Hidden: either team text empty.
+        _require_keys()
         return (
-            _or_team_clause(
-                lambda k: f"trim({_HISTORY_TEAM_TEXT_SQL[k]}) = ''",
+            _or_text_clause(
+                lambda k: f"trim({_HISTORY_TEXT_SEARCH_SQL[k]}) = ''",
                 keys,
             ),
             [],
         )
     if op == HISTORY_SEARCH_OP_NOT_EMPTY:
+        _require_keys()
         return (
-            _or_team_clause(
-                lambda k: f"trim({_HISTORY_TEAM_TEXT_SQL[k]}) != ''",
+            _or_text_clause(
+                lambda k: f"trim({_HISTORY_TEXT_SEARCH_SQL[k]}) != ''",
                 keys,
             ),
             [],
@@ -391,47 +459,49 @@ def _build_q_clause(
     if not raw_needle:
         return None, []
 
+    _require_keys()
+
     if op == HISTORY_SEARCH_OP_APPROX:
         needle = raw_needle.lower()
-        clause = _or_team_clause(
-            lambda k: f"instr(lower({_HISTORY_TEAM_TEXT_SQL[k]}), ?) > 0",
+        clause = _or_text_clause(
+            lambda k: f"instr(lower({_HISTORY_TEXT_SEARCH_SQL[k]}), ?) > 0",
             keys,
         )
         return clause, [needle] * len(keys)
 
     if op == HISTORY_SEARCH_OP_EQ:
-        clause = _or_team_clause(
-            lambda k: f"{_HISTORY_TEAM_TEXT_SQL[k]} = ?",
+        clause = _or_text_clause(
+            lambda k: f"{_HISTORY_TEXT_SEARCH_SQL[k]} = ?",
             keys,
         )
         return clause, [raw_needle] * len(keys)
 
     if op == HISTORY_SEARCH_OP_NE:
-        # Neither home nor away equals needle.
-        positives = _or_team_clause(
-            lambda k: f"{_HISTORY_TEAM_TEXT_SQL[k]} = ?",
+        # Every enabled field differs from needle (AND).
+        clause = _and_text_clause(
+            lambda k: f"{_HISTORY_TEXT_SEARCH_SQL[k]} != ?",
             keys,
         )
-        return f"NOT {positives}", [raw_needle] * len(keys)
+        return clause, [raw_needle] * len(keys)
 
     if op == HISTORY_SEARCH_OP_CONTAINS:
-        clause = _or_team_clause(
-            lambda k: f"instr({_HISTORY_TEAM_TEXT_SQL[k]}, ?) > 0",
+        clause = _or_text_clause(
+            lambda k: f"instr({_HISTORY_TEXT_SEARCH_SQL[k]}, ?) > 0",
             keys,
         )
         return clause, [raw_needle] * len(keys)
 
     if op == HISTORY_SEARCH_OP_NOT_CONTAINS:
-        positives = _or_team_clause(
-            lambda k: f"instr({_HISTORY_TEAM_TEXT_SQL[k]}, ?) > 0",
+        clause = _and_text_clause(
+            lambda k: f"instr({_HISTORY_TEXT_SEARCH_SQL[k]}, ?) = 0",
             keys,
         )
-        return f"NOT {positives}", [raw_needle] * len(keys)
+        return clause, [raw_needle] * len(keys)
 
     if op == HISTORY_SEARCH_OP_STARTS:
-        clause = _or_team_clause(
+        clause = _or_text_clause(
             lambda k: (
-                f"substr({_HISTORY_TEAM_TEXT_SQL[k]}, 1, length(?)) = ?"
+                f"substr({_HISTORY_TEXT_SEARCH_SQL[k]}, 1, length(?)) = ?"
             ),
             keys,
         )
@@ -441,10 +511,10 @@ def _build_q_clause(
         return clause, params
 
     if op == HISTORY_SEARCH_OP_ENDS:
-        clause = _or_team_clause(
+        clause = _or_text_clause(
             lambda k: (
-                f"substr({_HISTORY_TEAM_TEXT_SQL[k]}, "
-                f"length({_HISTORY_TEAM_TEXT_SQL[k]}) - length(?) + 1) = ?"
+                f"substr({_HISTORY_TEXT_SEARCH_SQL[k]}, "
+                f"length({_HISTORY_TEXT_SEARCH_SQL[k]}) - length(?) + 1) = ?"
             ),
             keys,
         )
@@ -495,7 +565,7 @@ def fetch_history_filtered(
     Backend-paged read of footylogic_matches only (never quarantine / soccer_daily).
 
     n = 1-based page index. Default sort: kickoff_hkt DESC, source_key ASC.
-    Text filter compares home_team / away_team with q_op (default approx).
+    Text filter uses layout-resolved search_keys (default: competition + home + away).
     """
     if not db_path.is_file():
         raise SoccerDataError(f"soccer database file not found: {db_path}")
@@ -503,13 +573,14 @@ def fetch_history_filtered(
     size = max(1, int(page_size or HISTORY_PAGE_SIZE))
     q_text = (q or "").strip()
     op = normalize_history_search_op(q_op)
+    resolved_keys = resolve_history_search_keys(search_keys)
     all_mode = match_date is None
     specs = list(sort_specs) if sort_specs else default_history_sort_specs()
     where_sql, where_params = _build_where_and_params(
         match_date=match_date,
         q=q_text,
         q_op=op,
-        search_keys=search_keys,
+        search_keys=resolved_keys,
     )
     order_sql = _build_order_clause(specs)
 
@@ -541,6 +612,8 @@ def fetch_history_filtered(
                     """,
                     [*where_params, size, offset],
                 ).fetchall()
+    except HistorySearchError:
+        raise
     except SoccerDataError:
         raise
     except Exception as e:
@@ -560,6 +633,7 @@ def fetch_history_filtered(
         sort=history_sort_param(specs),
         q_op=op,
         field_keys=field_keys,
+        search_keys=tuple(resolved_keys),
     )
 
 
@@ -570,11 +644,15 @@ __all__ = [
     "HISTORY_PAGE_SIZE",
     "HISTORY_SEARCH_OPS_HIDDEN",
     "HISTORY_SEARCH_OPS_VISIBLE",
+    "HISTORY_TEXT_SEARCH_WHITELIST",
     "HistoryListResult",
+    "HistorySearchError",
     "SoccerDataError",
     "default_history_sort_specs",
     "fetch_history_filtered",
     "format_name_or_id",
+    "history_search_keys_from_layout",
+    "history_search_keys_from_visible_keys",
     "history_sort_param",
     "history_sort_specs_from_layout",
     "normalize_history_search_op",
@@ -582,4 +660,5 @@ __all__ = [
     "parse_history_sort_param",
     "parse_requested_date",
     "resolve_all_matches_arg",
+    "resolve_history_search_keys",
 ]

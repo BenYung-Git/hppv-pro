@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}HPPV Dashboard{% endblock %}
+{% block title %}{{ t('dashboard.title') }}{% endblock %}
 {% block content %}
 <style>
   .cards { display: flex; flex-direction: column; gap: 12px; max-width: 980px; }
@@ -7,6 +7,42 @@
   .card-value { font-size: 22px; font-weight: 700; color: #1a3a6e; }
   .cards .card-link .card { margin-bottom: 0; min-height: 92px; }
   .link-hint { text-align: right; color: #1f3d66; font-size: 13px; font-weight: 600; margin-top: 6px; }
+  .soccer-dash-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .soccer-dash-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+  .soccer-dash-chip.date {
+    background: #d4e5f7;
+    color: #1a4f8c;
+  }
+  .soccer-dash-chip.count {
+    background: #1a4f8c;
+    color: #ffffff;
+  }
+  .soccer-dash-chip.count .n {
+    font-weight: 800;
+    margin: 0 1px;
+  }
+  .soccer-dash-error {
+    margin-top: 10px;
+    color: #a11;
+    font-size: 14px;
+    font-weight: 600;
+  }
   #carousel {
     width: 100%;
     max-width: 980px;
@@ -24,7 +60,7 @@
   #carousel img { max-width: 100%; max-height: 100%; object-fit: contain; }
 </style>
 
-<h1>HPPV Dashboard</h1>
+<h1>{{ t('dashboard.title') }}</h1>
 
 <div id="carousel">
   {% if images %}
@@ -54,8 +90,16 @@
 
   <a class="card-link" href="{{ url_for('soccer_daily') }}">
     <div class="card">
-      <div class="card-title">{{ t('soccer.daily.title') }}</div>
-      <div class="card-value">{{ t('soccer.daily.under_construction') }}</div>
+      <div class="card-title">{{ t('dashboard.soccer_latest_title') }}</div>
+      {% if soccer_today and soccer_today.ok %}
+      <div class="soccer-dash-chips">
+        <span class="soccer-dash-chip date">{{ soccer_today.date }}</span>
+        {% set _cnt_parts = t('dashboard.soccer_match_count').split('{n}') %}
+        <span class="soccer-dash-chip count">{{ _cnt_parts[0] }}<span class="n">{{ soccer_today.count }}</span>{% if _cnt_parts|length > 1 %}{{ _cnt_parts[1] }}{% endif %}</span>
+      </div>
+      {% else %}
+      <div class="soccer-dash-error">{{ t('dashboard.soccer_read_error') }}</div>
+      {% endif %}
       <div class="link-hint">→ 進入</div>
     </div>
   </a>

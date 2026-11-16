@@ -50,7 +50,13 @@ from hppv.pp_preset import (
     save_pp_preset_list,
     slug_preset_id,
 )
-from hppv.soccer_db import SoccerSchemaMismatchError, init_soccer_db
+from hppv.soccer_db import (
+    SoccerSchemaMismatchError,
+    get_connection as get_soccer_connection,
+    init_soccer_db,
+    table_exists as soccer_table_exists,
+)
+from hppv.schema import SOCCER_DAILY_TABLE
 from hppv.soccer_matches import (
     DEFAULT_STATUS_FILTER,
     STATUS_FILTER_MAPPING_CONNECTED,
@@ -69,8 +75,10 @@ from hppv.soccer_matches import (
 from hppv.soccer_history import (
     DEFAULT_HISTORY_SEARCH_OP,
     HISTORY_PAGE_SIZE,
+    HistorySearchError,
     default_history_sort_specs,
     fetch_history_filtered,
+    history_search_keys_from_layout,
     history_sort_param,
     history_sort_specs_from_layout,
     normalize_history_search_op,
@@ -479,6 +487,30 @@ def message_image(filename: str):
     return send_from_directory(str(folder), filename)
 
 
+def _soccer_today_dashboard_summary() -> dict[str, Any]:
+    """
+    Dashboard soccer card: HKT today + soccer_daily count for that date only.
+
+    Same scope as Daily Matches (soccer_daily rows for the day; history not included).
+    ok=False on read failure — never disguise as zero matches.
+    """
+    today = hong_kong_today()
+    date_display = f"{today.year:04d}/{today.month:02d}/{today.day:02d}"
+    try:
+        with get_soccer_connection(SOCCER_DB_PATH) as conn:
+            if not soccer_table_exists(conn, SOCCER_DAILY_TABLE):
+                raise SoccerDataError("soccer_daily table missing")
+            row = conn.execute(
+                f'SELECT COUNT(*) AS c FROM "{SOCCER_DAILY_TABLE}" WHERE match_date = ?;',
+                (today.isoformat(),),
+            ).fetchone()
+            count = int(row["c"]) if row and row["c"] is not None else 0
+        return {"ok": True, "date": date_display, "count": count}
+    except Exception as e:
+        logging.getLogger(__name__).exception("dashboard soccer today summary failed: %s", e)
+        return {"ok": False, "date": date_display, "count": None, "error": "read_error"}
+
+
 @app.get("/")
 def index() -> str:
     init_db(DB_PATH)
@@ -500,6 +532,7 @@ def index() -> str:
     return render_template(
         "dashboard.html",
         stats=stats,
+        soccer_today=_soccer_today_dashboard_summary(),
         images=_message_board_images(),
         db_path=str(DB_PATH),
     )
@@ -758,7 +791,13 @@ def _empty_history_page_meta(
     q: str = "",
     q_op: str = DEFAULT_HISTORY_SEARCH_OP,
     sort: str = "",
+    search_keys: list[str] | None = None,
 ) -> dict[str, Any]:
+    keys = (
+        list(search_keys)
+        if search_keys is not None
+        else list(history_search_keys_from_layout(None))
+    )
     return {
         "n": 1,
         "total_count": 0,
@@ -768,6 +807,7 @@ def _empty_history_page_meta(
         "q_op": normalize_history_search_op(q_op),
         "all_matches": all_matches,
         "sort": sort or history_sort_param(default_history_sort_specs()),
+        "search_keys": keys,
     }
 
 
@@ -861,6 +901,9 @@ def soccer_daily() -> str:
             if history_selected is None:
                 history_selected = hong_kong_today()
                 history_selected_date = history_selected.isoformat()
+            hist_search_keys = history_search_keys_from_layout(
+                layout_ctx["history_layout_settings"]
+            )
             try:
                 hist = fetch_history_filtered(
                     SOCCER_DB_PATH,
@@ -869,6 +912,7 @@ def soccer_daily() -> str:
                     q=hist_state["q"],
                     q_op=hist_state["q_op"],
                     sort_specs=hist_state["sort_specs"],
+                    search_keys=hist_search_keys,
                 )
                 history_matches = hist.matches
                 history_page_meta = {
@@ -880,8 +924,17 @@ def soccer_daily() -> str:
                     "q_op": hist.q_op,
                     "all_matches": history_all_matches,
                     "sort": hist.sort,
+                    "search_keys": list(hist.search_keys),
                     "loaded": True,
                 }
+            except HistorySearchError as e:
+                history_load_error = True
+                history_page_meta["loaded"] = True
+                history_page_meta["search_keys"] = list(hist_search_keys)
+                history_page_meta["search_error"] = e.code
+                logging.getLogger(__name__).warning(
+                    "soccer history search rejected: %s", e.code
+                )
             except SoccerDataError as e:
                 history_load_error = True
                 history_page_meta["loaded"] = True
@@ -1430,6 +1483,7 @@ def api_soccer_history_matches() -> Any:
             LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH
         )
     hist_state = _history_list_query_state(hist_layout)
+    hist_search_keys = history_search_keys_from_layout(hist_layout)
     try:
         result = fetch_history_filtered(
             SOCCER_DB_PATH,
@@ -1438,7 +1492,21 @@ def api_soccer_history_matches() -> Any:
             q=hist_state["q"],
             q_op=hist_state["q_op"],
             sort_specs=hist_state["sort_specs"],
+            search_keys=hist_search_keys,
         )
+    except HistorySearchError as e:
+        return jsonify(
+            {
+                "ok": False,
+                "error": e.code,
+                "detail": e.detail,
+                "search_keys": hist_search_keys,
+                "layout_settings": hist_layout,
+                "catalog": catalog_public(
+                    LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH
+                ),
+            }
+        ), 400
     except SoccerDataError as e:
         logging.getLogger(__name__).exception("soccer history-matches api failed: %s", e)
         return jsonify({"ok": False, "error": "read_error", "detail": str(e)}), 500
@@ -1456,6 +1524,7 @@ def api_soccer_history_matches() -> Any:
             "q": result.q,
             "q_op": result.q_op,
             "sort": result.sort,
+            "search_keys": list(result.search_keys),
             "field_keys": list(result.field_keys),
             "layout_settings": hist_layout,
             "catalog": catalog_public(

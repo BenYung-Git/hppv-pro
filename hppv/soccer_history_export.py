@@ -34,8 +34,10 @@ from reportlab.platypus import (
 from hppv.soccer_history import (
     DEFAULT_HISTORY_SEARCH_OP,
     HISTORY_PAGE_SIZE,
+    HistorySearchError,
     SoccerDataError,
     fetch_history_filtered,
+    history_search_keys_from_visible_keys,
     normalize_history_search_op,
     parse_history_sort_param,
 )
@@ -105,6 +107,7 @@ class HistoryExportRequest:
     sort_param: str
     columns: tuple[ExportColumn, ...]
     lang: str
+    search_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,6 +275,15 @@ def parse_history_export_request(
         catalog_keys=catalog_keys,
         labels=label_map,
     )
+    # Same searchable scope as list: visible whitelist columns from this snapshot.
+    search_keys = tuple(
+        history_search_keys_from_visible_keys([c.key for c in columns])
+    )
+    if q and not search_keys:
+        raise HistoryExportError(
+            "no_searchable_fields",
+            "no visible text-search columns in export layout snapshot",
+        )
     return HistoryExportRequest(
         file_type=file_type,
         q=q,
@@ -281,6 +293,7 @@ def parse_history_export_request(
         sort_param=sort_param,
         columns=columns,
         lang=lang,
+        search_keys=search_keys,
     )
 
 
@@ -303,8 +316,11 @@ def iter_history_export_rows(
                 q=req.q,
                 q_op=req.q_op,
                 sort_specs=specs,
+                search_keys=list(req.search_keys),
                 page_size=max(1, int(batch_size or HISTORY_PAGE_SIZE)),
             )
+        except HistorySearchError as e:
+            raise HistoryExportError(e.code, e.detail) from e
         except SoccerDataError as e:
             raise HistoryExportError("read_error", str(e)) from e
         total_pages = int(result.total_pages or 0)
@@ -324,8 +340,11 @@ def count_history_export_rows(db_path: Path, req: HistoryExportRequest) -> int:
             q=req.q,
             q_op=req.q_op,
             sort_specs=specs,
+            search_keys=list(req.search_keys),
             page_size=1,
         )
+    except HistorySearchError as e:
+        raise HistoryExportError(e.code, e.detail) from e
     except SoccerDataError as e:
         raise HistoryExportError("read_error", str(e)) from e
     return int(result.total_count or 0)

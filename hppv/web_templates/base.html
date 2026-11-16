@@ -52,7 +52,7 @@
 <body>
   <header>
     <nav>
-      <a href="{{ url_for('index') }}">Dashboard</a>
+      <a href="{{ url_for('index') }}">{{ t('nav.dashboard') }}</a>
       <a href="{{ url_for('horses_list') }}">馬匹列表</a>
       <a href="{{ url_for('rankings') }}">排位</a>
       <a href="{{ url_for('soccer_daily') }}">{{ t('nav.soccer_daily') }}</a>

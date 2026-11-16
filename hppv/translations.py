@@ -36,8 +36,28 @@ class TranslationError(ValueError):
 INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
     # Nav / settings entry
     ("nav.system_settings", "系統設定", "System Settings", "系统设定"),
+    ("nav.dashboard", "資訊板", "Dashboard", "资讯板"),
     ("nav.soccer_daily", "足球資料庫", "Soccer Database", "足球数据库"),
     ("nav.language", "語言", "Language", "语言"),
+    ("dashboard.title", "HPPV 資訊板", "HPPV Dashboard", "HPPV 资讯板"),
+    (
+        "dashboard.soccer_latest_title",
+        "最新足球賽事",
+        "Latest Football Matches",
+        "最新足球赛事",
+    ),
+    (
+        "dashboard.soccer_match_count",
+        "場次：{n} 場",
+        "Matches: {n}",
+        "场次：{n} 场",
+    ),
+    (
+        "dashboard.soccer_read_error",
+        "足球賽事讀取失敗",
+        "Failed to load football matches",
+        "足球赛事读取失败",
+    ),
     ("lang.zh_hant", "繁體中文", "Traditional Chinese", "繁体中文"),
     ("lang.en", "English", "English", "English"),
     ("lang.zh_hans", "簡體中文", "Simplified Chinese", "简体中文"),
@@ -183,9 +203,45 @@ INITIAL_TRANSLATIONS: tuple[tuple[str, str, str, str], ...] = (
     ),
     (
         "soccer.history.search_placeholder",
-        "搜尋主隊或客隊…",
-        "Search home or away team…",
-        "搜索主队或客队…",
+        "搜尋賽事名稱、主隊或客隊…",
+        "Search competition, home or away team…",
+        "搜索赛事名称、主队或客队…",
+    ),
+    (
+        "soccer.history.search_placeholder_prefix",
+        "搜尋",
+        "Search ",
+        "搜索",
+    ),
+    (
+        "soccer.history.search_fields_sep",
+        "、",
+        ", ",
+        "、",
+    ),
+    (
+        "soccer.history.search_fields_or",
+        "或",
+        " or ",
+        "或",
+    ),
+    (
+        "soccer.history.search_placeholder_suffix",
+        "…",
+        "…",
+        "…",
+    ),
+    (
+        "soccer.history.search_no_fields",
+        "目前版面沒有可搜尋的文字欄位",
+        "No searchable text columns in the current layout",
+        "当前版面没有可搜索的文字栏位",
+    ),
+    (
+        "soccer.history.search_rejected",
+        "搜尋條件無效（目前版面沒有可搜尋的文字欄位）",
+        "Search rejected: no searchable text columns in the current layout",
+        "搜索条件无效（当前版面没有可搜索的文字栏位）",
     ),
     (
         "soccer.history.search_op.label",
@@ -1071,6 +1127,15 @@ SEED_LABEL_RENAMES: tuple[
         "soccer.daily.col.date",
         ("日期", "Date", "日期"),
         ("比賽日期", "Match Date", "比赛日期"),
+    ),
+    (
+        "soccer.history.search_placeholder",
+        ("搜尋主隊或客隊…", "Search home or away team…", "搜索主队或客队…"),
+        (
+            "搜尋賽事名稱、主隊或客隊…",
+            "Search competition, home or away team…",
+            "搜索赛事名称、主队或客队…",
+        ),
     ),
 )
 

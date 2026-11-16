@@ -1657,6 +1657,7 @@
                   <option value="starts"{% if _history_q_op == 'starts' %} selected{% endif %}>{{ t('soccer.history.search_op.starts') }}</option>
                   <option value="ends"{% if _history_q_op == 'ends' %} selected{% endif %}>{{ t('soccer.history.search_op.ends') }}</option>
                 </select>
+                <p class="hint muted history-search-tip" id="history-search-tip" hidden></p>
               </div>
             </div>
             <div class="history-toolbar-actions">
@@ -2153,6 +2154,12 @@
     historyEmpty: {{ t('soccer.history.empty')|tojson }},
     historyHint: {{ t('soccer.history.hint')|tojson }},
     historyReadError: {{ t('soccer.history.read_error')|tojson }},
+    historySearchNoFields: {{ t('soccer.history.search_no_fields')|tojson }},
+    historySearchRejected: {{ t('soccer.history.search_rejected')|tojson }},
+    historySearchPlaceholderPrefix: {{ t('soccer.history.search_placeholder_prefix')|tojson }},
+    historySearchFieldsSep: {{ t('soccer.history.search_fields_sep')|tojson }},
+    historySearchFieldsOr: {{ t('soccer.history.search_fields_or')|tojson }},
+    historySearchPlaceholderSuffix: {{ t('soccer.history.search_placeholder_suffix')|tojson }},
     historyLayoutSortUnsupported: {{ t('soccer.history.layout.sort_unsupported')|tojson }},
     historyExportTip: {{ t('soccer.history.export.tip')|tojson }},
     dailyExportTip: {{ t('soccer.daily.export.tip')|tojson }},
@@ -3986,7 +3993,70 @@
   const historyBtnNext = document.getElementById("history-btn-next-day");
   const historySearchInput = document.getElementById("history-search");
   const historySearchOp = document.getElementById("history-search-op");
+  const historySearchTip = document.getElementById("history-search-tip");
+  const HISTORY_TEXT_SEARCH_KEYS = ["competition_name", "home_team", "away_team"];
+  let historySearchKeys = Array.isArray(historyPageInit.search_keys)
+    ? historyPageInit.search_keys.slice()
+    : HISTORY_TEXT_SEARCH_KEYS.slice();
   if (historySearchOp) historySearchOp.value = historyQOp;
+
+  function historySearchKeysFromLayout(layout) {
+    const cols = (layout && layout.columns) || [];
+    const out = [];
+    const seen = {};
+    cols.forEach((c) => {
+      if (!c || !c.visible) return;
+      const key = String(c.key || "");
+      if (HISTORY_TEXT_SEARCH_KEYS.indexOf(key) < 0 || seen[key]) return;
+      seen[key] = true;
+      out.push(key);
+    });
+    return out;
+  }
+
+  function historySearchPlaceholderText(keys) {
+    const list = Array.isArray(keys) ? keys : [];
+    if (!list.length) return MSG.historySearchNoFields || "";
+    const labels = list.map((k) => HISTORY_COL_LABEL[k] || k);
+    let fields = "";
+    if (labels.length === 1) {
+      fields = labels[0];
+    } else if (labels.length === 2) {
+      fields = labels[0] + (MSG.historySearchFieldsOr || " or ") + labels[1];
+    } else {
+      const head = labels.slice(0, -1).join(MSG.historySearchFieldsSep || ", ");
+      fields = head + (MSG.historySearchFieldsOr || " or ") + labels[labels.length - 1];
+    }
+    return (MSG.historySearchPlaceholderPrefix || "Search ")
+      + fields
+      + (MSG.historySearchPlaceholderSuffix || "…");
+  }
+
+  function applyHistorySearchAvailability(keys) {
+    historySearchKeys = Array.isArray(keys) ? keys.slice() : [];
+    const enabled = historySearchKeys.length > 0;
+    const tip = MSG.historySearchNoFields || "";
+    if (historySearchInput) {
+      historySearchInput.disabled = !enabled;
+      historySearchInput.placeholder = historySearchPlaceholderText(historySearchKeys);
+      if (!enabled) historySearchInput.title = tip;
+      else historySearchInput.removeAttribute("title");
+    }
+    if (historySearchOp) {
+      historySearchOp.disabled = !enabled;
+      if (!enabled) historySearchOp.title = tip;
+      else historySearchOp.title = historySearchOp.getAttribute("aria-label") || "";
+    }
+    if (historySearchTip) {
+      if (enabled) {
+        historySearchTip.textContent = "";
+        historySearchTip.hidden = true;
+      } else {
+        historySearchTip.textContent = tip;
+        historySearchTip.hidden = false;
+      }
+    }
+  }
 
   function applyHistoryAllMatchesControls(allOn) {
     historyAllMatches = !!allOn;
@@ -4058,6 +4128,11 @@
     });
   }
   rebuildHistorySortable();
+  applyHistorySearchAvailability(
+    Array.isArray(historyPageInit.search_keys)
+      ? historyPageInit.search_keys
+      : historySearchKeysFromLayout(historyLayoutSaved)
+  );
 
   function syncHistoryLayoutFromApi(data) {
     if (!data || typeof data !== "object") return;
@@ -4068,6 +4143,11 @@
     if (data.layout_settings && Array.isArray(data.layout_settings.columns)) {
       historyLayoutSaved = data.layout_settings;
       historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutSaved));
+    }
+    if (Array.isArray(data.search_keys)) {
+      applyHistorySearchAvailability(data.search_keys);
+    } else if (data.layout_settings) {
+      applyHistorySearchAvailability(historySearchKeysFromLayout(historyLayoutSaved));
     }
   }
 
@@ -4267,9 +4347,27 @@
       params.set("q_op", historyQOp || "approx");
       if (historySort) params.set("sort", historySort);
       const resp = await fetch("/api/soccer/history-matches?" + params.toString());
-      const data = await resp.json();
+      let data = null;
+      try { data = await resp.json(); } catch (_e) { data = null; }
       if (seq !== historyFetchSeq) return false;
-      if (!resp.ok || !data || !data.ok) return false;
+      if (!resp.ok || !data || !data.ok) {
+        if (data && data.error === "no_searchable_fields") {
+          syncHistoryLayoutFromApi(data);
+          applyHistorySearchAvailability(
+            Array.isArray(data.search_keys)
+              ? data.search_keys
+              : historySearchKeysFromLayout(historyLayoutSaved)
+          );
+          showHistoryLayoutToast(MSG.historySearchRejected || MSG.historySearchNoFields || "");
+          return false;
+        }
+        if (data && data.error === "read_error") {
+          showHistoryLayoutToast(MSG.historyReadError || "");
+          return false;
+        }
+        showHistoryLayoutToast(MSG.historyReadError || "");
+        return false;
+      }
       syncHistoryLayoutFromApi(data);
       historyMatches = data.matches || [];
       historyN = Number(data.n) || 1;
@@ -4292,13 +4390,18 @@
       renderHistoryMatches(historyMatches);
       return true;
     } catch (_e) {
+      if (seq === historyFetchSeq) {
+        showHistoryLayoutToast(MSG.historyReadError || "");
+      }
       return false;
     }
   }
 
   function submitHistoryCriteria({ n = 1 } = {}) {
-    if (historySearchInput) historyQ = (historySearchInput.value || "").trim();
-    if (historySearchOp) {
+    if (historySearchInput && !historySearchInput.disabled) {
+      historyQ = (historySearchInput.value || "").trim();
+    }
+    if (historySearchOp && !historySearchOp.disabled) {
       historyQOp = (historySearchOp.value || "approx").toString().trim() || "approx";
     }
     if (historyAllCheckbox) historyAllMatches = !!historyAllCheckbox.checked;
@@ -4500,7 +4603,6 @@
           return;
         }
       }
-      const sortBefore = historyCurrentSortParam();
       btnHistLayoutSave.disabled = true;
       let data = null;
       try {
@@ -4523,15 +4625,12 @@
       historyLayoutSaved = data.settings;
       historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutSaved));
       msg.textContent = "";
-      const sortAfter = historyCurrentSortParam();
-      historySort = sortAfter;
+      historySort = historyCurrentSortParam();
+      applyHistorySearchAvailability(historySearchKeysFromLayout(historyLayoutSaved));
       setHistoryLayoutMode(false);
       showHistoryLayoutToast(MSG.layoutSaveOk);
-      if (sortBefore !== sortAfter) {
-        await submitHistoryCriteria({ n: 1 });
-      } else {
-        renderHistoryMatches(historyMatches);
-      }
+      // Layout change can alter searchable columns — always re-query page 1.
+      await submitHistoryCriteria({ n: 1 });
     });
   }
 
