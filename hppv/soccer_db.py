@@ -189,6 +189,7 @@ def init_soccer_db(db_path: Path) -> dict[str, int]:
     Seeds missing translation keys only (never overwrites existing rows).
     """
     # Local import avoids circular import at module load.
+    from hppv.footylogic_history_year import ensure_year_runs_schema
     from hppv.footylogic_ingest import ensure_footylogic_schema
     from hppv.translations import (
         apply_seed_label_renames,
@@ -221,6 +222,7 @@ def init_soccer_db(db_path: Path) -> dict[str, int]:
         conn.executescript(soccer_layout_settings_schema_sql())
         conn.executescript(soccer_task_settings_schema_sql())
         ensure_footylogic_schema(conn)
+        ensure_year_runs_schema(conn)
         ensure_translations_schema(conn)
         inserted = seed_initial_translations(conn)
         renamed = apply_seed_label_renames(conn)

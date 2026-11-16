@@ -1846,7 +1846,7 @@
       </div>
     </div>
 
-    <div class="field-block">
+    <div class="field-block" id="soccer-graphql-request-block">
       <div class="field-head">
         <span>{{ t('soccer.daily.request_label') }}</span>
         <button type="button" class="icon-btn" id="btn-send-request"
@@ -1860,6 +1860,27 @@
                 class="mono-box"
                 spellcheck="false"
                 placeholder="{{ t('soccer.daily.request_placeholder') }}"></textarea>
+    </div>
+
+    <div class="field-block" id="soccer-history-year-block" hidden>
+      <p class="hint" id="history-year-source-hint">{{ t('soccer.daily.history_year.source') }}</p>
+      <p class="hint muted">{{ t('soccer.daily.history_year.hint') }}</p>
+      <div class="request-type-row" style="gap:12px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="field">
+          <label for="history-year-input">{{ t('soccer.daily.history_year.year_label') }}</label>
+          <input type="number" id="history-year-input" min="1990" max="2100" step="1"
+                 value="{{ (selected_date or history_selected_date or '')[:4] }}" style="width:7rem;">
+        </div>
+        <button type="button" class="icon-btn" id="btn-history-year-start">
+          <span class="btn-label">{{ t('soccer.daily.history_year.start') }}</span>
+        </button>
+        <button type="button" class="icon-btn" id="btn-history-year-resume">
+          <span class="btn-label">{{ t('soccer.daily.history_year.resume') }}</span>
+        </button>
+        <button type="button" class="icon-btn" id="btn-history-year-refresh">
+          <span class="btn-label">{{ t('soccer.daily.history_year.refresh') }}</span>
+        </button>
+      </div>
     </div>
 
     <div class="field-block">
@@ -2220,6 +2241,16 @@
     layoutMoveUp: {{ t('soccer.daily.layout.move_up')|tojson }},
     layoutMoveDown: {{ t('soccer.daily.layout.move_down')|tojson }},
     overwriteConfirm: {{ t('soccer.daily.load_preset_overwrite_confirm')|tojson }},
+    historyYearSource: {{ t('soccer.daily.history_year.source')|tojson }},
+    historyYearHint: {{ t('soccer.daily.history_year.hint')|tojson }},
+    historyYearInvalid: {{ t('soccer.daily.history_year.invalid_year')|tojson }},
+    historyYearAlreadyRunning: {{ t('soccer.daily.history_year.already_running')|tojson }},
+    historyYearStartFailed: {{ t('soccer.daily.history_year.start_failed')|tojson }},
+    historyYearStatusNotStarted: {{ t('soccer.daily.history_year.status.not_started')|tojson }},
+    historyYearStatusLoading: {{ t('soccer.daily.history_year.status.loading')|tojson }},
+    historyYearStatusSuccess: {{ t('soccer.daily.history_year.status.success')|tojson }},
+    historyYearStatusPartial: {{ t('soccer.daily.history_year.status.partial_success')|tojson }},
+    historyYearStatusFailed: {{ t('soccer.daily.history_year.status.failed')|tojson }},
   };
   const COL_LABEL = {
     match_date: {{ t('soccer.daily.col.date')|tojson }},
@@ -2498,6 +2529,14 @@
   }
 
   requestType.addEventListener("change", async () => {
+    syncDownloadModeUi();
+    if (isFootylogicHistoryYearKey(requestType.value)) {
+      stopHistoryYearPoll();
+      statusBox.value = MSG.historyYearHint;
+      syncBadgeLabelFor(requestType.value);
+      await refreshHistoryYearStatus();
+      return;
+    }
     if (userEditedRequest && requestBox.value.trim() !== "") {
       if (!window.confirm(MSG.overwriteConfirm)) {
         return;
@@ -2514,15 +2553,175 @@
     if (!label) return;
     if (requestKey === "update_odds_and_results") {
       label.textContent = MSG.syncOddsLabel;
-    } else if (requestKey === "match_results" || requestKey === "match_results_by_year") {
+    } else if (requestKey === "match_results") {
       label.textContent = MSG.syncResultsLabel;
+    } else if (isFootylogicHistoryYearKey(requestKey)) {
+      label.textContent = MSG.historyYearSource;
     } else {
       label.textContent = MSG.updatedAtLabel;
     }
   }
 
   function isOfficialResultsKey(requestKey) {
-    return requestKey === "match_results" || requestKey === "match_results_by_year";
+    return requestKey === "match_results";
+  }
+
+  function isFootylogicHistoryYearKey(requestKey) {
+    return requestKey === "match_results_by_year";
+  }
+
+  function historyYearStatusLabel(status) {
+    if (status === "loading") return MSG.historyYearStatusLoading;
+    if (status === "success") return MSG.historyYearStatusSuccess;
+    if (status === "partial_success") return MSG.historyYearStatusPartial;
+    if (status === "failed") return MSG.historyYearStatusFailed;
+    return MSG.historyYearStatusNotStarted;
+  }
+
+  function formatHistoryYearReport(data) {
+    if (!data) return MSG.failed;
+    const cat = data.catalog || {};
+    const jobs = data.jobs || {};
+    const matches = data.matches || {};
+    const dl = data.download || {};
+    const integrity = data.integrity || {};
+    const byType = cat.by_type || {};
+    const lines = [];
+    lines.push(MSG.historyYearSource);
+    lines.push("狀態：" + historyYearStatusLabel(data.status) + (data.worker_active ? "（背景執行中）" : ""));
+    lines.push("年份：" + (data.year != null ? data.year : "—"));
+    lines.push("賽事類型：聯賽 / 盃賽 / 其他");
+    lines.push(
+      "目錄：ok=" + !!cat.ok +
+      " 聯賽=" + (byType.league || 0) +
+      " 盃賽=" + (byType.cup || 0) +
+      " 其他=" + (byType.other || 0) +
+      " 合計賽事=" + (cat.competition_count || 0)
+    );
+    if (cat.empty_directories && cat.empty_directories.length) {
+      lines.push("空目錄：" + cat.empty_directories.join(", "));
+    }
+    lines.push(
+      "Jobs：total=" + (jobs.total || 0) +
+      " completed=" + (jobs.completed || 0) +
+      " failed=" + (jobs.failed || 0) +
+      " pending=" + (jobs.pending || 0) +
+      " empty_ok=" + (jobs.empty_ok || 0)
+    );
+    lines.push(
+      "下載：attempted=" + (dl.attempted || 0) +
+      " completed=" + (dl.completed || 0) +
+      " failed=" + (dl.failed || 0) +
+      " upserted=" + (dl.upserted || 0)
+    );
+    lines.push(
+      "場次：FL庫內=" + (matches.downloaded_fl || 0) +
+      " 本次寫入upsert=" + (matches.upserted || 0) +
+      " 其中既有source_key=" + (matches.upsert_existing || 0) +
+      " FL獨有寫入=" + (matches.fl_only_written != null ? matches.fl_only_written : (matches.fl_only || 0)) +
+      " HKJC重覆skip=" + (matches.hkjc_duplicate_skip != null ? matches.hkjc_duplicate_skip : (matches.skipped || 0)) +
+      " 待確認=" + (matches.uncertain || 0) +
+      " 其他跳過=" + (matches.other_skipped || 0)
+    );
+    lines.push(
+      "完整性：catalog=" + !!integrity.catalog_complete +
+      " types=" + !!integrity.all_types_traversed +
+      " jobs_terminal=" + !!integrity.all_jobs_terminal +
+      " no_errors=" + !!integrity.no_unhandled_errors +
+      " 可宣告完成=" + !!integrity.can_claim_complete
+    );
+    if (data.message) lines.push("訊息：" + data.message);
+    if (data.failures && data.failures.length) {
+      lines.push("失敗明細（最多 30 筆）：");
+      data.failures.slice(0, 30).forEach((f) => lines.push(" - " + f));
+      if (data.failures.length > 30) lines.push(" - …共 " + data.failures.length + " 項");
+    }
+    if (data.status === "success" && !integrity.can_claim_complete) {
+      lines.push("注意：狀態標記成功但完整性條件未全數滿足，請勿視為全年已齊。");
+    }
+    return lines.join("\n");
+  }
+
+  function syncDownloadModeUi() {
+    const yearMode = isFootylogicHistoryYearKey(requestType.value);
+    const gqlBlock = document.getElementById("soccer-graphql-request-block");
+    const yearBlock = document.getElementById("soccer-history-year-block");
+    if (gqlBlock) gqlBlock.hidden = yearMode;
+    if (yearBlock) yearBlock.hidden = !yearMode;
+    if (btnSend) btnSend.disabled = yearMode || sending;
+  }
+
+  let historyYearPollTimer = null;
+  let historyYearRunId = null;
+
+  async function refreshHistoryYearStatus() {
+    const yearInput = document.getElementById("history-year-input");
+    const year = yearInput ? yearInput.value : "";
+    let url = "/api/soccer/history-year/status";
+    const qs = [];
+    if (historyYearRunId) qs.push("run_id=" + encodeURIComponent(historyYearRunId));
+    else if (year) qs.push("year=" + encodeURIComponent(year));
+    if (qs.length) url += "?" + qs.join("&");
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (!resp.ok || !data || data.ok === false) {
+      statusBox.value = MSG.historyYearStartFailed;
+      return data;
+    }
+    statusBox.value = formatHistoryYearReport(data);
+    if (data.run_id) historyYearRunId = data.run_id;
+    return data;
+  }
+
+  function stopHistoryYearPoll() {
+    if (historyYearPollTimer) {
+      clearInterval(historyYearPollTimer);
+      historyYearPollTimer = null;
+    }
+  }
+
+  function startHistoryYearPoll() {
+    stopHistoryYearPoll();
+    historyYearPollTimer = setInterval(async () => {
+      try {
+        const data = await refreshHistoryYearStatus();
+        if (!data || !data.worker_active) {
+          if (data && data.status && data.status !== "loading") stopHistoryYearPoll();
+        }
+      } catch (_e) { /* keep polling */ }
+    }, 2500);
+  }
+
+  async function startHistoryYearDownload(resume) {
+    const yearInput = document.getElementById("history-year-input");
+    const year = yearInput ? parseInt(yearInput.value, 10) : NaN;
+    if (!Number.isFinite(year) || year < 1990 || year > 2100) {
+      statusBox.value = MSG.historyYearInvalid;
+      return;
+    }
+    statusBox.value = MSG.historyYearStatusLoading;
+    try {
+      const resp = await fetch("/api/soccer/history-year/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ year: year, resume: !!resume }),
+      });
+      const data = await resp.json();
+      if (resp.status === 409 || (data && data.error === "already_running")) {
+        statusBox.value = MSG.historyYearAlreadyRunning + "\n" + formatHistoryYearReport(data.status || data);
+        startHistoryYearPoll();
+        return;
+      }
+      if (!resp.ok || !data || !data.ok) {
+        statusBox.value = MSG.historyYearStartFailed + (data && data.error ? "（" + data.error + "）" : "");
+        return;
+      }
+      historyYearRunId = data.run_id || null;
+      await refreshHistoryYearStatus();
+      startHistoryYearPoll();
+    } catch (_e) {
+      statusBox.value = MSG.historyYearStartFailed;
+    }
   }
 
   function readRequestBoxVariables() {
@@ -3591,6 +3790,10 @@
 
   async function sendRequest() {
     if (sending) return;
+    if (isFootylogicHistoryYearKey(requestType.value)) {
+      await startHistoryYearDownload(false);
+      return;
+    }
     const raw = requestBox.value;
     try {
       JSON.parse(raw);
@@ -3634,6 +3837,19 @@
   }
 
   btnSend.addEventListener("click", () => { sendRequest(); });
+  const btnHistoryYearStart = document.getElementById("btn-history-year-start");
+  const btnHistoryYearResume = document.getElementById("btn-history-year-resume");
+  const btnHistoryYearRefresh = document.getElementById("btn-history-year-refresh");
+  if (btnHistoryYearStart) {
+    btnHistoryYearStart.addEventListener("click", () => { startHistoryYearDownload(false); });
+  }
+  if (btnHistoryYearResume) {
+    btnHistoryYearResume.addEventListener("click", () => { startHistoryYearDownload(true); });
+  }
+  if (btnHistoryYearRefresh) {
+    btnHistoryYearRefresh.addEventListener("click", () => { refreshHistoryYearStatus(); });
+  }
+  syncDownloadModeUi();
 
   function orderedDraftColumns() {
     const visible = layoutDraft.columns.filter((c) => c.visible);

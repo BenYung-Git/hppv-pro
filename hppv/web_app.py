@@ -154,6 +154,11 @@ from hppv.soccer_task_scheduler import (
     get_update_results_scheduler,
     soccer_shared_job_lock,
 )
+from hppv.footylogic_history_year import (
+    get_year_download_status,
+    start_year_download_background,
+    validate_year,
+)
 from hppv.translations import (
     DEFAULT_LANG,
     SUPPORTED_LANGS,
@@ -1277,6 +1282,11 @@ def api_soccer_graphql_send() -> Any:
     if request_key == REQUEST_KEY_MATCH_RESULTS:
         return _api_soccer_manual_match_results(payload)
 
+    if request_key == REQUEST_KEY_MATCH_RESULTS_BY_YEAR:
+        # Year history download is FootyLogic-primary; do not treat HKJC
+        # matchResults as a FootyLogic history substitute.
+        return jsonify({"ok": False, "error": "use_footylogic_year_api"}), 400
+
     try:
         result = send_soccer_graphql(payload)
     except SoccerGraphQLSendError as e:
@@ -1349,6 +1359,56 @@ def api_soccer_graphql_send() -> Any:
             "ingest": ingest,
         }
     )
+
+
+@app.get("/api/soccer/history-year/status")
+def api_soccer_history_year_status() -> Any:
+    """FootyLogic year history download status / integrity report."""
+    year_raw = request.args.get("year")
+    run_id = request.args.get("run_id")
+    year: int | None = None
+    if year_raw not in (None, ""):
+        try:
+            year = validate_year(year_raw)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "invalid_year"}), 400
+    try:
+        report = get_year_download_status(
+            SOCCER_DB_PATH, year=year, run_id=run_id or None
+        )
+        return jsonify(report)
+    except Exception as e:
+        logging.getLogger(__name__).exception("history-year status failed: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+
+
+@app.post("/api/soccer/history-year/start")
+def api_soccer_history_year_start() -> Any:
+    """Start FootyLogic year history download (background)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        year = validate_year(data.get("year"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "invalid_year"}), 400
+    resume = bool(data.get("resume"))
+    limit = data.get("limit")
+    limit_n: int | None = None
+    if limit is not None and str(limit).strip() != "":
+        try:
+            limit_n = int(limit)
+            if limit_n < 1:
+                return jsonify({"ok": False, "error": "invalid_limit"}), 400
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "invalid_limit"}), 400
+    try:
+        out = start_year_download_background(
+            SOCCER_DB_PATH, year, resume=resume, limit=limit_n
+        )
+        status = 409 if not out.get("ok") and out.get("error") == "already_running" else 200
+        return jsonify(out), status
+    except Exception as e:
+        logging.getLogger(__name__).exception("history-year start failed: %s", e)
+        return jsonify({"ok": False, "error": "start_failed"}), 500
 
 
 @app.get("/api/soccer/tasks/update-matches")
