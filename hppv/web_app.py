@@ -76,6 +76,17 @@ from hppv.soccer_history import (
     normalize_history_search_op,
     parse_history_sort_param,
 )
+from hppv.soccer_match_form import (
+    MatchFormError,
+    MatchFormFilters,
+    MatchFormValidationError,
+    TeamUnresolvedError,
+    fetch_match_form,
+    normalize_competition_filter,
+    normalize_h2h_venue_filter,
+    normalize_match_form_limit,
+    normalize_venue_filter,
+)
 from hppv.soccer_daily_export import (
     build_daily_export,
     parse_daily_export_request,
@@ -1452,6 +1463,60 @@ def api_soccer_history_matches() -> Any:
             ),
         }
     )
+
+
+@app.get("/api/soccer/match-form")
+def api_soccer_match_form() -> Any:
+    """
+    Head-to-head + recent form + W/D/L summary for one match (read-only).
+
+    Anchor (one of):
+      - source_key=… (history row)
+      - match_id=… (daily row; resolves team ids via history twin or exact name)
+      - home_team_id + away_team_id + kickoff=
+    """
+    filters = MatchFormFilters(
+        limit=normalize_match_form_limit(request.args.get("limit")),
+        h2h_venue=normalize_h2h_venue_filter(request.args.get("h2h_venue")),
+        h2h_competition=normalize_competition_filter(
+            request.args.get("h2h_competition")
+        ),
+        home_venue=normalize_venue_filter(request.args.get("home_venue")),
+        away_venue=normalize_venue_filter(request.args.get("away_venue")),
+        home_competition=normalize_competition_filter(
+            request.args.get("home_competition")
+        ),
+        away_competition=normalize_competition_filter(
+            request.args.get("away_competition")
+        ),
+    )
+    try:
+        payload = fetch_match_form(
+            SOCCER_DB_PATH,
+            source_key=request.args.get("source_key"),
+            match_id=request.args.get("match_id"),
+            home_team_id=request.args.get("home_team_id"),
+            away_team_id=request.args.get("away_team_id"),
+            kickoff_hkt=request.args.get("kickoff") or request.args.get("kickoff_hkt"),
+            competition_id=request.args.get("competition_id"),
+            competition_name=request.args.get("competition_name"),
+            home_team_name=request.args.get("home_team_name"),
+            away_team_name=request.args.get("away_team_name"),
+            exclude_source_key=request.args.get("exclude_source_key"),
+            exclude_hkjc_match_id=request.args.get("exclude_hkjc_match_id"),
+            filters=filters,
+        )
+    except TeamUnresolvedError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": str(e)}), 422
+    except MatchFormValidationError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": str(e)}), 400
+    except MatchFormError as e:
+        logging.getLogger(__name__).exception("soccer match-form api failed: %s", e)
+        return jsonify({"ok": False, "error": e.code, "detail": str(e)}), 500
+    except SoccerDataError as e:
+        logging.getLogger(__name__).exception("soccer match-form api failed: %s", e)
+        return jsonify({"ok": False, "error": "read_error", "detail": str(e)}), 500
+    return jsonify({"ok": True, "data": payload})
 
 
 @app.get("/api/soccer/daily-matches")

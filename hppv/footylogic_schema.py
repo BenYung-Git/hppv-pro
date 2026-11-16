@@ -114,6 +114,14 @@ def footylogic_matches_base_indexes_sql(
             ON {table_name}(competition_id, season_id);
         CREATE INDEX IF NOT EXISTS idx_fl_matches_has_score
             ON {table_name}(has_score, match_date_hkt);
+        CREATE INDEX IF NOT EXISTS idx_fl_matches_home_team_ko
+            ON {table_name}(home_team_id, kickoff_hkt);
+        CREATE INDEX IF NOT EXISTS idx_fl_matches_away_team_ko
+            ON {table_name}(away_team_id, kickoff_hkt);
+        CREATE INDEX IF NOT EXISTS idx_fl_matches_home_name
+            ON {table_name}(home_team_name);
+        CREATE INDEX IF NOT EXISTS idx_fl_matches_away_name
+            ON {table_name}(away_team_name);
         """
     )
 

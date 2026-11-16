@@ -13,6 +13,9 @@
     --team-away-fg: #704800;
     --team-home-bg: #d4e5f7;
     --team-away-bg: #fff3d6;
+    --match-form-blue: #1a4f8c;
+    --match-form-blue-deep: #0f3a6b;
+    --match-form-blue-bg: #d4e5f7;
     /* History team-name FT outcome chips (exact user colours; white text on W/D/L). */
     --team-result-win-fg: #ffffff;
     --team-result-win-bg: #ff0000;
@@ -457,6 +460,74 @@
     background: var(--team-result-neutral-bg);
     color: var(--team-result-neutral-fg);
   }
+  /* Match-form panel: same FT highlight colours (daily + history). */
+  .soccer-daily .match-form-panel .team-chip {
+    background: var(--team-result-neutral-bg);
+    color: var(--team-result-neutral-fg);
+  }
+  .soccer-daily .match-form-panel .team-chip.team-result-win {
+    background: var(--team-result-win-bg);
+    color: var(--team-result-win-fg);
+  }
+  .soccer-daily .match-form-panel .team-chip.team-result-draw {
+    background: var(--team-result-draw-bg);
+    color: var(--team-result-draw-fg);
+  }
+  .soccer-daily .match-form-panel .team-chip.team-result-lose {
+    background: var(--team-result-lose-bg);
+    color: var(--team-result-lose-fg);
+  }
+  .soccer-daily .match-form-panel .team-chip.team-result-neutral {
+    background: var(--team-result-neutral-bg);
+    color: var(--team-result-neutral-fg);
+  }
+  .soccer-daily .match-form-panel th.mf-th-team {
+    white-space: normal;
+    line-height: 1.35;
+    vertical-align: middle;
+  }
+  .soccer-daily .match-form-panel .mf-h2h-head-label {
+    display: inline;
+    font-weight: 700;
+  }
+  .soccer-daily .match-form-panel .mf-h2h-head-stats {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    margin-left: 2px;
+    font-weight: 600;
+    vertical-align: middle;
+  }
+  /* Shared compact W/D/L chips (H2H headers + form summary cards). */
+  .soccer-daily .match-form-panel .mf-stat-chip {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 5px;
+    line-height: 1.25;
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .soccer-daily .match-form-panel .mf-stat-chip .team-text {
+    overflow-wrap: normal;
+    word-break: keep-all;
+  }
+  .soccer-daily .match-form-panel .mf-wdl-chips {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 0 6px;
+  }
+  @media (max-width: 720px) {
+    .soccer-daily .match-form-panel .mf-h2h-head-stats {
+      display: flex;
+      margin: 4px 0 0;
+      justify-content: center;
+    }
+  }
   .soccer-daily .team-chip .team-text {
     min-width: 0;
     text-align: center;
@@ -466,6 +537,201 @@
   /* Desktop/table: column headers already say 主隊/客隊 — hide role text. */
   .soccer-daily .team-chip .team-role {
     display: none;
+  }
+  /* Match form (H2H) toggle — blue football, leftmost of each row. */
+  .soccer-daily .match-form-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--match-form-blue);
+    cursor: pointer;
+    vertical-align: middle;
+    box-shadow: none;
+  }
+  .soccer-daily .match-form-toggle:hover {
+    background: var(--match-form-blue-bg);
+  }
+  .soccer-daily .match-form-toggle.is-open {
+    background: var(--match-form-blue-bg);
+    color: var(--match-form-blue-deep);
+  }
+  .soccer-daily .match-form-toggle svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+  }
+  .soccer-daily td.c-match-form,
+  .soccer-daily th.c-match-form {
+    width: 36px;
+    min-width: 36px;
+    max-width: 40px;
+    padding: 4px 2px;
+  }
+  .soccer-daily tr.match-form-expand > td {
+    background: #f7fafc;
+    border-top: none;
+    padding: 10px 12px 14px;
+    text-align: left;
+    vertical-align: top;
+  }
+  .soccer-daily .match-form-panel {
+    border: 1px solid #c5d6ea;
+    border-radius: 10px;
+    background: #fff;
+    padding: 12px 14px;
+  }
+  .soccer-daily .match-form-panel .mf-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .soccer-daily .match-form-panel .mf-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--match-form-blue);
+  }
+  .soccer-daily .match-form-panel .mf-cutoff {
+    font-size: 12px;
+    color: #5c6b7e;
+  }
+  .soccer-daily .match-form-panel .mf-section {
+    margin-top: 12px;
+  }
+  .soccer-daily .match-form-panel .mf-section-title {
+    margin: 0 0 6px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #243447;
+  }
+  .soccer-daily .match-form-panel .mf-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .soccer-daily .match-form-panel .mf-toolbar label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: #334155;
+  }
+  .soccer-daily .match-form-panel .mf-toolbar select {
+    font-size: 12px;
+    padding: 2px 4px;
+  }
+  .soccer-daily .match-form-panel .mf-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .soccer-daily .match-form-panel table.mf-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .soccer-daily .match-form-panel .mf-table-scroll {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .soccer-daily .match-form-panel table.mf-table th,
+  .soccer-daily .match-form-panel table.mf-table td {
+    border-bottom: 1px solid #e6edf5;
+    padding: 4px 6px;
+    text-align: center;
+    vertical-align: middle;
+  }
+  /* Recent form tables only: fixed 20/35/15/15/15 — avoid auto leftover on opponent. */
+  .soccer-daily .match-form-panel table.mf-recent-table {
+    width: 100%;
+    table-layout: fixed;
+  }
+  .soccer-daily .match-form-panel table.mf-recent-table th.mf-col-date,
+  .soccer-daily .match-form-panel table.mf-recent-table td.mf-col-date {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+  }
+  .soccer-daily .match-form-panel table.mf-recent-table th.mf-col-venue,
+  .soccer-daily .match-form-panel table.mf-recent-table td.mf-col-venue,
+  .soccer-daily .match-form-panel table.mf-recent-table th.mf-col-score,
+  .soccer-daily .match-form-panel table.mf-recent-table td.mf-col-score,
+  .soccer-daily .match-form-panel table.mf-recent-table th.mf-col-result,
+  .soccer-daily .match-form-panel table.mf-recent-table td.mf-col-result {
+    white-space: nowrap;
+  }
+  .soccer-daily .match-form-panel table.mf-recent-table th.mf-col-opponent,
+  .soccer-daily .match-form-panel table.mf-recent-table td.mf-col-opponent {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  @media (max-width: 720px) {
+    .soccer-daily .match-form-panel table.mf-recent-table {
+      min-width: 28rem;
+    }
+  }
+  .soccer-daily .match-form-panel table.mf-table th {
+    background: #eef3fb;
+    font-weight: 700;
+    color: #1f3d66;
+  }
+  .soccer-daily .match-form-panel .mf-summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .soccer-daily .match-form-panel .mf-summary-card {
+    border: 1px solid #d5e0d9;
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: #fbfcfe;
+  }
+  .soccer-daily .match-form-panel .mf-summary-card h5 {
+    margin: 0 0 6px;
+    font-size: 13px;
+  }
+  .soccer-daily .match-form-panel .mf-summary-card p {
+    margin: 2px 0;
+    font-size: 13px;
+  }
+  .soccer-daily .match-form-panel .mf-state {
+    padding: 10px 0;
+    font-size: 13px;
+    color: #5c6b7e;
+  }
+  .soccer-daily .match-form-panel .mf-state.error {
+    color: #a11;
+  }
+  .soccer-daily .match-card .match-form-toggle {
+    margin-right: 6px;
+  }
+  .soccer-daily .match-card .match-form-panel {
+    margin-top: 10px;
+  }
+  @media (max-width: 720px) {
+    .soccer-daily .match-form-toggle svg {
+      width: 16px;
+      height: 16px;
+    }
+    .soccer-daily .match-form-panel .mf-split,
+    .soccer-daily .match-form-panel .mf-summary {
+      grid-template-columns: 1fr;
+    }
   }
   .soccer-daily .odds-home { color: var(--odds-home); font-weight: 700; }
   .soccer-daily .odds-draw { color: var(--odds-draw); font-weight: 700; }
@@ -1810,6 +2076,44 @@
     iconAlt: {{ t('soccer.daily.icon_alt')|tojson }},
     teamBadgeHome: {{ t('soccer.daily.team_badge_home')|tojson }},
     teamBadgeAway: {{ t('soccer.daily.team_badge_away')|tojson }},
+    matchFormTitle: {{ t('soccer.match_form.title')|tojson }},
+    matchFormTooltip: {{ t('soccer.match_form.tooltip')|tojson }},
+    matchFormCutoff: {{ t('soccer.match_form.cutoff')|tojson }},
+    matchFormH2h: {{ t('soccer.match_form.h2h')|tojson }},
+    matchFormHomeRecent: {{ t('soccer.match_form.home_recent')|tojson }},
+    matchFormAwayRecent: {{ t('soccer.match_form.away_recent')|tojson }},
+    matchFormSummary: {{ t('soccer.match_form.summary')|tojson }},
+    matchFormLimit: {{ t('soccer.match_form.limit')|tojson }},
+    matchFormSameComp: {{ t('soccer.match_form.same_competition')|tojson }},
+    matchFormSameVenue: {{ t('soccer.match_form.same_venue')|tojson }},
+    matchFormVenueAll: {{ t('soccer.match_form.venue_all')|tojson }},
+    matchFormVenueHome: {{ t('soccer.match_form.venue_home')|tojson }},
+    matchFormVenueAway: {{ t('soccer.match_form.venue_away')|tojson }},
+    matchFormColDate: {{ t('soccer.match_form.col.date')|tojson }},
+    matchFormColComp: {{ t('soccer.match_form.col.competition')|tojson }},
+    matchFormColHome: {{ t('soccer.match_form.col.home')|tojson }},
+    matchFormColAway: {{ t('soccer.match_form.col.away')|tojson }},
+    matchFormColHt: {{ t('soccer.match_form.col.ht')|tojson }},
+    matchFormColFt: {{ t('soccer.match_form.col.ft')|tojson }},
+    matchFormColOpponent: {{ t('soccer.match_form.col.opponent')|tojson }},
+    matchFormColVenue: {{ t('soccer.match_form.col.venue')|tojson }},
+    matchFormColScore: {{ t('soccer.match_form.col.score')|tojson }},
+    matchFormColResult: {{ t('soccer.match_form.col.result')|tojson }},
+    matchFormWins: {{ t('soccer.match_form.wins')|tojson }},
+    matchFormDraws: {{ t('soccer.match_form.draws')|tojson }},
+    matchFormLosses: {{ t('soccer.match_form.losses')|tojson }},
+    matchFormResultVoid: {{ t('soccer.match_form.result.void')|tojson }},
+    matchFormResultUnknown: {{ t('soccer.match_form.result.unknown')|tojson }},
+    matchFormGf: {{ t('soccer.match_form.goals_for')|tojson }},
+    matchFormGa: {{ t('soccer.match_form.goals_against')|tojson }},
+    matchFormValid: {{ t('soccer.match_form.valid_played')|tojson }},
+    matchFormPlayedOf: {{ t('soccer.match_form.played_of')|tojson }},
+    matchFormLoading: {{ t('soccer.match_form.loading')|tojson }},
+    matchFormEmpty: {{ t('soccer.match_form.empty')|tojson }},
+    matchFormError: {{ t('soccer.match_form.error')|tojson }},
+    matchFormRetry: {{ t('soccer.match_form.retry')|tojson }},
+    matchFormTeamUnresolved: {{ t('soccer.match_form.team_unresolved')|tojson }},
+    matchFormClose: {{ t('soccer.match_form.close')|tojson }},
     ingestOddsSection: {{ t('soccer.daily.ingest_odds_section')|tojson }},
     ingestResultsSection: {{ t('soccer.daily.ingest_results_section')|tojson }},
     ingestResultsPending: {{ t('soccer.daily.ingest_results_pending')|tojson }},
@@ -2465,6 +2769,391 @@
       '</svg>';
   }
 
+  // ---- Match form (對賽往績) accordion ----
+  let matchFormOpenKey = null;
+  let matchFormFetchSeq = 0;
+  const matchFormCache = Object.create(null);
+  const matchFormFilters = {
+    limit: 10,
+    h2h_venue: "all",
+    h2h_competition: "all",
+    home_venue: "all",
+    away_venue: "all",
+    home_competition: "all",
+    away_competition: "all"
+  };
+
+  function matchFormBlueBallSvg() {
+    return '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">' +
+      '<circle cx="32" cy="32" r="30" fill="currentColor"/>' +
+      '<circle cx="32" cy="32" r="22" fill="none" stroke="#ffffff" stroke-width="2.5" opacity=".95"/>' +
+      '<polygon points="32,18 38,28 32,26 26,28" fill="#ffffff"/>' +
+      '<polygon points="20,34 28,32 26,40 18,42" fill="#ffffff"/>' +
+      '<polygon points="44,34 46,42 38,40 36,32" fill="#ffffff"/>' +
+      '<polygon points="28,44 32,38 36,44 32,50" fill="#ffffff"/>' +
+      '</svg>';
+  }
+
+  function createMatchFormToggleButton(open) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "match-form-toggle" + (open ? " is-open" : "");
+    btn.title = MSG.matchFormTooltip;
+    btn.setAttribute("aria-label", MSG.matchFormTooltip);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.innerHTML = matchFormBlueBallSvg();
+    return btn;
+  }
+
+  function matchFormRowKey(scope, m) {
+    if (scope === "history") return "h:" + (m.source_key || "");
+    return "d:" + (m.match_id || "");
+  }
+
+  function matchFormAnchorParams(scope, m) {
+    if (scope === "history") {
+      return { source_key: m.source_key || "" };
+    }
+    return { match_id: m.match_id || "" };
+  }
+
+  function closeMatchFormPanels() {
+    matchFormOpenKey = null;
+    document.querySelectorAll(".match-form-expand").forEach((el) => el.remove());
+    document.querySelectorAll(".match-card .match-form-panel-host").forEach((el) => el.remove());
+    document.querySelectorAll(".match-form-toggle.is-open").forEach((btn) => {
+      btn.classList.remove("is-open");
+      btn.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  function mfEsc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function mfResultChip(name, resultKind) {
+    const kind = (resultKind === "win" || resultKind === "draw" || resultKind === "lose")
+      ? resultKind : "neutral";
+    return '<span class="team-chip team-result-' + kind + '"><span class="team-text">' +
+      mfEsc(name) + "</span></span>";
+  }
+
+  function mfResultStatChip(kind, text) {
+    return '<span class="team-chip mf-stat-chip team-result-' + kind + '"><span class="team-text">' +
+      mfEsc(text) + "</span></span>";
+  }
+
+  function mfH2hStatChip(count, kind, label) {
+    const n = (count == null || count === "") ? "0" : String(count);
+    return mfResultStatChip(kind, n + label);
+  }
+
+  function mfSummaryWdlChipsHtml(summary) {
+    const s = summary || {};
+    const w = (s.wins == null || s.wins === "") ? "0" : String(s.wins);
+    const d = (s.draws == null || s.draws === "") ? "0" : String(s.draws);
+    const l = (s.losses == null || s.losses === "") ? "0" : String(s.losses);
+    return '<div class="mf-wdl-chips">' +
+      mfResultStatChip("win", MSG.matchFormWins + " " + w) +
+      mfResultStatChip("draw", MSG.matchFormDraws + " " + d) +
+      mfResultStatChip("lose", MSG.matchFormLosses + " " + l) +
+      "</div>";
+  }
+
+  function mfH2hTeamHeaderHtml(label, summary) {
+    const s = summary || { wins: 0, draws: 0, losses: 0 };
+    return '<th class="mf-th-team"><span class="mf-h2h-head-label">' + mfEsc(label) +
+      '</span><span class="mf-h2h-head-stats">（' +
+      mfH2hStatChip(s.wins, "win", MSG.matchFormWins) + "／" +
+      mfH2hStatChip(s.draws, "draw", MSG.matchFormDraws) + "／" +
+      mfH2hStatChip(s.losses, "lose", MSG.matchFormLosses) +
+      "）</span></th>";
+  }
+
+  function mfH2hTableHtml(rows, homeSummary, awaySummary) {
+    const list = rows || [];
+    let html = '<table class="mf-table"><thead><tr>' +
+      "<th>" + mfEsc(MSG.matchFormColDate) + "</th>" +
+      "<th>" + mfEsc(MSG.matchFormColComp) + "</th>" +
+      mfH2hTeamHeaderHtml(MSG.matchFormColHome, homeSummary) +
+      mfH2hTeamHeaderHtml(MSG.matchFormColAway, awaySummary) +
+      "<th>" + mfEsc(MSG.matchFormColHt) + "</th>" +
+      "<th>" + mfEsc(MSG.matchFormColFt) + "</th>" +
+      "</tr></thead><tbody>";
+    if (!list.length) {
+      html += '<tr><td colspan="6"><div class="mf-state">' + mfEsc(MSG.matchFormEmpty) +
+        "</div></td></tr>";
+    } else {
+      for (const r of list) {
+        html += "<tr><td>" + mfEsc(r.match_date) + "</td><td>" + mfEsc(r.competition_name) +
+          "</td><td>" + mfResultChip(r.home_team, r.home_team_result) +
+          "</td><td>" + mfResultChip(r.away_team, r.away_team_result) +
+          "</td><td>" + mfEsc(r.score_ht) + "</td><td>" + mfEsc(r.score_ft) + "</td></tr>";
+      }
+    }
+    html += "</tbody></table>";
+    return html;
+  }
+
+  function mfSubjectResultLabel(subjectResult) {
+    if (subjectResult === "win") return MSG.matchFormWins;
+    if (subjectResult === "draw") return MSG.matchFormDraws;
+    if (subjectResult === "lose") return MSG.matchFormLosses;
+    if (subjectResult === "void") return MSG.matchFormResultVoid;
+    return MSG.matchFormResultUnknown;
+  }
+
+  function mfSubjectResultChip(subjectResult) {
+    const kind = (subjectResult === "win" || subjectResult === "draw" || subjectResult === "lose")
+      ? subjectResult
+      : "neutral";
+    return mfResultStatChip(kind, mfSubjectResultLabel(subjectResult));
+  }
+
+  function mfRecentScoreChip(scoreFt, subjectResult) {
+    // Keep existing score colouring: W/D/L tint; void/missing → neutral.
+    const kind = (subjectResult === "win" || subjectResult === "draw" || subjectResult === "lose")
+      ? subjectResult
+      : "neutral";
+    return '<span class="team-chip mf-stat-chip team-result-' + kind + '"><span class="team-text">' +
+      mfEsc(scoreFt) + "</span></span>";
+  }
+
+  function mfRecentTableHtml(rows) {
+    const list = rows || [];
+    let html = '<div class="mf-table-scroll"><table class="mf-table mf-recent-table">' +
+      "<colgroup>" +
+      '<col class="mf-col-date" style="width:20%">' +
+      '<col class="mf-col-opponent" style="width:35%">' +
+      '<col class="mf-col-venue" style="width:15%">' +
+      '<col class="mf-col-score" style="width:15%">' +
+      '<col class="mf-col-result" style="width:15%">' +
+      "</colgroup>" +
+      "<thead><tr>" +
+      '<th class="mf-col-date">' + mfEsc(MSG.matchFormColDate) + "</th>" +
+      '<th class="mf-col-opponent">' + mfEsc(MSG.matchFormColOpponent) + "</th>" +
+      '<th class="mf-col-venue">' + mfEsc(MSG.matchFormColVenue) + "</th>" +
+      '<th class="mf-col-score">' + mfEsc(MSG.matchFormColScore) + "</th>" +
+      '<th class="mf-col-result">' + mfEsc(MSG.matchFormColResult) + "</th>" +
+      "</tr></thead><tbody>";
+    if (!list.length) {
+      html += '<tr><td colspan="5"><div class="mf-state">' + mfEsc(MSG.matchFormEmpty) +
+        "</div></td></tr>";
+    } else {
+      for (const r of list) {
+        const venueLabel = r.venue === "home" ? MSG.matchFormVenueHome : MSG.matchFormVenueAway;
+        const sub = r.subject_result || "neutral";
+        html += '<tr><td class="mf-col-date">' + mfEsc(r.match_date) +
+          '</td><td class="mf-col-opponent">' + mfEsc(r.opponent) +
+          '</td><td class="mf-col-venue">' + mfEsc(venueLabel) +
+          '</td><td class="mf-col-score">' + mfRecentScoreChip(r.score_ft, sub) +
+          '</td><td class="mf-col-result">' + mfSubjectResultChip(sub) + "</td></tr>";
+      }
+    }
+    html += "</tbody></table></div>";
+    return html;
+  }
+
+  function mfSummaryCardHtml(title, summary, limit) {
+    const s = summary || {};
+    const playedOf = String(MSG.matchFormPlayedOf || "").replace("{total}", String(limit || s.played || 0));
+    return '<div class="mf-summary-card"><h5>' + mfEsc(title) + "</h5>" +
+      mfSummaryWdlChipsHtml(s) +
+      "<p>" + mfEsc(MSG.matchFormGf) + " " + mfEsc(s.goals_for) + "｜" +
+      mfEsc(MSG.matchFormGa) + " " + mfEsc(s.goals_against) + "</p>" +
+      "<p>" + mfEsc(MSG.matchFormValid) + " " + mfEsc(s.valid_played) + mfEsc(playedOf) + "</p></div>";
+  }
+
+  function mfSelectHtml(name, value, options) {
+    let html = '<select data-mf="' + name + '">';
+    for (const opt of options) {
+      html += '<option value="' + opt.value + '"' +
+        (String(opt.value) === String(value) ? " selected" : "") + ">" +
+        mfEsc(opt.label) + "</option>";
+    }
+    return html + "</select>";
+  }
+
+  function renderMatchFormPanelContent(host, state) {
+    if (!host) return;
+    if (state.status === "loading") {
+      host.innerHTML = '<div class="mf-state">' + mfEsc(MSG.matchFormLoading) + "</div>";
+      return;
+    }
+    if (state.status === "error") {
+      const msg = state.error === "team_unresolved"
+        ? MSG.matchFormTeamUnresolved
+        : (MSG.matchFormError + (state.detail ? ("：" + state.detail) : ""));
+      host.innerHTML = '<div class="mf-state error"></div>';
+      host.querySelector(".mf-state").textContent = msg;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "date-nav-btn";
+      btn.textContent = MSG.matchFormRetry;
+      btn.addEventListener("click", () => {
+        if (state.reload) state.reload();
+      });
+      host.appendChild(btn);
+      return;
+    }
+    const data = state.data || {};
+    const homeName = (data.home_team && data.home_team.team_name) || "—";
+    const awayName = (data.away_team && data.away_team.team_name) || "—";
+    const f = Object.assign({}, matchFormFilters, (data.filters || {}));
+    host.innerHTML =
+      '<div class="match-form-panel">' +
+      '<div class="mf-head"><h4 class="mf-title">' + mfEsc(homeName) + " vs " + mfEsc(awayName) + " " +
+      mfEsc(MSG.matchFormTitle) + '</h4><span class="mf-cutoff">' + mfEsc(MSG.matchFormCutoff) + "</span></div>" +
+      '<div class="mf-section" data-sec="h2h"><h5 class="mf-section-title">1. ' + mfEsc(MSG.matchFormH2h) + "</h5>" +
+      '<div class="mf-toolbar">' +
+      "<label>" + mfEsc(MSG.matchFormLimit) + " " +
+      mfSelectHtml("limit", f.limit, [{value:5,label:"5"},{value:10,label:"10"},{value:20,label:"20"}]) +
+      "</label>" +
+      "<label><input type='checkbox' data-mf='h2h_competition' " + (f.h2h_competition === "same" ? "checked " : "") + "/>" +
+      mfEsc(MSG.matchFormSameComp) + "</label>" +
+      "<label><input type='checkbox' data-mf='h2h_venue' " + (f.h2h_venue === "same" ? "checked " : "") + "/>" +
+      mfEsc(MSG.matchFormSameVenue) + "</label>" +
+      "</div><div class='mf-body'>" +
+      mfH2hTableHtml(data.head_to_head, data.h2h_home_summary, data.h2h_away_summary) +
+      "</div></div>" +
+      '<div class="mf-section" data-sec="recent"><h5 class="mf-section-title">2. ' +
+      mfEsc(homeName) + " / " + mfEsc(awayName) + " " + mfEsc(MSG.matchFormHomeRecent) + "</h5>" +
+      '<div class="mf-split">' +
+      '<div><div class="mf-toolbar"><strong>' + mfEsc(homeName) + "</strong>" +
+      mfSelectHtml("home_venue", f.home_venue, [
+        {value:"all",label:MSG.matchFormVenueAll},
+        {value:"home",label:MSG.matchFormVenueHome},
+        {value:"away",label:MSG.matchFormVenueAway}
+      ]) +
+      "<label><input type='checkbox' data-mf='home_competition' " + (f.home_competition === "same" ? "checked " : "") + "/>" +
+      mfEsc(MSG.matchFormSameComp) + "</label></div>" + mfRecentTableHtml(data.home_recent) + "</div>" +
+      '<div><div class="mf-toolbar"><strong>' + mfEsc(awayName) + "</strong>" +
+      mfSelectHtml("away_venue", f.away_venue, [
+        {value:"all",label:MSG.matchFormVenueAll},
+        {value:"home",label:MSG.matchFormVenueHome},
+        {value:"away",label:MSG.matchFormVenueAway}
+      ]) +
+      "<label><input type='checkbox' data-mf='away_competition' " + (f.away_competition === "same" ? "checked " : "") + "/>" +
+      mfEsc(MSG.matchFormSameComp) + "</label></div>" + mfRecentTableHtml(data.away_recent) + "</div>" +
+      "</div></div>" +
+      '<div class="mf-section" data-sec="summary"><h5 class="mf-section-title">3. ' + mfEsc(MSG.matchFormSummary) + "</h5>" +
+      '<div class="mf-summary">' +
+      mfSummaryCardHtml(homeName + " " + MSG.matchFormHomeRecent, data.home_summary, f.limit) +
+      mfSummaryCardHtml(awayName + " " + MSG.matchFormAwayRecent, data.away_summary, f.limit) +
+      "</div></div></div>";
+
+    host.querySelectorAll("[data-mf]").forEach((el) => {
+      const key = el.getAttribute("data-mf");
+      const handler = () => {
+        if (key === "limit") matchFormFilters.limit = Number(el.value) || 10;
+        else if (key === "h2h_venue") matchFormFilters.h2h_venue = el.checked ? "same" : "all";
+        else if (key === "h2h_competition") matchFormFilters.h2h_competition = el.checked ? "same" : "all";
+        else if (key === "home_venue") matchFormFilters.home_venue = el.value;
+        else if (key === "away_venue") matchFormFilters.away_venue = el.value;
+        else if (key === "home_competition") matchFormFilters.home_competition = el.checked ? "same" : "all";
+        else if (key === "away_competition") matchFormFilters.away_competition = el.checked ? "same" : "all";
+        if (state.reload) state.reload(true);
+      };
+      el.addEventListener("change", handler);
+    });
+  }
+
+  async function loadMatchForm(scope, m, host, { bustCache = false } = {}) {
+    const key = matchFormRowKey(scope, m);
+    const cacheKey = key + "|" + JSON.stringify(matchFormFilters);
+    const reload = (bust) => loadMatchForm(scope, m, host, { bustCache: !!bust });
+    if (!bustCache && matchFormCache[cacheKey]) {
+      renderMatchFormPanelContent(host, {
+        status: "ok",
+        data: matchFormCache[cacheKey],
+        reload
+      });
+      return;
+    }
+    renderMatchFormPanelContent(host, { status: "loading", reload });
+    const seq = ++matchFormFetchSeq;
+    const params = new URLSearchParams();
+    const anchor = matchFormAnchorParams(scope, m);
+    Object.keys(anchor).forEach((k) => { if (anchor[k]) params.set(k, anchor[k]); });
+    params.set("limit", String(matchFormFilters.limit));
+    params.set("h2h_venue", matchFormFilters.h2h_venue);
+    params.set("h2h_competition", matchFormFilters.h2h_competition);
+    params.set("home_venue", matchFormFilters.home_venue);
+    params.set("away_venue", matchFormFilters.away_venue);
+    params.set("home_competition", matchFormFilters.home_competition);
+    params.set("away_competition", matchFormFilters.away_competition);
+    try {
+      const resp = await fetch("/api/soccer/match-form?" + params.toString());
+      const data = await resp.json().catch(() => null);
+      if (seq !== matchFormFetchSeq || matchFormOpenKey !== key) return;
+      if (!resp.ok || !data || !data.ok) {
+        const err = (data && data.error) || "read_error";
+        renderMatchFormPanelContent(host, {
+          status: "error",
+          error: err,
+          detail: data && data.detail ? String(data.detail) : "",
+          reload
+        });
+        return;
+      }
+      matchFormCache[cacheKey] = data.data;
+      renderMatchFormPanelContent(host, { status: "ok", data: data.data, reload });
+    } catch (_e) {
+      if (seq !== matchFormFetchSeq || matchFormOpenKey !== key) return;
+      renderMatchFormPanelContent(host, {
+        status: "error",
+        error: "read_error",
+        detail: "",
+        reload
+      });
+    }
+  }
+
+  function openMatchFormForRow(scope, m, tr, colCount) {
+    const key = matchFormRowKey(scope, m);
+    if (matchFormOpenKey === key) {
+      closeMatchFormPanels();
+      return;
+    }
+    closeMatchFormPanels();
+    matchFormOpenKey = key;
+    const expand = document.createElement("tr");
+    expand.className = "match-form-expand";
+    const td = document.createElement("td");
+    td.colSpan = Math.max(1, colCount);
+    expand.appendChild(td);
+    tr.insertAdjacentElement("afterend", expand);
+    const btn = tr.querySelector(".match-form-toggle");
+    if (btn) {
+      btn.classList.add("is-open");
+      btn.setAttribute("aria-expanded", "true");
+    }
+    loadMatchForm(scope, m, td);
+  }
+
+  function openMatchFormForCard(scope, m, card) {
+    const key = matchFormRowKey(scope, m);
+    if (matchFormOpenKey === key) {
+      closeMatchFormPanels();
+      return;
+    }
+    closeMatchFormPanels();
+    matchFormOpenKey = key;
+    const host = document.createElement("div");
+    host.className = "match-form-panel-host";
+    card.appendChild(host);
+    const btn = card.querySelector(".match-form-toggle");
+    if (btn) {
+      btn.classList.add("is-open");
+      btn.setAttribute("aria-expanded", "true");
+    }
+    loadMatchForm(scope, m, host);
+  }
+
   function appliedColumns() {
     // Daily list + search use saved (applied) layout only — not unsaved draft.
     // Status Filter does not hide columns.
@@ -2696,9 +3385,10 @@
       go.addEventListener("click", () => activateTab("history"));
       return;
     }
+    closeMatchFormPanels();
     const cols = appliedColumns();
     const listRows = currentMatches;
-    let head = "<tr>";
+    let head = "<tr><th class='c-center c-match-form' aria-label='" + MSG.matchFormTooltip + "'></th>";
     for (const c of cols) {
       const arrow = c.sort === "asc" ? " ↑" : (c.sort === "desc" ? " ↓" : "");
       head += '<th class="c-center" data-col="' + c.key + '" style="min-width:' + c.width + 'px;width:' + c.width + 'px">' +
@@ -2711,12 +3401,23 @@
       "<div class='cards' id='matches-cards'></div>";
     const tbody = document.getElementById("matches-table-body");
     const cardsEl = document.getElementById("matches-cards");
+    const colCount = cols.length + 1;
     listRows.forEach((m, rowIdx) => {
       const tr = document.createElement("tr");
       if (listTotalCount > 0 && rowIdx === listN - 1) tr.classList.add("row-current");
       if (layoutSaved.zebra_enabled && rowIdx % 2 === 1) {
         tr.style.background = getComputedStyle(document.querySelector(".soccer-daily")).getPropertyValue("--soccer-layout-zebra") || "#f4f6f9";
       }
+      const tdForm = document.createElement("td");
+      tdForm.className = "c-center c-match-form";
+      const formBtn = createMatchFormToggleButton(false);
+      formBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openMatchFormForRow("daily", m, tr, colCount);
+      });
+      tdForm.appendChild(formBtn);
+      tr.appendChild(tdForm);
       for (const c of cols) {
         const td = document.createElement("td");
         td.className = "c-center";
@@ -2769,10 +3470,22 @@
       }
       extras += "</div>";
       art.innerHTML =
-        '<div class="card-top">' + soccerBallSvg() + '<div class="card-comp"><span class="code"></span><span class="comp-name"></span></div></div>' +
+        '<div class="card-top"></div>' +
         '<div class="card-meta"><span class="ko"></span><span class="muted mc"></span></div>' +
         '<div class="card-teams"><div class="home team-name"></div><div class="vs">' + MSG.vs + '</div><div class="away team-name"></div></div>' +
         extras;
+      const cardTop = art.querySelector(".card-top");
+      const cardFormBtn = createMatchFormToggleButton(false);
+      cardFormBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openMatchFormForCard("daily", m, art);
+      });
+      cardTop.appendChild(cardFormBtn);
+      const cardComp = document.createElement("div");
+      cardComp.className = "card-comp";
+      cardComp.innerHTML = '<span class="code"></span><span class="comp-name"></span>';
+      cardTop.appendChild(cardComp);
       art.querySelector(".code").textContent = m.competition_code;
       art.querySelector(".comp-name").textContent = m.competition_name_zh;
       art.querySelector(".ko").textContent = (showMatchDate && m.match_date ? (m.match_date + " ") : "") + m.kickoff_hhmm;
@@ -3486,6 +4199,7 @@
     updateHistoryPagerControls();
     const panel = document.getElementById("history-panel-body");
     if (!panel) return;
+    closeMatchFormPanels();
     if (!historyMatches.length) {
       panel.innerHTML = '<div class="state-box" id="history-empty-box"><p></p><p class="muted"></p></div>';
       panel.querySelector("p").textContent = historyQ ? MSG.searchNoMatch : MSG.historyEmpty;
@@ -3493,7 +4207,7 @@
       return;
     }
     const cols = historyAppliedColumns();
-    let head = "<tr>";
+    let head = "<tr><th class='c-center c-match-form' aria-label='" + MSG.matchFormTooltip + "'></th>";
     for (const c of cols) {
       const arrow = c.sort === "asc" ? " ↑" : (c.sort === "desc" ? " ↓" : "");
       head += '<th class="c-center" data-col="' + c.key + '" style="min-width:' + c.width + 'px;width:' + c.width + 'px">' +
@@ -3504,11 +4218,22 @@
       "<div class='table-wrap'><table class='matches' id='history-table'><thead>" + head +
       "</thead><tbody id='history-table-body'></tbody></table></div>";
     const tbody = document.getElementById("history-table-body");
+    const colCount = cols.length + 1;
     historyMatches.forEach((m, rowIdx) => {
       const tr = document.createElement("tr");
       if (historyLayoutSaved.zebra_enabled && rowIdx % 2 === 1) {
         tr.style.background = getComputedStyle(document.querySelector(".soccer-daily")).getPropertyValue("--soccer-history-zebra") || "#f4f6f9";
       }
+      const tdForm = document.createElement("td");
+      tdForm.className = "c-center c-match-form";
+      const formBtn = createMatchFormToggleButton(false);
+      formBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openMatchFormForRow("history", m, tr, colCount);
+      });
+      tdForm.appendChild(formBtn);
+      tr.appendChild(tdForm);
       for (const c of cols) {
         const td = document.createElement("td");
         td.className = "c-center";
