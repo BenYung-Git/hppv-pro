@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ t('soccer.daily.title') }} - HPPV Web{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="{{ url_for('hppv_web_static', filename='hppv_records_main_ui.css') }}">
 <style>
   .soccer-daily {
     --soccer-green: #1b7a3d;
@@ -1267,39 +1268,10 @@
 <span class="team-chip team-{{ side }}{% if result %} team-result-{{ result }}{% endif %}"><span class="team-role" aria-hidden="true">{% if side == 'home' %}{{ t('soccer.daily.team_badge_home') }}{% else %}{{ t('soccer.daily.team_badge_away') }}{% endif %}</span><span class="team-text">{{ name }}</span></span>
 {%- endmacro %}
 
-{% macro icon_layout_save() -%}
-<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
-  <rect x="10" y="14" width="44" height="36" rx="4" fill="#e8f6ee" stroke="#1b7a3d" stroke-width="3"/>
-  <path d="M18 22 h28 M18 30 h20 M18 38 h24" stroke="#1b7a3d" stroke-width="3" stroke-linecap="round"/>
-  <circle cx="46" cy="44" r="10" fill="#1b7a3d"/>
-  <path d="M42 44 l3 3 l6 -7" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-{%- endmacro %}
+{% from "macros/layout_icons.html" import icon_history_layout, icon_history_export, icon_layout_save, icon_layout_cancel %}
+{% from "macros/layout_settings_panel.html" import layout_settings_panel with context %}
 
-{% macro icon_layout_cancel() -%}
-<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
-  <circle cx="32" cy="32" r="22" fill="#fff" stroke="#8a97a8" stroke-width="3"/>
-  <path d="M22 22 L42 42 M42 22 L22 42" stroke="#5c6b7e" stroke-width="4" stroke-linecap="round"/>
-</svg>
-{%- endmacro %}
-
-{% macro icon_history_layout() -%}
-<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
-  <rect x="10" y="14" width="44" height="36" rx="4" fill="#eef3fb" stroke="#1f3d66" stroke-width="3"/>
-  <path d="M18 24 h28 M18 32 h28 M18 40 h18" stroke="#1f3d66" stroke-width="3" stroke-linecap="round"/>
-  <rect x="40" y="36" width="10" height="10" rx="2" fill="#1b7a3d"/>
-</svg>
-{%- endmacro %}
-
-{% macro icon_history_export() -%}
-<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
-  <rect x="14" y="10" width="28" height="36" rx="3" fill="#fff7e8" stroke="#b7791f" stroke-width="3"/>
-  <path d="M22 20 h12 M22 28 h12 M22 36 h8" stroke="#b7791f" stroke-width="3" stroke-linecap="round"/>
-  <path d="M40 34 v16 M34 44 l6 8 l6 -8" fill="none" stroke="#1b7a3d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-{%- endmacro %}
-
-<div class="soccer-daily">
+<div class="soccer-daily hppv-records-main">
   <div class="page-head">
     {{ soccer_ball() }}
     <h1>{{ t('soccer.daily.title') }}</h1>
@@ -1379,11 +1351,12 @@
             </div>
           </div>
           <div class="history-toolbar-actions">
-            <button type="button" class="icon-btn toolbar-layout-btn" id="btn-open-layout"
+            <button type="button" class="icon-btn toolbar-layout-btn toolbar-icon-only" id="btn-open-layout"
                     aria-controls="matches-layout-mode"
                     aria-expanded="{{ 'true' if open_layout_panel else 'false' }}"
                     title="{{ t('soccer.daily.tab.layout') }}"
                     aria-label="{{ t('soccer.daily.tab.layout') }}">
+              {{ icon_history_layout() }}
               <span class="btn-label">{{ t('soccer.daily.tab.layout') }}</span>
             </button>
             <button type="button" class="icon-btn toolbar-icon-only" id="btn-open-daily-export"
@@ -1532,70 +1505,24 @@
     </div>
     </div>{# matches-list-mode #}
 
-    <div class="matches-layout-mode" id="matches-layout-mode"
-         {% if not open_layout_panel %}hidden{% endif %}
-         aria-label="{{ t('soccer.daily.layout.mode_title') }}">
-      <div class="layout-mode-toolbar" id="layout-mode-toolbar">
-        <h2>{{ t('soccer.daily.layout.mode_title') }}</h2>
-        <div class="layout-mode-actions">
-          <button type="button" class="icon-btn" id="btn-layout-cancel"
-                  title="{{ t('soccer.daily.layout.cancel') }}"
-                  aria-label="{{ t('soccer.daily.layout.cancel') }}">
-            {{ icon_layout_cancel() }}
-            <span class="btn-label">{{ t('soccer.daily.layout.cancel') }}</span>
-          </button>
-          <button type="button" class="icon-btn layout-save" id="btn-layout-save"
-                  title="{{ t('soccer.daily.layout.save') }}"
-                  aria-label="{{ t('soccer.daily.layout.save') }}">
-            {{ icon_layout_save() }}
-            <span class="btn-label">{{ t('soccer.daily.layout.save') }}</span>
-          </button>
-        </div>
-      </div>
-      <div class="layout-mode-body">
-        <div class="layout-head">
-          <h3 class="layout-section-title">{{ t('soccer.daily.layout.title') }}</h3>
-          <div class="layout-table-badge">
-            <span>{{ t('soccer.daily.layout.table_name_label') }}</span>
-            <span>{{ t('soccer.daily.layout.table_name_value') }}</span>
-          </div>
-        </div>
-        <div class="layout-zebra-row">
-          <div class="layout-zebra-controls">
-            <span>{{ t('soccer.daily.layout.zebra_label') }}</span>
-            <select id="layout-zebra-color">
-              {% for c in layout_zebra_colors %}
-              <option value="{{ c.id }}" {% if layout_settings.zebra_color_id == c.id %}selected{% endif %}>{{ t('soccer.daily.layout.color.' ~ c.id) }}</option>
-              {% endfor %}
-            </select>
-            <label>
-              <input type="checkbox" id="layout-zebra-enable" {% if layout_settings.zebra_enabled %}checked{% endif %}>
-              {{ t('soccer.daily.layout.zebra_enable') }}
-            </label>
-          </div>
-        </div>
-        <div class="layout-cols-head">
-          <strong>{{ t('soccer.daily.layout.columns_title') }}</strong>
-        </div>
-        <div class="layout-table-wrap">
-          <table class="layout-cols" id="layout-cols-table">
-            <thead>
-              <tr>
-                <th>{{ t('soccer.daily.layout.drag') }}</th>
-                <th>{{ t('soccer.daily.layout.col_visible') }}</th>
-                <th>{{ t('soccer.daily.layout.col_name') }}</th>
-                <th>{{ t('soccer.daily.layout.col_desc') }}</th>
-                <th>{{ t('soccer.daily.layout.col_width') }}</th>
-                <th>{{ t('soccer.daily.layout.col_sort') }}</th>
-                <th>{{ t('soccer.daily.layout.move_up') }} / {{ t('soccer.daily.layout.move_down') }}</th>
-              </tr>
-            </thead>
-            <tbody id="layout-cols-body"></tbody>
-          </table>
-        </div>
-        <p class="hint muted" id="layout-status-msg"></p>
-      </div>
-    </div>
+        {{ layout_settings_panel(
+      id_prefix='matches',
+      mode_title=t('soccer.daily.layout.mode_title'),
+      table_name_value=t('soccer.daily.layout.table_name_value'),
+      zebra_colors=layout_zebra_colors,
+      zebra_color_id=layout_settings.zebra_color_id,
+      zebra_enabled=layout_settings.zebra_enabled,
+      open=open_layout_panel,
+      id_mode='matches-layout-mode',
+      id_toolbar='layout-mode-toolbar',
+      id_cancel='btn-layout-cancel',
+      id_save='btn-layout-save',
+      id_zebra_color='layout-zebra-color',
+      id_zebra_enable='layout-zebra-enable',
+      id_cols_table='layout-cols-table',
+      id_cols_body='layout-cols-body',
+      id_status='layout-status-msg'
+    ) }}
   </div>
 
   {% set open_history_layout_panel = open_history_layout_panel if open_history_layout_panel is defined else false %}
@@ -1645,17 +1572,17 @@
                        placeholder="{{ t('soccer.history.search_placeholder') }}"
                        value="{{ history_page_meta.q }}"
                        autocomplete="off">
-                <label class="visually-hidden" for="history-search-op">{{ t('soccer.history.search_op.label') }}</label>
+                <label class="visually-hidden" for="history-search-op">{{ t('history.search_op.label') }}</label>
                 <select id="history-search-op" class="history-search-op"
-                        title="{{ t('soccer.history.search_op.label') }}"
-                        aria-label="{{ t('soccer.history.search_op.label') }}">
-                  <option value="approx"{% if _history_q_op == 'approx' %} selected{% endif %}>{{ t('soccer.history.search_op.approx') }}</option>
-                  <option value="eq"{% if _history_q_op == 'eq' %} selected{% endif %}>{{ t('soccer.history.search_op.eq') }}</option>
-                  <option value="ne"{% if _history_q_op == 'ne' %} selected{% endif %}>{{ t('soccer.history.search_op.ne') }}</option>
-                  <option value="contains"{% if _history_q_op == 'contains' %} selected{% endif %}>{{ t('soccer.history.search_op.contains') }}</option>
-                  <option value="not_contains"{% if _history_q_op == 'not_contains' %} selected{% endif %}>{{ t('soccer.history.search_op.not_contains') }}</option>
-                  <option value="starts"{% if _history_q_op == 'starts' %} selected{% endif %}>{{ t('soccer.history.search_op.starts') }}</option>
-                  <option value="ends"{% if _history_q_op == 'ends' %} selected{% endif %}>{{ t('soccer.history.search_op.ends') }}</option>
+                        title="{{ t('history.search_op.label') }}"
+                        aria-label="{{ t('history.search_op.label') }}">
+                  <option value="approx"{% if _history_q_op == 'approx' %} selected{% endif %}>{{ t('history.search_op.approx') }}</option>
+                  <option value="eq"{% if _history_q_op == 'eq' %} selected{% endif %}>{{ t('history.search_op.eq') }}</option>
+                  <option value="ne"{% if _history_q_op == 'ne' %} selected{% endif %}>{{ t('history.search_op.ne') }}</option>
+                  <option value="contains"{% if _history_q_op == 'contains' %} selected{% endif %}>{{ t('history.search_op.contains') }}</option>
+                  <option value="not_contains"{% if _history_q_op == 'not_contains' %} selected{% endif %}>{{ t('history.search_op.not_contains') }}</option>
+                  <option value="starts"{% if _history_q_op == 'starts' %} selected{% endif %}>{{ t('history.search_op.starts') }}</option>
+                  <option value="ends"{% if _history_q_op == 'ends' %} selected{% endif %}>{{ t('history.search_op.ends') }}</option>
                 </select>
                 <p class="hint muted history-search-tip" id="history-search-tip" hidden></p>
               </div>
@@ -1762,70 +1689,24 @@
       </div>
     </div>{# history-list-mode #}
 
-    <div class="matches-layout-mode" id="history-layout-mode"
-         {% if not open_history_layout_panel %}hidden{% endif %}
-         aria-label="{{ t('soccer.history.layout.mode_title') }}">
-      <div class="layout-mode-toolbar" id="history-layout-mode-toolbar">
-        <h2>{{ t('soccer.history.layout.mode_title') }}</h2>
-        <div class="layout-mode-actions">
-          <button type="button" class="icon-btn" id="btn-history-layout-cancel"
-                  title="{{ t('soccer.daily.layout.cancel') }}"
-                  aria-label="{{ t('soccer.daily.layout.cancel') }}">
-            {{ icon_layout_cancel() }}
-            <span class="btn-label">{{ t('soccer.daily.layout.cancel') }}</span>
-          </button>
-          <button type="button" class="icon-btn layout-save" id="btn-history-layout-save"
-                  title="{{ t('soccer.daily.layout.save') }}"
-                  aria-label="{{ t('soccer.daily.layout.save') }}">
-            {{ icon_layout_save() }}
-            <span class="btn-label">{{ t('soccer.daily.layout.save') }}</span>
-          </button>
-        </div>
-      </div>
-      <div class="layout-mode-body">
-        <div class="layout-head">
-          <h3 class="layout-section-title">{{ t('soccer.daily.layout.title') }}</h3>
-          <div class="layout-table-badge">
-            <span>{{ t('soccer.daily.layout.table_name_label') }}</span>
-            <span>{{ t('soccer.history.layout.table_name_value') }}</span>
-          </div>
-        </div>
-        <div class="layout-zebra-row">
-          <div class="layout-zebra-controls">
-            <span>{{ t('soccer.daily.layout.zebra_label') }}</span>
-            <select id="history-layout-zebra-color">
-              {% for c in layout_zebra_colors %}
-              <option value="{{ c.id }}" {% if history_layout_settings.zebra_color_id == c.id %}selected{% endif %}>{{ t('soccer.daily.layout.color.' ~ c.id) }}</option>
-              {% endfor %}
-            </select>
-            <label>
-              <input type="checkbox" id="history-layout-zebra-enable" {% if history_layout_settings.zebra_enabled %}checked{% endif %}>
-              {{ t('soccer.daily.layout.zebra_enable') }}
-            </label>
-          </div>
-        </div>
-        <div class="layout-cols-head">
-          <strong>{{ t('soccer.daily.layout.columns_title') }}</strong>
-        </div>
-        <div class="layout-table-wrap">
-          <table class="layout-cols" id="history-layout-cols-table">
-            <thead>
-              <tr>
-                <th>{{ t('soccer.daily.layout.drag') }}</th>
-                <th>{{ t('soccer.daily.layout.col_visible') }}</th>
-                <th>{{ t('soccer.daily.layout.col_name') }}</th>
-                <th>{{ t('soccer.daily.layout.col_desc') }}</th>
-                <th>{{ t('soccer.daily.layout.col_width') }}</th>
-                <th>{{ t('soccer.daily.layout.col_sort') }}</th>
-                <th>{{ t('soccer.daily.layout.move_up') }} / {{ t('soccer.daily.layout.move_down') }}</th>
-              </tr>
-            </thead>
-            <tbody id="history-layout-cols-body"></tbody>
-          </table>
-        </div>
-        <p class="hint muted" id="history-layout-status-msg"></p>
-      </div>
-    </div>
+        {{ layout_settings_panel(
+      id_prefix='history',
+      mode_title=t('soccer.history.layout.mode_title'),
+      table_name_value=t('soccer.history.layout.table_name_value'),
+      zebra_colors=layout_zebra_colors,
+      zebra_color_id=history_layout_settings.zebra_color_id,
+      zebra_enabled=history_layout_settings.zebra_enabled,
+      open=open_history_layout_panel,
+      id_mode='history-layout-mode',
+      id_toolbar='history-layout-mode-toolbar',
+      id_cancel='btn-history-layout-cancel',
+      id_save='btn-history-layout-save',
+      id_zebra_color='history-layout-zebra-color',
+      id_zebra_enable='history-layout-zebra-enable',
+      id_cols_table='history-layout-cols-table',
+      id_cols_body='history-layout-cols-body',
+      id_status='history-layout-status-msg'
+    ) }}
   </div>
 
   <div class="tab-panel{% if active_tab == 'download' %} active{% endif %}" role="tabpanel" id="tab-panel-download"
@@ -2035,6 +1916,7 @@
 
 </div>
 
+{% include "partials/hppv_layout_editor_script.html" %}
 <script>
 (() => {
   const MSG = {
@@ -2389,6 +2271,8 @@
   const soccerRoot = document.querySelector(".soccer-daily");
   let layoutModeOpen = false;
   let layoutToastTimer = null;
+  let dailyLayoutEditor = null;
+  let historyLayoutEditor = null;
 
   function showLayoutToast(text) {
     const el = document.getElementById("matches-layout-toast");
@@ -2404,34 +2288,7 @@
     }
   }
 
-  function setLayoutMode(open, opts) {
-    const options = opts || {};
-    layoutModeOpen = !!open;
-    if (matchesPanel) {
-      matchesPanel.classList.toggle("matches-mode-layout", layoutModeOpen);
-      matchesPanel.classList.toggle("matches-mode-list", !layoutModeOpen);
-    }
-    if (soccerRoot) {
-      soccerRoot.classList.toggle("is-layout-mode", !!(layoutModeOpen || historyLayoutModeOpen));
-    }
-    if (layoutModeEl) {
-      if (layoutModeOpen) layoutModeEl.removeAttribute("hidden");
-      else layoutModeEl.setAttribute("hidden", "hidden");
-    }
-    if (listModeEl) {
-      if (layoutModeOpen) listModeEl.setAttribute("hidden", "hidden");
-      else listModeEl.removeAttribute("hidden");
-    }
-    if (btnOpenLayout) {
-      btnOpenLayout.setAttribute("aria-expanded", layoutModeOpen ? "true" : "false");
-    }
-    if (layoutModeOpen) {
-      renderLayoutEditor();
-      const statusMsg = document.getElementById("layout-status-msg");
-      if (statusMsg && !options.keepStatus) statusMsg.textContent = "";
-    }
-    if (!options.skipUrl) syncListUrl();
-  }
+  // setLayoutMode / dailyLayoutEditor are defined with the shared HppvLayoutEditor wiring below.
 
   let activeTabName = {{ active_tab|tojson }};
   // Declared early so activateTab never hits TDZ before history UI finishes init.
@@ -2451,13 +2308,10 @@
       if (on) panel.removeAttribute("hidden");
       else panel.setAttribute("hidden", "hidden");
     }
-    if (name !== "matches" && layoutModeOpen) {
+    if (name !== "matches" && layoutModeOpen && dailyLayoutEditor) {
       // Leaving Daily Matches: discard unsaved layout draft (same as Cancel).
+      dailyLayoutEditor.replaceSettings(layoutSaved);
       layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
-      const zc = document.getElementById("layout-zebra-color");
-      const ze = document.getElementById("layout-zebra-enable");
-      if (zc) zc.value = layoutDraft.zebra_color_id;
-      if (ze) ze.checked = layoutDraft.zebra_enabled;
       setLayoutMode(false, { skipUrl: true });
     }
     if (historyUiReady && name !== "history" && historyLayoutModeOpen) {
@@ -2477,12 +2331,7 @@
   for (const btn of buttons) {
     btn.addEventListener("click", () => activateTab(btn.dataset.tab));
   }
-  if (btnOpenLayout) {
-    btnOpenLayout.addEventListener("click", () => {
-      if (layoutModeOpen) return;
-      setLayoutMode(true);
-    });
-  }
+  // Open-layout click is bound after dailyLayoutEditor is created.
   activateTab({{ active_tab|tojson }});
 
   function maybeAutoLoadPreset() {
@@ -3851,187 +3700,140 @@
   }
   syncDownloadModeUi();
 
-  function orderedDraftColumns() {
-    const visible = layoutDraft.columns.filter((c) => c.visible);
-    const hidden = layoutDraft.columns
-      .filter((c) => !c.visible)
-      .slice()
-      .sort((a, b) => String(COL_LABEL[a.key] || a.key).localeCompare(String(COL_LABEL[b.key] || b.key), "zh-Hant"));
-    return visible.concat(hidden);
+  if (!window.HppvLayoutEditor) {
+    throw new Error("soccer daily requires HppvLayoutEditor");
   }
-
-  function setDraftOrderFromUi(orderedKeys) {
-    const map = {};
-    for (const c of layoutDraft.columns) map[c.key] = c;
-    layoutDraft.columns = orderedKeys.map((k) => map[k]);
-  }
-
-  function renderLayoutEditor() {
-    const tbody = document.getElementById("layout-cols-body");
-    if (!tbody) return;
-    applyZebraCss();
-    const ordered = orderedDraftColumns();
-    setDraftOrderFromUi(ordered.map((c) => c.key));
-    tbody.innerHTML = "";
-    layoutDraft.columns.forEach((col, idx) => {
-      const tr = document.createElement("tr");
-      if (layoutDraft.zebra_enabled && idx % 2 === 1) tr.classList.add("layout-zebra");
-      tr.draggable = true;
-      tr.dataset.key = col.key;
-      tr.innerHTML =
-        '<td class="drag-handle">☰</td>' +
-        '<td><input type="checkbox" class="lay-vis"' + (col.visible ? " checked" : "") + "></td>" +
-        "<td></td><td></td>" +
-        '<td><input type="number" class="layout-width-input lay-width" min="' + WIDTH_MIN + '" max="' + WIDTH_MAX + '" step="1"></td>' +
-        "<td><select class='lay-sort'>" +
-        '<option value="">' + MSG.layoutSortEmpty + "</option>" +
-        '<option value="asc">' + MSG.layoutSortAsc + "</option>" +
-        '<option value="desc">' + MSG.layoutSortDesc + "</option>" +
-        "</select></td>" +
-        "<td>" +
-        '<button type="button" class="icon-btn lay-up" title="' + MSG.layoutMoveUp + '">↑</button> ' +
-        '<button type="button" class="icon-btn lay-down" title="' + MSG.layoutMoveDown + '">↓</button>' +
-        "</td>";
-      tr.children[2].textContent = COL_LABEL[col.key] || col.key;
-      tr.children[3].textContent = COL_DESC[col.key] || "";
-      const widthInput = tr.querySelector(".lay-width");
-      widthInput.value = String(col.width);
-      const sortSel = tr.querySelector(".lay-sort");
-      sortSel.value = col.sort || "";
-      const upBtn = tr.querySelector(".lay-up");
-      const downBtn = tr.querySelector(".lay-down");
-      upBtn.disabled = idx === 0;
-      downBtn.disabled = idx === layoutDraft.columns.length - 1;
-      tr.querySelector(".lay-vis").addEventListener("change", (e) => {
-        const on = e.target.checked;
-        col.visible = on;
-        if (on) {
-          const keys = layoutDraft.columns.map((c) => c.key).filter((k) => k !== col.key);
-          const lastVis = layoutDraft.columns.filter((c) => c.visible && c.key !== col.key).pop();
-          const insertAt = lastVis ? keys.indexOf(lastVis.key) + 1 : 0;
-          keys.splice(insertAt, 0, col.key);
-          setDraftOrderFromUi(keys);
-        }
-        // Draft only until Save; do not change daily list / search scope.
-        renderLayoutEditor();
-      });
-      widthInput.addEventListener("change", () => {
-        const n = Number(widthInput.value);
-        if (!Number.isInteger(n) || n < WIDTH_MIN || n > WIDTH_MAX) {
-          widthInput.classList.add("invalid");
-          document.getElementById("layout-status-msg").textContent = MSG.layoutWidthInvalid;
-          return;
-        }
-        widthInput.classList.remove("invalid");
-        col.width = n;
-        document.getElementById("layout-status-msg").textContent = "";
-        renderLayoutEditor();
-      });
-      sortSel.addEventListener("change", () => {
-        col.sort = sortSel.value;
-        renderLayoutEditor();
-      });
-      upBtn.addEventListener("click", () => {
-        if (idx === 0) return;
-        const arr = layoutDraft.columns;
-        const tmp = arr[idx - 1];
-        arr[idx - 1] = arr[idx];
-        arr[idx] = tmp;
-        renderLayoutEditor();
-      });
-      downBtn.addEventListener("click", () => {
-        const arr = layoutDraft.columns;
-        if (idx >= arr.length - 1) return;
-        const tmp = arr[idx + 1];
-        arr[idx + 1] = arr[idx];
-        arr[idx] = tmp;
-        renderLayoutEditor();
-      });
-      tr.addEventListener("dragstart", (e) => {
-        e.dataTransfer.setData("text/plain", col.key);
-      });
-      tr.addEventListener("dragover", (e) => e.preventDefault());
-      tr.addEventListener("drop", (e) => {
-        e.preventDefault();
-        const fromKey = e.dataTransfer.getData("text/plain");
-        const toKey = col.key;
-        if (!fromKey || fromKey === toKey) return;
-        const keys = layoutDraft.columns.map((c) => c.key);
-        const from = keys.indexOf(fromKey);
-        const to = keys.indexOf(toKey);
-        if (from < 0 || to < 0) return;
-        keys.splice(to, 0, keys.splice(from, 1)[0]);
-        setDraftOrderFromUi(keys);
-        renderLayoutEditor();
-      });
-      tbody.appendChild(tr);
-    });
-  }
-
-  const zebraColor = document.getElementById("layout-zebra-color");
-  const zebraEnable = document.getElementById("layout-zebra-enable");
-  if (zebraColor) {
-    zebraColor.addEventListener("change", () => {
-      layoutDraft.zebra_color_id = zebraColor.value;
-      renderLayoutEditor();
-    });
-  }
-  if (zebraEnable) {
-    zebraEnable.addEventListener("change", () => {
-      layoutDraft.zebra_enabled = zebraEnable.checked;
-      renderLayoutEditor();
-    });
-  }
-
-  document.getElementById("btn-layout-save").addEventListener("click", async () => {
-    const msg = document.getElementById("layout-status-msg");
-    const saveBtn = document.getElementById("btn-layout-save");
-    for (const c of layoutDraft.columns) {
-      if (!Number.isInteger(c.width) || c.width < WIDTH_MIN || c.width > WIDTH_MAX) {
-        msg.textContent = MSG.layoutWidthInvalid;
+  const UI_LOCALE = document.documentElement.lang || "zh-Hant";
+  const DAILY_SORTABLE = {};
+  (layoutSaved.columns || []).forEach((c) => { DAILY_SORTABLE[c.key] = true; });
+  dailyLayoutEditor = window.HppvLayoutEditor.create({
+    ids: {
+      mode: "matches-layout-mode",
+      openBtn: "btn-open-layout",
+      cancelBtn: "btn-layout-cancel",
+      saveBtn: "btn-layout-save",
+      colsBody: "layout-cols-body",
+      zebraColor: "layout-zebra-color",
+      zebraEnable: "layout-zebra-enable",
+      status: "layout-status-msg",
+      toast: "matches-layout-toast",
+      listMode: "matches-list-mode",
+    },
+    messages: {
+      sortEmpty: MSG.layoutSortEmpty,
+      sortAsc: MSG.layoutSortAsc,
+      sortDesc: MSG.layoutSortDesc,
+      sortUnsupported: MSG.historyLayoutSortUnsupported,
+      moveUp: MSG.layoutMoveUp,
+      moveDown: MSG.layoutMoveDown,
+      widthInvalid: MSG.layoutWidthInvalid,
+      saveOk: MSG.layoutSaveOk,
+      saveFail: MSG.layoutSaveFail,
+    },
+    colLabels: COL_LABEL,
+    colDescs: COL_DESC,
+    sortableMap: DAILY_SORTABLE,
+    zebraColors: ZEBRA_COLORS,
+    widthMin: WIDTH_MIN,
+    widthMax: WIDTH_MAX,
+    locale: UI_LOCALE,
+    initialSettings: layoutSaved,
+    autoBind: { open: false, cancel: false, save: true, zebra: true },
+    applyZebraCss: function (settings) {
+      const src = settings || layoutSaved;
+      const rootEl = document.querySelector(".soccer-daily");
+      if (!rootEl) return;
+      if (!src.zebra_enabled) {
+        rootEl.style.removeProperty("--soccer-layout-zebra");
         return;
       }
-    }
-    const sortBefore = currentSortParam();
-    if (saveBtn) saveBtn.disabled = true;
-    let data = null;
-    try {
+      const found = ZEBRA_COLORS.find((c) => c.id === src.zebra_color_id);
+      if (found) rootEl.style.setProperty("--soccer-layout-zebra", found.css);
+    },
+    onModeChange: function (on) {
+      layoutModeOpen = !!on;
+      if (matchesPanel) {
+        matchesPanel.classList.toggle("matches-mode-layout", layoutModeOpen);
+        matchesPanel.classList.toggle("matches-mode-list", !layoutModeOpen);
+      }
+      if (soccerRoot) {
+        soccerRoot.classList.toggle("is-layout-mode", !!(layoutModeOpen || historyLayoutModeOpen));
+      }
+      if (btnOpenLayout) {
+        btnOpenLayout.setAttribute("aria-expanded", layoutModeOpen ? "true" : "false");
+      }
+      if (!skipDailyLayoutUrl) syncListUrl();
+    },
+    save: async function (draft) {
       const resp = await fetch("/api/soccer/layout/daily-matches", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({ settings: layoutDraft }),
+        body: JSON.stringify({ settings: draft }),
       });
+      let data = null;
       try { data = await resp.json(); } catch (_e) { data = null; }
       if (!resp.ok || !data || !data.ok) {
-        msg.textContent = MSG.layoutSaveFail + (data && data.error ? "（" + data.error + "）" : "");
-        return;
+        throw new Error((data && data.error) || "save_failed");
       }
-    } catch (_e) {
-      msg.textContent = MSG.layoutSaveFail;
-      return;
-    } finally {
-      if (saveBtn) saveBtn.disabled = false;
-    }
-    layoutSaved = data.settings;
-    layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
-    msg.textContent = "";
-    const sortAfter = currentSortParam();
-    setLayoutMode(false);
-    showLayoutToast(MSG.layoutSaveOk);
-    if (sortBefore !== sortAfter) {
-      // Sort specs changed: reload from page 1 (existing list API behaviour).
-      await submitListCriteria({ n: 1 });
-    } else {
-      renderMatches(currentMatches);
-    }
+      layoutSaved = data.settings;
+      layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+      return layoutSaved;
+    },
+    onAfterSave: async function (saved) {
+      layoutSaved = saved;
+      layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+      const sortAfter = currentSortParam();
+      if (sortBeforeSave !== sortAfter) {
+        await submitListCriteria({ n: 1 });
+      } else {
+        renderMatches(currentMatches);
+      }
+    },
   });
+  let skipDailyLayoutUrl = false;
+  let sortBeforeSave = "";
+  const _dailySaveBtn = document.getElementById("btn-layout-save");
+  if (_dailySaveBtn) {
+    _dailySaveBtn.addEventListener("click", () => {
+      sortBeforeSave = currentSortParam();
+    }, true);
+  }
 
+  function renderLayoutEditor() {
+    layoutDraft = dailyLayoutEditor.layoutDraft;
+    dailyLayoutEditor.render();
+  }
+
+  function setLayoutMode(open, opts) {
+    const options = opts || {};
+    skipDailyLayoutUrl = !!options.skipUrl;
+    if (open) {
+      dailyLayoutEditor.replaceSettings(layoutSaved);
+      layoutDraft = dailyLayoutEditor.layoutDraft;
+      if (options.keepStatus) {
+        /* keep */
+      } else {
+        document.getElementById("layout-status-msg").textContent = "";
+      }
+      dailyLayoutEditor.setMode(true);
+    } else {
+      dailyLayoutEditor.setMode(false);
+      layoutDraft = JSON.parse(JSON.stringify(dailyLayoutEditor.getSettings()));
+      layoutSaved = dailyLayoutEditor.getSettings();
+    }
+    skipDailyLayoutUrl = false;
+  }
+
+  if (btnOpenLayout) {
+    btnOpenLayout.addEventListener("click", () => {
+      if (layoutModeOpen) return;
+      setLayoutMode(true);
+    });
+  }
   document.getElementById("btn-layout-cancel").addEventListener("click", () => {
     layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
-    if (zebraColor) zebraColor.value = layoutDraft.zebra_color_id;
-    if (zebraEnable) zebraEnable.checked = layoutDraft.zebra_enabled;
+    dailyLayoutEditor.replaceSettings(layoutSaved);
     document.getElementById("layout-status-msg").textContent = "";
-    renderLayoutEditor();
     setLayoutMode(false);
   });
 
@@ -4339,6 +4141,9 @@
   const HISTORY_SORTABLE = {};
   function rebuildHistorySortable() {
     Object.keys(HISTORY_SORTABLE).forEach((k) => { delete HISTORY_SORTABLE[k]; });
+    ((historyLayoutSaved && historyLayoutSaved.columns) || []).forEach((c) => {
+      HISTORY_SORTABLE[c.key] = true;
+    });
     (historyLayoutCatalog || []).forEach((c) => {
       HISTORY_SORTABLE[c.key] = !!c.sortable;
     });
@@ -4355,10 +4160,17 @@
     if (Array.isArray(data.catalog) && data.catalog.length) {
       historyLayoutCatalog = data.catalog;
       rebuildHistorySortable();
+      ((historyLayoutSaved && historyLayoutSaved.columns) || []).forEach((c) => {
+        if (!(c.key in HISTORY_SORTABLE)) HISTORY_SORTABLE[c.key] = true;
+      });
+      (historyLayoutCatalog || []).forEach((c) => { HISTORY_SORTABLE[c.key] = !!c.sortable; });
     }
     if (data.layout_settings && Array.isArray(data.layout_settings.columns)) {
       historyLayoutSaved = data.layout_settings;
       historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutSaved));
+      if (historyLayoutEditor) {
+        historyLayoutEditor.replaceSettings(historyLayoutSaved);
+      }
     }
     if (Array.isArray(data.search_keys)) {
       applyHistorySearchAvailability(data.search_keys);
@@ -4399,15 +4211,7 @@
     }
   }
 
-  function discardHistoryLayoutDraft() {
-    historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutSaved));
-    const zc = document.getElementById("history-layout-zebra-color");
-    const ze = document.getElementById("history-layout-zebra-enable");
-    if (zc) zc.value = historyLayoutDraft.zebra_color_id;
-    if (ze) ze.checked = historyLayoutDraft.zebra_enabled;
-    const msg = document.getElementById("history-layout-status-msg");
-    if (msg) msg.textContent = "";
-  }
+  // discardHistoryLayoutDraft provided by shared HppvLayoutEditor wiring below.
 
   function applyHistoryZebraCss() {
     const root = document.querySelector(".soccer-daily");
@@ -4442,39 +4246,7 @@
     }
   }
 
-  function setHistoryLayoutMode(open, opts) {
-    const options = opts || {};
-    historyLayoutModeOpen = !!open;
-    if (historyPanel) {
-      historyPanel.classList.toggle("matches-mode-layout", historyLayoutModeOpen);
-      historyPanel.classList.toggle("matches-mode-list", !historyLayoutModeOpen);
-    }
-    if (soccerRoot) {
-      soccerRoot.classList.toggle("is-layout-mode", !!(layoutModeOpen || historyLayoutModeOpen));
-    }
-    if (historyLayoutModeEl) {
-      if (historyLayoutModeOpen) historyLayoutModeEl.removeAttribute("hidden");
-      else historyLayoutModeEl.setAttribute("hidden", "hidden");
-    }
-    if (historyListModeEl) {
-      if (historyLayoutModeOpen) historyListModeEl.setAttribute("hidden", "hidden");
-      else historyListModeEl.removeAttribute("hidden");
-    }
-    if (btnOpenHistoryLayout) {
-      btnOpenHistoryLayout.setAttribute("aria-expanded", historyLayoutModeOpen ? "true" : "false");
-    }
-    if (historyLayoutModeOpen) {
-      // Always re-fetch catalog/settings so schema-driven columns are not stuck
-      // on a stale SSR embed (or a previous process's 7-column fallback).
-      refreshHistoryLayoutFromServer().finally(() => {
-        if (!historyLayoutModeOpen) return;
-        renderHistoryLayoutEditor();
-        const statusMsg = document.getElementById("history-layout-status-msg");
-        if (statusMsg && !options.keepStatus) statusMsg.textContent = "";
-      });
-    }
-    if (!options.skipUrl) syncHistoryUrl();
-  }
+  // setHistoryLayoutMode provided by shared HppvLayoutEditor wiring below.
 
   function syncHistoryUrl() {
     if (activeTabName !== "history" && !historyLayoutModeOpen) return;
@@ -4677,125 +4449,124 @@
   if (histNext) histNext.addEventListener("click", () => fetchHistoryList(historyN + 1));
   if (histLast) histLast.addEventListener("click", () => fetchHistoryList(historyTotalPages || 1));
 
-  function orderedHistoryDraftColumns() {
-    return historyLayoutDraft.columns.slice();
-  }
-
-  function setHistoryDraftOrderFromUi(orderedKeys) {
-    const map = {};
-    for (const c of historyLayoutDraft.columns) map[c.key] = c;
-    historyLayoutDraft.columns = orderedKeys.map((k) => map[k]).filter(Boolean);
-  }
+  const HISTORY_SORTABLE_MAP = HISTORY_SORTABLE;
+  ((historyLayoutSaved && historyLayoutSaved.columns) || []).forEach((c) => {
+    if (!(c.key in HISTORY_SORTABLE_MAP)) HISTORY_SORTABLE_MAP[c.key] = true;
+  });
+  let skipHistoryLayoutUrl = false;
+  historyLayoutEditor = window.HppvLayoutEditor.create({
+    ids: {
+      mode: "history-layout-mode",
+      openBtn: "btn-open-history-layout",
+      cancelBtn: "btn-history-layout-cancel",
+      saveBtn: "btn-history-layout-save",
+      colsBody: "history-layout-cols-body",
+      zebraColor: "history-layout-zebra-color",
+      zebraEnable: "history-layout-zebra-enable",
+      status: "history-layout-status-msg",
+      toast: "history-layout-toast",
+      listMode: "history-list-mode",
+    },
+    messages: {
+      sortEmpty: MSG.layoutSortEmpty,
+      sortAsc: MSG.layoutSortAsc,
+      sortDesc: MSG.layoutSortDesc,
+      sortUnsupported: MSG.historyLayoutSortUnsupported,
+      moveUp: MSG.layoutMoveUp,
+      moveDown: MSG.layoutMoveDown,
+      widthInvalid: MSG.layoutWidthInvalid,
+      saveOk: MSG.layoutSaveOk,
+      saveFail: MSG.layoutSaveFail,
+    },
+    colLabels: HISTORY_COL_LABEL,
+    colDescs: HISTORY_COL_DESC,
+    sortableMap: HISTORY_SORTABLE_MAP,
+    zebraColors: ZEBRA_COLORS,
+    widthMin: WIDTH_MIN,
+    widthMax: WIDTH_MAX,
+    locale: UI_LOCALE,
+    initialSettings: historyLayoutSaved,
+    autoBind: { open: false, cancel: false, save: true, zebra: true },
+    applyZebraCss: function (settings) {
+      const src = settings || historyLayoutSaved;
+      const rootEl = document.querySelector(".soccer-daily");
+      if (!rootEl) return;
+      if (!src.zebra_enabled) {
+        rootEl.style.removeProperty("--soccer-history-zebra");
+        return;
+      }
+      const found = ZEBRA_COLORS.find((c) => c.id === src.zebra_color_id);
+      if (found) rootEl.style.setProperty("--soccer-history-zebra", found.css);
+    },
+    onModeChange: function (on) {
+      historyLayoutModeOpen = !!on;
+      if (historyPanel) {
+        historyPanel.classList.toggle("matches-mode-layout", historyLayoutModeOpen);
+        historyPanel.classList.toggle("matches-mode-list", !historyLayoutModeOpen);
+      }
+      if (soccerRoot) {
+        soccerRoot.classList.toggle("is-layout-mode", !!(layoutModeOpen || historyLayoutModeOpen));
+      }
+      if (btnOpenHistoryLayout) {
+        btnOpenHistoryLayout.setAttribute("aria-expanded", historyLayoutModeOpen ? "true" : "false");
+      }
+      if (!skipHistoryLayoutUrl) syncHistoryUrl();
+    },
+    save: async function (draft) {
+      const resp = await fetch("/api/soccer/layout/match-history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ settings: draft }),
+      });
+      let data = null;
+      try { data = await resp.json(); } catch (_e) { data = null; }
+      if (!resp.ok || !data || !data.ok) {
+        throw new Error((data && data.error) || "save_failed");
+      }
+      historyLayoutSaved = data.settings;
+      historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutSaved));
+      return historyLayoutSaved;
+    },
+    onAfterSave: async function (saved) {
+      historyLayoutSaved = saved;
+      historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutSaved));
+      historySort = historyCurrentSortParam();
+      applyHistorySearchAvailability(historySearchKeysFromLayout(historyLayoutSaved));
+      await submitHistoryCriteria({ n: 1 });
+    },
+  });
 
   function renderHistoryLayoutEditor() {
-    const tbody = document.getElementById("history-layout-cols-body");
-    if (!tbody) return;
-    tbody.innerHTML = "";
-    historyLayoutDraft.columns.forEach((col, idx) => {
-      const sortable = HISTORY_SORTABLE[col.key] !== false;
-      const tr = document.createElement("tr");
-      if (historyLayoutDraft.zebra_enabled && idx % 2 === 1) tr.classList.add("layout-zebra");
-      tr.draggable = true;
-      tr.dataset.key = col.key;
-      tr.innerHTML =
-        '<td class="drag-handle">☰</td>' +
-        '<td><input type="checkbox" class="lay-vis"' + (col.visible ? " checked" : "") + "></td>" +
-        "<td></td><td></td>" +
-        '<td><input type="number" class="layout-width-input lay-width" min="' + WIDTH_MIN + '" max="' + WIDTH_MAX + '" step="1"></td>' +
-        "<td>" + (sortable
-          ? ("<select class='lay-sort'>" +
-            '<option value="">' + MSG.layoutSortEmpty + "</option>" +
-            '<option value="asc">' + MSG.layoutSortAsc + "</option>" +
-            '<option value="desc">' + MSG.layoutSortDesc + "</option>" +
-            "</select>")
-          : ('<span class="muted" title="' + MSG.historyLayoutSortUnsupported + '">—</span>')) +
-        "</td>" +
-        "<td>" +
-        '<button type="button" class="icon-btn lay-up" title="' + MSG.layoutMoveUp + '">↑</button> ' +
-        '<button type="button" class="icon-btn lay-down" title="' + MSG.layoutMoveDown + '">↓</button>' +
-        "</td>";
-      tr.children[2].textContent = HISTORY_COL_LABEL[col.key] || col.key;
-      tr.children[3].textContent = HISTORY_COL_DESC[col.key] || "";
-      const widthInput = tr.querySelector(".lay-width");
-      widthInput.value = String(col.width);
-      const sortSel = tr.querySelector(".lay-sort");
-      if (sortSel) sortSel.value = col.sort || "";
-      const upBtn = tr.querySelector(".lay-up");
-      const downBtn = tr.querySelector(".lay-down");
-      upBtn.disabled = idx === 0;
-      downBtn.disabled = idx === historyLayoutDraft.columns.length - 1;
-      tr.querySelector(".lay-vis").addEventListener("change", (e) => {
-        col.visible = e.target.checked;
-        renderHistoryLayoutEditor();
-      });
-      widthInput.addEventListener("change", () => {
-        const n = Number(widthInput.value);
-        if (!Number.isInteger(n) || n < WIDTH_MIN || n > WIDTH_MAX) {
-          widthInput.classList.add("invalid");
-          document.getElementById("history-layout-status-msg").textContent = MSG.layoutWidthInvalid;
-          return;
-        }
-        widthInput.classList.remove("invalid");
-        col.width = n;
-        document.getElementById("history-layout-status-msg").textContent = "";
-        renderHistoryLayoutEditor();
-      });
-      if (sortSel) {
-        sortSel.addEventListener("change", () => {
-          col.sort = sortSel.value;
-          renderHistoryLayoutEditor();
-        });
-      }
-      upBtn.addEventListener("click", () => {
-        if (idx === 0) return;
-        const arr = historyLayoutDraft.columns;
-        const tmp = arr[idx - 1];
-        arr[idx - 1] = arr[idx];
-        arr[idx] = tmp;
-        renderHistoryLayoutEditor();
-      });
-      downBtn.addEventListener("click", () => {
-        const arr = historyLayoutDraft.columns;
-        if (idx >= arr.length - 1) return;
-        const tmp = arr[idx + 1];
-        arr[idx + 1] = arr[idx];
-        arr[idx] = tmp;
-        renderHistoryLayoutEditor();
-      });
-      tr.addEventListener("dragstart", (e) => {
-        e.dataTransfer.setData("text/plain", col.key);
-      });
-      tr.addEventListener("dragover", (e) => e.preventDefault());
-      tr.addEventListener("drop", (e) => {
-        e.preventDefault();
-        const fromKey = e.dataTransfer.getData("text/plain");
-        const toKey = col.key;
-        if (!fromKey || fromKey === toKey) return;
-        const keys = historyLayoutDraft.columns.map((c) => c.key);
-        const from = keys.indexOf(fromKey);
-        const to = keys.indexOf(toKey);
-        if (from < 0 || to < 0) return;
-        keys.splice(to, 0, keys.splice(from, 1)[0]);
-        setHistoryDraftOrderFromUi(keys);
-        renderHistoryLayoutEditor();
-      });
-      tbody.appendChild(tr);
-    });
+    historyLayoutDraft = historyLayoutEditor.layoutDraft;
+    historyLayoutEditor.render();
   }
 
-  const histZebraColor = document.getElementById("history-layout-zebra-color");
-  const histZebraEnable = document.getElementById("history-layout-zebra-enable");
-  if (histZebraColor) {
-    histZebraColor.addEventListener("change", () => {
-      historyLayoutDraft.zebra_color_id = histZebraColor.value;
-      renderHistoryLayoutEditor();
-    });
+  function setHistoryLayoutMode(open, opts) {
+    const options = opts || {};
+    skipHistoryLayoutUrl = !!options.skipUrl;
+    if (open) {
+      refreshHistoryLayoutFromServer().finally(() => {
+        if (!open && !historyLayoutModeOpen) return;
+        historyLayoutEditor.replaceSettings(historyLayoutSaved);
+        historyLayoutDraft = historyLayoutEditor.layoutDraft;
+        if (!options.keepStatus) {
+          document.getElementById("history-layout-status-msg").textContent = "";
+        }
+        historyLayoutEditor.setMode(true);
+        skipHistoryLayoutUrl = false;
+      });
+      return;
+    }
+    historyLayoutEditor.setMode(false);
+    historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutEditor.getSettings()));
+    historyLayoutSaved = historyLayoutEditor.getSettings();
+    skipHistoryLayoutUrl = false;
   }
-  if (histZebraEnable) {
-    histZebraEnable.addEventListener("change", () => {
-      historyLayoutDraft.zebra_enabled = histZebraEnable.checked;
-      renderHistoryLayoutEditor();
-    });
+
+  function discardHistoryLayoutDraft() {
+    historyLayoutEditor.replaceSettings(historyLayoutSaved);
+    historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutSaved));
+    document.getElementById("history-layout-status-msg").textContent = "";
   }
 
   if (btnOpenHistoryLayout) {
@@ -4804,60 +4575,10 @@
       setHistoryLayoutMode(true);
     });
   }
-
-  const btnHistLayoutSave = document.getElementById("btn-history-layout-save");
-  if (btnHistLayoutSave) {
-    btnHistLayoutSave.addEventListener("click", async () => {
-      const msg = document.getElementById("history-layout-status-msg");
-      for (const c of historyLayoutDraft.columns) {
-        if (!Number.isInteger(c.width) || c.width < WIDTH_MIN || c.width > WIDTH_MAX) {
-          msg.textContent = MSG.layoutWidthInvalid;
-          return;
-        }
-        if (HISTORY_SORTABLE[c.key] === false && c.sort) {
-          msg.textContent = MSG.historyLayoutSortUnsupported;
-          return;
-        }
-      }
-      btnHistLayoutSave.disabled = true;
-      let data = null;
-      try {
-        const resp = await fetch("/api/soccer/layout/match-history", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify({ settings: historyLayoutDraft }),
-        });
-        try { data = await resp.json(); } catch (_e) { data = null; }
-        if (!resp.ok || !data || !data.ok) {
-          msg.textContent = MSG.layoutSaveFail + (data && data.error ? "（" + data.error + "）" : "");
-          return;
-        }
-      } catch (_e) {
-        msg.textContent = MSG.layoutSaveFail;
-        return;
-      } finally {
-        btnHistLayoutSave.disabled = false;
-      }
-      historyLayoutSaved = data.settings;
-      historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutSaved));
-      msg.textContent = "";
-      historySort = historyCurrentSortParam();
-      applyHistorySearchAvailability(historySearchKeysFromLayout(historyLayoutSaved));
-      setHistoryLayoutMode(false);
-      showHistoryLayoutToast(MSG.layoutSaveOk);
-      // Layout change can alter searchable columns — always re-query page 1.
-      await submitHistoryCriteria({ n: 1 });
-    });
-  }
-
-  const btnHistLayoutCancel = document.getElementById("btn-history-layout-cancel");
-  if (btnHistLayoutCancel) {
-    btnHistLayoutCancel.addEventListener("click", () => {
-      discardHistoryLayoutDraft();
-      renderHistoryLayoutEditor();
-      setHistoryLayoutMode(false);
-    });
-  }
+  document.getElementById("btn-history-layout-cancel").addEventListener("click", () => {
+    discardHistoryLayoutDraft();
+    setHistoryLayoutMode(false);
+  });
 
   {% if open_history_layout_panel %}
   setHistoryLayoutMode(true, { skipUrl: true });

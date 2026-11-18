@@ -1,0 +1,73 @@
+{# Daily races: race-card browser + shared layout-settings panel. #}
+{% from "macros/layout_icons.html" import icon_horse_history %}
+{% from "macros/layout_settings_panel.html" import layout_settings_panel with context %}
+{% set racing_daily_layout_settings = racing_daily_layout_settings if racing_daily_layout_settings is defined else {'zebra_enabled': true, 'zebra_color_id': 'row_alt_gray', 'columns': []} %}
+{% set layout_zebra_colors = layout_zebra_colors if layout_zebra_colors is defined else [] %}
+
+<div class="history-list-mode" id="racing-daily-list-mode">
+  <p class="matches-layout-toast" id="racing-daily-layout-toast" role="status" aria-live="polite"></p>
+  <div class="history-chrome racing-daily-chrome">
+    <div class="toolbar racing-daily-toolbar">
+      <div class="toolbar-row racing-daily-toolbar-row">
+        <div class="toolbar-main racing-daily-actions">
+          <button type="button" class="icon-btn" id="racing-daily-open-layout"
+                  aria-controls="racing-daily-layout-mode" aria-expanded="false">{{ t('racing.daily.layout') }}</button>
+          <button type="button" class="icon-btn" id="racing-daily-btn-open-export">{{ t('racing.daily.export.tip') }}</button>
+        </div>
+      </div>
+    </div>
+    <div class="racing-daily-race-cards" id="racing-daily-race-cards"
+         role="tablist" aria-label="{{ t('racing.daily.races.nav') }}"></div>
+    <div class="racing-daily-summary" id="racing-daily-summary" aria-live="polite"></div>
+  </div>
+  <div class="history-scroll" id="racing-daily-scroll">
+    <div class="state-box" id="racing-daily-state">{{ t('racing.daily.loading') }}</div>
+    <div class="table-wrap" id="racing-daily-table-wrap" hidden>
+      <table class="history-table" id="racing-daily-table">
+        <thead id="racing-daily-thead"></thead>
+        <tbody id="racing-daily-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<template id="racing-daily-horse-icon-template">
+  <span class="racing-daily-horse-icon" title="{{ t('racing.daily.horse_history.tip') }}"
+        aria-label="{{ t('racing.daily.horse_history.tip') }}" role="img">
+    {{ icon_horse_history() }}
+  </span>
+</template>
+
+{{ layout_settings_panel(
+  id_prefix='racing-daily',
+  mode_title=t('racing.daily.layout.mode_title'),
+  table_name_value=t('racing.daily.layout.table_name_value'),
+  zebra_colors=layout_zebra_colors,
+  zebra_color_id=racing_daily_layout_settings.zebra_color_id,
+  zebra_enabled=racing_daily_layout_settings.zebra_enabled,
+  open=false
+) }}
+
+<div class="export-overlay" id="racing-daily-export-overlay" hidden>
+  <div class="export-dialog" role="dialog" aria-modal="true" aria-labelledby="racing-daily-export-title">
+    <h3 id="racing-daily-export-title">{{ t('racing.daily.export.title') }}</h3>
+    <div class="row">
+      <label for="racing-daily-export-type">{{ t('racing.daily.export.file_type') }}</label>
+      <select id="racing-daily-export-type">
+        <option value="xlsx">XLSX</option>
+        <option value="csv">CSV</option>
+        <option value="pdf">PDF</option>
+        <option value="jpeg">JPEG</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="racing-daily-export-filename">{{ t('racing.daily.export.filename') }}</label>
+      <input id="racing-daily-export-filename" type="text" value="racing_daily.xlsx">
+    </div>
+    <div class="row">
+      <button type="button" class="icon-btn" id="racing-daily-export-confirm">{{ t('racing.daily.export.confirm') }}</button>
+      <button type="button" class="icon-btn" id="racing-daily-export-cancel">{{ t('racing.daily.export.cancel') }}</button>
+    </div>
+    <p class="muted" id="racing-daily-export-status"></p>
+  </div>
+</div>

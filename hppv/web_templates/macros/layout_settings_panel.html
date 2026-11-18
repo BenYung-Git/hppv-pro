@@ -1,0 +1,98 @@
+{# Shared layout-settings panel markup (soccer-history chrome; no restore-defaults). #}
+{% from "macros/layout_icons.html" import icon_layout_save, icon_layout_cancel %}
+
+{% macro layout_settings_panel(
+  id_prefix,
+  mode_title,
+  table_name_value,
+  zebra_colors,
+  zebra_color_id,
+  zebra_enabled,
+  open=false,
+  id_mode=None,
+  id_toolbar=None,
+  id_cancel=None,
+  id_save=None,
+  id_zebra_color=None,
+  id_zebra_enable=None,
+  id_cols_table=None,
+  id_cols_body=None,
+  id_status=None
+) -%}
+{#
+  Default ids derived from id_prefix; optional id_* kwargs override individual nodes.
+#}
+{% set mid = id_mode or (id_prefix ~ '-layout-mode') %}
+{% set tid = id_toolbar or (id_prefix ~ '-layout-mode-toolbar') %}
+{% set cid = id_cancel or (id_prefix ~ '-layout-cancel') %}
+{% set sid = id_save or (id_prefix ~ '-layout-save') %}
+{% set zcid = id_zebra_color or (id_prefix ~ '-layout-zebra-color') %}
+{% set zeid = id_zebra_enable or (id_prefix ~ '-layout-zebra-enable') %}
+{% set ctid = id_cols_table or (id_prefix ~ '-layout-cols-table') %}
+{% set cbid = id_cols_body or (id_prefix ~ '-layout-cols-body') %}
+{% set stid = id_status or (id_prefix ~ '-layout-status') %}
+<div class="matches-layout-mode" id="{{ mid }}"
+     {% if not open %}hidden{% endif %}
+     aria-label="{{ mode_title }}">
+  <div class="layout-mode-toolbar" id="{{ tid }}">
+    <h2>{{ mode_title }}</h2>
+    <div class="layout-mode-actions">
+      <button type="button" class="icon-btn" id="{{ cid }}"
+              title="{{ t('soccer.daily.layout.cancel') }}"
+              aria-label="{{ t('soccer.daily.layout.cancel') }}">
+        {{ icon_layout_cancel() }}
+        <span class="btn-label">{{ t('soccer.daily.layout.cancel') }}</span>
+      </button>
+      <button type="button" class="icon-btn layout-save" id="{{ sid }}"
+              title="{{ t('soccer.daily.layout.save') }}"
+              aria-label="{{ t('soccer.daily.layout.save') }}">
+        {{ icon_layout_save() }}
+        <span class="btn-label">{{ t('soccer.daily.layout.save') }}</span>
+      </button>
+    </div>
+  </div>
+  <div class="layout-mode-body">
+    <div class="layout-head">
+      <h3 class="layout-section-title">{{ t('soccer.daily.layout.title') }}</h3>
+      <div class="layout-table-badge">
+        <span>{{ t('soccer.daily.layout.table_name_label') }}</span>
+        <span>{{ table_name_value }}</span>
+      </div>
+    </div>
+    <div class="layout-zebra-row">
+      <div class="layout-zebra-controls">
+        <span>{{ t('soccer.daily.layout.zebra_label') }}</span>
+        <select id="{{ zcid }}">
+          {% for c in zebra_colors %}
+          <option value="{{ c.id }}" {% if zebra_color_id == c.id %}selected{% endif %}>{{ t('soccer.daily.layout.color.' ~ c.id) }}</option>
+          {% endfor %}
+        </select>
+        <label>
+          <input type="checkbox" id="{{ zeid }}" {% if zebra_enabled %}checked{% endif %}>
+          {{ t('soccer.daily.layout.zebra_enable') }}
+        </label>
+      </div>
+    </div>
+    <div class="layout-cols-head">
+      <strong>{{ t('soccer.daily.layout.columns_title') }}</strong>
+    </div>
+    <div class="layout-table-wrap">
+      <table class="layout-cols" id="{{ ctid }}">
+        <thead>
+          <tr>
+            <th>{{ t('soccer.daily.layout.drag') }}</th>
+            <th>{{ t('soccer.daily.layout.col_visible') }}</th>
+            <th>{{ t('soccer.daily.layout.col_name') }}</th>
+            <th>{{ t('soccer.daily.layout.col_desc') }}</th>
+            <th>{{ t('soccer.daily.layout.col_width') }}</th>
+            <th>{{ t('soccer.daily.layout.col_sort') }}</th>
+            <th>{{ t('soccer.daily.layout.move_up') }} / {{ t('soccer.daily.layout.move_down') }}</th>
+          </tr>
+        </thead>
+        <tbody id="{{ cbid }}"></tbody>
+      </table>
+    </div>
+    <p class="hint muted" id="{{ stid }}"></p>
+  </div>
+</div>
+{%- endmacro %}

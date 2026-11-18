@@ -9,7 +9,11 @@
     body { margin: 0; font-family: "Microsoft JhengHei", Arial, sans-serif; background: #f5f7fb; color: #1d2a3a; }
     header { background: #1f3d66; color: #fff; padding: 14px 20px; }
     nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
-    nav a { color: #fff; margin-right: 0; text-decoration: none; font-weight: 600; }
+    nav a { color: #fff; margin-right: 0; text-decoration: none; font-weight: 600; padding: 4px 8px; border-radius: 6px; }
+    nav a.nav-active {
+      background: rgba(255, 255, 255, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+    }
     nav .lang-form { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; }
     nav .lang-form label { font-size: 13px; font-weight: 600; }
     nav .lang-form select {
@@ -52,11 +56,12 @@
 <body>
   <header>
     <nav>
-      <a href="{{ url_for('index') }}">{{ t('nav.dashboard') }}</a>
-      <a href="{{ url_for('horses_list') }}">馬匹列表</a>
-      <a href="{{ url_for('rankings') }}">排位</a>
-      <a href="{{ url_for('soccer_daily') }}">{{ t('nav.soccer_daily') }}</a>
-      <a href="{{ url_for('settings_page') }}">{{ t('nav.system_settings') }}</a>
+      <a href="{{ url_for('index') }}"{% if request.endpoint == 'index' %} class="nav-active"{% endif %}>{{ t('nav.dashboard') }}</a>
+      <a href="{{ url_for('horses_list') }}"{% if request.endpoint == 'horses_list' %} class="nav-active"{% endif %}>馬匹列表</a>
+      <a href="{{ url_for('rankings') }}"{% if request.endpoint == 'rankings' %} class="nav-active"{% endif %}>排位</a>
+      <a href="{{ url_for('racing_info') }}"{% if request.endpoint == 'racing_info' %} class="nav-active"{% endif %}>{{ t('nav.racing_info') }}</a>
+      <a href="{{ url_for('soccer_daily') }}"{% if request.endpoint in ('soccer_daily', 'soccer_history') %} class="nav-active"{% endif %}>{{ t('nav.soccer_daily') }}</a>
+      <a href="{{ url_for('settings_page') }}"{% if request.endpoint == 'settings_page' %} class="nav-active"{% endif %}>{{ t('nav.system_settings') }}</a>
       <form class="lang-form" method="post" action="{{ url_for('set_language') }}">
         <input type="hidden" name="next" value="{{ request.path }}">
         <label for="nav-lang">{{ t('nav.language') }}</label>

@@ -492,6 +492,13 @@ def message_image(filename: str):
     return send_from_directory(str(folder), filename)
 
 
+@app.get("/hppv-static/<path:filename>")
+def hppv_web_static(filename: str):
+    """Serve shared web UI scripts/styles from hppv/web_static."""
+    folder = Path(__file__).resolve().parent / "web_static"
+    return send_from_directory(str(folder), filename)
+
+
 def _soccer_today_dashboard_summary() -> dict[str, Any]:
     """
     Dashboard soccer card: HKT today + soccer_daily count for that date only.
@@ -814,6 +821,344 @@ def _empty_history_page_meta(
         "sort": sort or history_sort_param(default_history_sort_specs()),
         "search_keys": keys,
     }
+
+
+_RACING_INFO_TABS = frozenset({"matches", "history", "download", "tasks"})
+
+
+@app.get("/racing/info")
+def racing_info() -> str:
+    """Horse-racing info UI (daily=racecard; history=race_records; other tabs empty)."""
+    from hppv.racing_layout import (
+        LAYOUT_KEY_RACING_DAILY,
+        LAYOUT_KEY_RACING_HISTORY,
+        catalog_public,
+        get_layout_settings,
+    )
+    from hppv.soccer_layout import ZEBRA_COLORS
+
+    raw = (request.args.get("tab") or "matches").strip().lower()
+    active_tab = raw if raw in _RACING_INFO_TABS else "matches"
+    return render_template(
+        "racing_info.html",
+        active_tab=active_tab,
+        racing_page_size=50,
+        racing_layout_settings=get_layout_settings(LAYOUT_KEY_RACING_HISTORY),
+        racing_layout_catalog=catalog_public(layout_key=LAYOUT_KEY_RACING_HISTORY),
+        racing_daily_layout_settings=get_layout_settings(LAYOUT_KEY_RACING_DAILY),
+        racing_daily_layout_catalog=catalog_public(layout_key=LAYOUT_KEY_RACING_DAILY),
+        layout_zebra_colors=list(ZEBRA_COLORS),
+    )
+
+
+@app.get("/api/racing/history-records")
+def api_racing_history_records() -> Any:
+    """Paged race_records list (read-only)."""
+    from hppv.racing_history import (
+        RacingHistoryError,
+        RacingHistorySearchError,
+        fetch_racing_history_filtered,
+        normalize_history_search_op,
+        parse_racing_sort_param,
+    )
+    from hppv.racing_layout import (
+        LAYOUT_KEY_RACING_HISTORY,
+        catalog_public,
+        get_layout_settings,
+        racing_search_keys_from_layout,
+        racing_sort_specs_from_layout,
+    )
+
+    try:
+        all_matches = str(request.args.get("all_matches", "1")).strip() not in (
+            "0",
+            "false",
+            "False",
+        )
+        race_date = request.args.get("date")
+        n_raw = request.args.get("n", "1")
+        try:
+            n = int(n_raw)
+        except (TypeError, ValueError):
+            n = 1
+        q = request.args.get("q") or ""
+        q_op = normalize_history_search_op(request.args.get("q_op"))
+        layout = get_layout_settings(LAYOUT_KEY_RACING_HISTORY)
+        sort_specs = parse_racing_sort_param(request.args.get("sort"))
+        if sort_specs is None:
+            sort_specs = racing_sort_specs_from_layout(layout)
+        search_keys = racing_search_keys_from_layout(layout)
+        result = fetch_racing_history_filtered(
+            DB_PATH,
+            all_matches=all_matches,
+            race_date=None if all_matches else race_date,
+            n=n,
+            q=q,
+            q_op=q_op,
+            sort_specs=sort_specs,
+            search_keys=search_keys,
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "source": "race_records",
+                "db": str(DB_PATH),
+                "table": "race_records",
+                "date": None if all_matches else race_date,
+                "all_matches": result.all_matches,
+                "rows": result.rows,
+                "n": result.n,
+                "total_count": result.total_count,
+                "total_pages": result.total_pages,
+                "page_size": result.page_size,
+                "q": result.q,
+                "q_op": result.q_op,
+                "sort": result.sort,
+                "search_keys": list(result.search_keys),
+                "field_keys": list(result.field_keys),
+                "layout_settings": layout,
+                "catalog": catalog_public(),
+            }
+        )
+    except RacingHistorySearchError as e:
+        return jsonify({"ok": False, "error": e.code}), 400
+    except RacingHistoryError as e:
+        return jsonify({"ok": False, "error": e.code}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing history list failed: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+
+
+@app.get("/api/racing/layout/history")
+def api_racing_history_layout_get() -> Any:
+    from hppv.racing_layout import (
+        LAYOUT_KEY_RACING_HISTORY,
+        catalog_public,
+        get_layout_settings,
+    )
+
+    try:
+        return jsonify(
+            {
+                "ok": True,
+                "layout_key": LAYOUT_KEY_RACING_HISTORY,
+                "layout_settings": get_layout_settings(LAYOUT_KEY_RACING_HISTORY),
+                "catalog": catalog_public(),
+            }
+        )
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing layout get failed: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+
+
+@app.post("/api/racing/layout/history")
+def api_racing_history_layout_save() -> Any:
+    from hppv.racing_layout import (
+        LAYOUT_KEY_RACING_HISTORY,
+        catalog_public,
+        default_layout_settings,
+        save_layout_settings,
+    )
+
+    data = request.get_json(silent=True) or {}
+    if bool(data.get("reset")):
+        settings = default_layout_settings(LAYOUT_KEY_RACING_HISTORY)
+    else:
+        settings = data.get("layout_settings") or data
+    try:
+        saved = save_layout_settings(settings, layout_key=LAYOUT_KEY_RACING_HISTORY)
+        return jsonify(
+            {
+                "ok": True,
+                "layout_key": LAYOUT_KEY_RACING_HISTORY,
+                "layout_settings": saved,
+                "catalog": catalog_public(),
+            }
+        )
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing layout save failed: %s", e)
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+
+
+@app.post("/api/racing/history-export")
+def api_racing_history_export() -> Any:
+    from hppv.racing_history_export import (
+        RacingExportError,
+        build_racing_history_export,
+        export_content_disposition,
+        parse_racing_export_request,
+    )
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        req = parse_racing_export_request(payload)
+        data, mime, rows = build_racing_history_export(DB_PATH, req)
+        resp = make_response(data)
+        resp.headers["Content-Type"] = mime
+        resp.headers["Content-Disposition"] = export_content_disposition(req.filename)
+        resp.headers["X-HPPV-Export-Rows"] = str(rows)
+        resp.headers["X-HPPV-Export-Filename"] = req.filename
+        return resp
+    except RacingExportError as e:
+        return jsonify({"ok": False, "error": e.code}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing export failed: %s", e)
+        return jsonify({"ok": False, "error": "export_failed"}), 500
+
+
+@app.get("/api/racing/daily-records")
+def api_racing_daily_records() -> Any:
+    """Racecard daily view: active meeting + selected race (all starters for that race)."""
+    from hppv.racing_daily import (
+        RacingDailyError,
+        RacingDailySearchError,
+        fetch_racing_daily_race,
+        parse_racing_daily_sort_param,
+    )
+    from hppv.racing_layout import (
+        LAYOUT_KEY_RACING_DAILY,
+        catalog_public,
+        get_layout_settings,
+        racing_daily_sort_specs_from_layout,
+    )
+
+    try:
+        race_date = request.args.get("date")
+        racecourse = request.args.get("racecourse")
+        race_no_raw = request.args.get("race_no")
+        race_no: int | None = None
+        if race_no_raw not in (None, ""):
+            try:
+                race_no = int(race_no_raw)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": "invalid_race_no"}), 400
+        layout = get_layout_settings(LAYOUT_KEY_RACING_DAILY)
+        sort_specs = parse_racing_daily_sort_param(request.args.get("sort"))
+        if sort_specs is None:
+            sort_specs = racing_daily_sort_specs_from_layout(layout)
+        result = fetch_racing_daily_race(
+            DB_PATH,
+            race_no=race_no,
+            race_date=race_date,
+            racecourse=racecourse,
+            sort_specs=sort_specs,
+        )
+        meeting = result.meeting
+        return jsonify(
+            {
+                "ok": True,
+                "source": "racecard_starters",
+                "join": "racecard_race_info",
+                "db": str(DB_PATH),
+                "table": "racecard_starters",
+                "mode": "race",
+                "meeting": {
+                    "race_date": meeting.race_date,
+                    "race_date_iso": meeting.race_date_iso,
+                    "racecourse": meeting.racecourse,
+                    "racecourse_name": meeting.racecourse_name,
+                    "source": meeting.source,
+                },
+                "races": [
+                    {"race_no": r.race_no, "horse_count": r.horse_count}
+                    for r in result.races
+                ],
+                "selected_race_no": result.selected_race_no,
+                "summary": result.summary,
+                "rows": result.rows,
+                "total_count": result.total_count,
+                "sort": result.sort,
+                "field_keys": list(result.field_keys),
+                "layout_settings": layout,
+                "catalog": catalog_public(layout_key=LAYOUT_KEY_RACING_DAILY),
+            }
+        )
+    except RacingDailySearchError as e:
+        return jsonify({"ok": False, "error": e.code}), 400
+    except RacingDailyError as e:
+        return jsonify({"ok": False, "error": e.code}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing daily list failed: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+
+
+@app.get("/api/racing/layout/daily")
+def api_racing_daily_layout_get() -> Any:
+    from hppv.racing_layout import (
+        LAYOUT_KEY_RACING_DAILY,
+        catalog_public,
+        get_layout_settings,
+    )
+
+    try:
+        return jsonify(
+            {
+                "ok": True,
+                "layout_key": LAYOUT_KEY_RACING_DAILY,
+                "layout_settings": get_layout_settings(LAYOUT_KEY_RACING_DAILY),
+                "catalog": catalog_public(layout_key=LAYOUT_KEY_RACING_DAILY),
+            }
+        )
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing daily layout get failed: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+
+
+@app.post("/api/racing/layout/daily")
+def api_racing_daily_layout_save() -> Any:
+    from hppv.racing_layout import (
+        LAYOUT_KEY_RACING_DAILY,
+        catalog_public,
+        default_layout_settings,
+        save_layout_settings,
+    )
+
+    data = request.get_json(silent=True) or {}
+    if bool(data.get("reset")):
+        settings = default_layout_settings(LAYOUT_KEY_RACING_DAILY)
+    else:
+        settings = data.get("layout_settings") or data
+    try:
+        saved = save_layout_settings(settings, layout_key=LAYOUT_KEY_RACING_DAILY)
+        return jsonify(
+            {
+                "ok": True,
+                "layout_key": LAYOUT_KEY_RACING_DAILY,
+                "layout_settings": saved,
+                "catalog": catalog_public(layout_key=LAYOUT_KEY_RACING_DAILY),
+            }
+        )
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing daily layout save failed: %s", e)
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+
+
+@app.post("/api/racing/daily-export")
+def api_racing_daily_export() -> Any:
+    from hppv.racing_daily_export import (
+        build_racing_daily_export,
+        parse_racing_daily_export_request,
+    )
+    from hppv.racing_history_export import (
+        RacingExportError,
+        export_content_disposition,
+    )
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        req = parse_racing_daily_export_request(payload)
+        data, mime, rows = build_racing_daily_export(DB_PATH, req)
+        resp = make_response(data)
+        resp.headers["Content-Type"] = mime
+        resp.headers["Content-Disposition"] = export_content_disposition(req.filename)
+        resp.headers["X-HPPV-Export-Rows"] = str(rows)
+        resp.headers["X-HPPV-Export-Filename"] = req.filename
+        return resp
+    except RacingExportError as e:
+        return jsonify({"ok": False, "error": e.code}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing daily export failed: %s", e)
+        return jsonify({"ok": False, "error": "export_failed"}), 500
 
 
 @app.get("/soccer/daily")

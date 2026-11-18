@@ -1,0 +1,833 @@
+{% extends "base.html" %}
+{% from "macros/layout_icons.html" import icon_history_layout, icon_history_export %}
+{% from "macros/layout_settings_panel.html" import layout_settings_panel with context %}
+{% block title %}{{ t('racing.info.title') }} - HPPV Web{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('hppv_web_static', filename='hppv_records_main_ui.css') }}">
+<style>
+  .racing-info {
+    --racing-green: #1b7a3d;
+    --racing-green-bg: #e8f6ee;
+    --soccer-green: #1b7a3d;
+    --soccer-green-bg: #e8f6ee;
+    --racing-layout-zebra: #f4f6f9;
+  }
+  .racing-info .page-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+    padding: 12px 14px; border-radius: 10px;
+    background: linear-gradient(90deg, var(--racing-green-bg), #f5f7fb);
+    border: 1px solid #cfe6d7;
+  }
+  .racing-info .page-head h1 { margin: 0; color: var(--racing-green); font-size: 22px; }
+  .racing-info .settings-tabs {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
+    border-bottom: 1px solid #dbe3ef; padding-bottom: 8px; background: #eef2f7;
+  }
+  .racing-info.is-layout-mode .settings-tabs { opacity: .55; pointer-events: none; }
+  .racing-info .settings-tab {
+    padding: 8px 12px; border: 1px solid #dbe3ef; border-radius: 8px 8px 0 0;
+    background: #eef3fb; color: #1f3d66; font-weight: 700; cursor: pointer;
+  }
+  .racing-info .settings-tab.active { background: #fff; border-bottom-color: #fff; }
+  .racing-info .tab-panel { display: none; }
+  .racing-info .tab-panel.active { display: block; min-height: 12rem; }
+  .racing-info .tab-panel[data-panel="history"].active,
+  .racing-info .tab-panel[data-panel="matches"].active {
+    display: flex; flex-direction: column; height: calc(100dvh - 9.5rem); min-height: 22rem;
+  }
+  .racing-info .tab-panel[data-panel="history"].matches-mode-layout.active,
+  .racing-info .tab-panel[data-panel="matches"].matches-mode-layout.active {
+    display: block; height: auto; min-height: 0;
+  }
+  .racing-info .tab-panel[data-panel="history"].matches-mode-layout .history-list-mode,
+  .racing-info .tab-panel[data-panel="matches"].matches-mode-layout .history-list-mode {
+    display: none !important;
+  }
+  .racing-info .tab-panel[data-panel="history"].matches-mode-list .matches-layout-mode,
+  .racing-info .tab-panel[data-panel="matches"].matches-mode-list .matches-layout-mode {
+    display: none !important;
+  }
+  .racing-info .history-list-mode { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  .racing-info .history-chrome { flex: 0 0 auto; }
+  /* Same scroll model as soccer .matches-list-scroll: one scrollport so thead sticky works. */
+  .racing-info .history-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    border: 1px solid #dbe3ef;
+    border-radius: 10px;
+    background: #fff;
+  }
+  .racing-info .history-scroll .table-wrap {
+    overflow: visible; /* do not nest scroll — breaks position:sticky (soccer pattern) */
+    border: none;
+    border-radius: 0;
+    background: transparent;
+  }
+  .racing-info .history-scroll .state-box {
+    border: none;
+    border-radius: 0;
+  }
+  .racing-info .toolbar { margin-bottom: 10px; }
+  .racing-info .toolbar-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; justify-content: space-between; }
+  .racing-info .toolbar-main { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+  .racing-info .racing-daily-toolbar-row { justify-content: flex-start; }
+  .racing-info .racing-daily-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .racing-info .racing-daily-race-cards {
+    display: flex; flex-wrap: nowrap; gap: 8px; align-items: center;
+    overflow-x: auto; padding: 2px 0 10px; margin-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .racing-info .racing-daily-race-card {
+    flex: 0 0 auto; min-width: 2.4rem; height: 2.4rem; padding: 0 10px;
+    border-radius: 999px; border: 2px solid #1b7a3d; background: #fff;
+    color: #1b7a3d; font-weight: 800; font-size: 15px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .racing-info .racing-daily-race-card[aria-selected="true"] {
+    background: #1b7a3d; color: #fff; border-color: #1b7a3d;
+  }
+  .racing-info .racing-daily-summary {
+    display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center;
+    margin: 0 0 10px; padding: 8px 10px; border-radius: 8px;
+    background: #f4faf6; border: 1px solid #cfe6d7; color: #1f3d66; font-size: 13px;
+  }
+  .racing-info .racing-daily-summary .sep { color: #8aa195; }
+  .racing-info .racing-daily-summary .sum-label { color: #5a6878; font-weight: 600; }
+  .racing-info .racing-daily-summary .sum-value { font-weight: 700; color: #16324f; }
+  .racing-info .racing-daily-horse-icon {
+    display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center;
+    cursor: default; user-select: none; pointer-events: auto;
+  }
+  .racing-info .racing-daily-horse-icon svg { width: 26px; height: 26px; display: block; }
+  .racing-info table.history-table th.racing-daily-icon-col,
+  .racing-info table.history-table td.racing-daily-icon-col {
+    width: 40px; min-width: 40px; text-align: center; cursor: default; padding: 4px;
+  }
+  .racing-info .date-nav, .racing-info .filter-wrap { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .racing-info .pager { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+  .racing-info .pager-status { font-size: 13px; color: #5a6878; }
+  .racing-info .icon-btn {
+    border: 1px solid #dbe3ef; background: #fff; border-radius: 6px; padding: 6px 10px;
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: #1f3d66;
+  }
+  .racing-info .icon-btn svg { width: 22px; height: 22px; flex: 0 0 auto; }
+  .racing-info .icon-btn .btn-label { font-size: 13px; }
+  .racing-info .history-toolbar-actions { display: inline-flex; align-items: center; gap: 8px; }
+  .racing-info .icon-btn.toolbar-icon-only { padding: 8px; position: relative; }
+  .racing-info .icon-btn.toolbar-icon-only .btn-label {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  .racing-info .icon-btn.layout-save { border-color: #b7dfc4; color: var(--racing-green); }
+  .racing-info .table-wrap { overflow-x: auto; border: 1px solid #dbe3ef; border-radius: 8px; background: #fff; }
+  .racing-info table.history-table {
+    width: max-content;
+    min-width: 100%;
+    /* separate + spacing 0: sticky thead more reliable than collapse (soccer pattern) */
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .racing-info table.history-table th, .racing-info table.history-table td {
+    border: 1px solid #dbe3ef; padding: 6px 8px; font-size: 13px; white-space: nowrap;
+  }
+  .racing-info table.history-table th {
+    background: #eef3fb;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .racing-info .history-scroll table.history-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #eef3fb;
+    box-shadow: inset 0 -1px 0 #dbe3ef;
+  }
+  .racing-info .state-box { padding: 18px; color: #5a6878; }
+  .racing-info .matches-layout-toast {
+    display: none; margin: 0 0 10px; padding: 8px 12px; border-radius: 8px;
+    background: #e8f5e9; color: #1b5e20; font-weight: 600;
+  }
+  .racing-info .matches-layout-toast.show { display: block; }
+  .racing-info .matches-layout-mode {
+    background: #fff; border: 1px solid #dbe3ef; border-radius: 10px; padding: 0 0 12px;
+  }
+  .racing-info .layout-mode-toolbar {
+    position: sticky; top: 2.75rem; z-index: 8;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 10px 14px; padding: 12px 14px; margin: 0;
+    background: #fff; border-bottom: 1px solid #dbe3ef; border-radius: 10px 10px 0 0;
+    box-shadow: 0 1px 0 rgba(31, 61, 102, 0.06);
+  }
+  .racing-info .layout-mode-toolbar h2 { margin: 0; font-size: 1.15rem; color: #1f3d66; }
+  .racing-info .layout-mode-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .racing-info .layout-mode-body { padding: 12px 14px 0; overflow-x: auto; }
+  .racing-info .layout-head {
+    display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .racing-info .layout-section-title { margin: 0; font-size: 1rem; font-weight: 700; color: #1f3d66; }
+  .racing-info .layout-table-badge {
+    display: inline-flex; gap: 6px; align-items: center; padding: 7px 10px; border-radius: 8px;
+    background: var(--racing-green-bg); color: var(--racing-green);
+    border: 1px solid #b7dfc4; font-weight: 700; font-size: 13px;
+  }
+  .racing-info .layout-zebra-row,
+  .racing-info .layout-cols-head {
+    display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .racing-info .layout-zebra-controls {
+    display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center;
+  }
+  .racing-info .layout-table-wrap {
+    overflow-x: auto; border: 1px solid #dbe3ef; border-radius: 10px; background: #fff;
+  }
+  .racing-info table.layout-cols { width: 100%; border-collapse: collapse; min-width: 720px; }
+  .racing-info table.layout-cols th,
+  .racing-info table.layout-cols td {
+    border: 1px solid #d5deea; padding: 8px 10px; vertical-align: middle;
+  }
+  .racing-info table.layout-cols thead th { background: #eef3fb; font-weight: 700; }
+  .racing-info table.layout-cols tbody tr.layout-zebra {
+    background: var(--racing-layout-zebra, #f4f6f9);
+  }
+  .racing-info .layout-width-input {
+    width: 72px; padding: 6px 8px; border: 1px solid #dbe3ef; border-radius: 6px;
+  }
+  .racing-info .layout-width-input.invalid { border-color: #c0392b; background: #fdeeee; }
+  .racing-info .drag-handle { cursor: grab; user-select: none; color: #7a8aa0; font-weight: 700; }
+  .racing-info .hint { margin: 8px 0 0; color: #5a6878; }
+  .racing-info .export-overlay {
+    position: fixed; inset: 0; background: rgba(22,33,52,.45); display: none; z-index: 999;
+    align-items: center; justify-content: center;
+  }
+  .racing-info .export-overlay.show { display: flex; }
+  .racing-info .export-dialog {
+    background: #fff; border-radius: 10px; padding: 16px; width: min(420px, 92vw);
+    border: 1px solid #dbe3ef;
+  }
+  .racing-info .export-dialog .row { margin: 8px 0; }
+  .racing-info .visually-hidden {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); border: 0;
+  }
+  @media (max-width: 720px) {
+    .racing-info .page-head h1 { font-size: 20px; }
+    .racing-info .settings-tab { font-size: 13px; padding: 8px 10px; }
+  }
+</style>
+
+{% set active_tab = active_tab if active_tab is defined else 'matches' %}
+{% set racing_layout_settings = racing_layout_settings if racing_layout_settings is defined else {'zebra_enabled': true, 'zebra_color_id': 'row_alt_gray', 'columns': []} %}
+{% set layout_zebra_colors = layout_zebra_colors if layout_zebra_colors is defined else [] %}
+
+<div class="racing-info hppv-records-main" data-racing-shell="1" id="racing-info-root">
+  <div class="page-head">
+    <h1>{{ t('racing.info.title') }}</h1>
+  </div>
+
+  <div class="settings-tabs" role="tablist" aria-label="{{ t('racing.info.title') }}">
+    <button type="button" class="settings-tab{% if active_tab == 'matches' %} active{% endif %}" role="tab"
+            id="racing-tab-btn-matches" data-tab="matches"
+            aria-selected="{{ 'true' if active_tab == 'matches' else 'false' }}"
+            aria-controls="racing-tab-panel-matches">{{ t('racing.info.tab.matches') }}</button>
+    <button type="button" class="settings-tab{% if active_tab == 'history' %} active{% endif %}" role="tab"
+            id="racing-tab-btn-history" data-tab="history"
+            aria-selected="{{ 'true' if active_tab == 'history' else 'false' }}"
+            aria-controls="racing-tab-panel-history">{{ t('racing.info.tab.history') }}</button>
+    <button type="button" class="settings-tab{% if active_tab == 'download' %} active{% endif %}" role="tab"
+            id="racing-tab-btn-download" data-tab="download"
+            aria-selected="{{ 'true' if active_tab == 'download' else 'false' }}"
+            aria-controls="racing-tab-panel-download">{{ t('racing.info.tab.download') }}</button>
+    <button type="button" class="settings-tab{% if active_tab == 'tasks' %} active{% endif %}" role="tab"
+            id="racing-tab-btn-tasks" data-tab="tasks"
+            aria-selected="{{ 'true' if active_tab == 'tasks' else 'false' }}"
+            aria-controls="racing-tab-panel-tasks">{{ t('racing.info.tab.tasks') }}</button>
+  </div>
+
+  <div class="tab-panel matches-mode-list{% if active_tab == 'matches' %} active{% endif %}" role="tabpanel"
+       id="racing-tab-panel-matches" data-panel="matches"{% if active_tab != 'matches' %} hidden{% endif %}>
+    {% include "partials/racing_daily_panel.html" %}
+  </div>
+
+  <div class="tab-panel matches-mode-list{% if active_tab == 'history' %} active{% endif %}" role="tabpanel"
+       id="racing-tab-panel-history" data-panel="history"{% if active_tab != 'history' %} hidden{% endif %}>
+    <div class="matches-list-mode history-list-mode" id="racing-history-list-mode">
+      <p class="matches-layout-toast" id="racing-layout-toast" role="status" aria-live="polite"></p>
+      <div class="matches-chrome history-chrome">
+        <div class="toolbar">
+          <div class="toolbar-row">
+            <div class="toolbar-main">
+              <div class="date-nav">
+                <label class="all-matches-wrap" for="racing-all-records">
+                  <input type="checkbox" id="racing-all-records" checked>
+                  {{ t('racing.history.filter.all_records') }}
+                </label>
+                <button type="button" class="icon-btn" id="racing-btn-prev-day" disabled>‹ {{ t('racing.history.prev_day') }}</button>
+                <label for="racing-date">{{ t('racing.history.date') }}</label>
+                <input id="racing-date" type="date" disabled>
+                <button type="button" class="icon-btn" id="racing-btn-next-day" disabled>{{ t('racing.history.next_day') }} ›</button>
+              </div>
+              <div class="filter-wrap">
+                <label for="racing-search">{{ t('racing.history.search_label') }}</label>
+                <input id="racing-search" type="search" placeholder="{{ t('racing.history.search_placeholder') }}" autocomplete="off">
+                <label class="visually-hidden" for="racing-search-op">{{ t('history.search_op.label') }}</label>
+                <select id="racing-search-op" aria-label="{{ t('history.search_op.label') }}">
+                  <option value="approx" selected>{{ t('history.search_op.approx') }}</option>
+                  <option value="eq">{{ t('history.search_op.eq') }}</option>
+                  <option value="ne">{{ t('history.search_op.ne') }}</option>
+                  <option value="contains">{{ t('history.search_op.contains') }}</option>
+                  <option value="not_contains">{{ t('history.search_op.not_contains') }}</option>
+                  <option value="starts">{{ t('history.search_op.starts') }}</option>
+                  <option value="ends">{{ t('history.search_op.ends') }}</option>
+                </select>
+              </div>
+            </div>
+            <div class="history-toolbar-actions">
+              <button type="button" class="icon-btn toolbar-layout-btn toolbar-icon-only" id="racing-btn-open-layout"
+                      aria-controls="racing-history-layout-mode"
+                      aria-expanded="false"
+                      title="{{ t('racing.history.layout') }}"
+                      aria-label="{{ t('racing.history.layout') }}">
+                {{ icon_history_layout() }}
+                <span class="btn-label">{{ t('racing.history.layout') }}</span>
+              </button>
+              <button type="button" class="icon-btn toolbar-icon-only" id="racing-btn-open-export"
+                      title="{{ t('racing.history.export.tip') }}"
+                      aria-label="{{ t('racing.history.export.tip') }}">
+                {{ icon_history_export() }}
+                <span class="btn-label">{{ t('racing.history.export.tip') }}</span>
+              </button>
+            </div>
+          </div>
+          <nav class="pager" id="racing-pager" aria-label="{{ t('racing.history.pager.nav') }}">
+            <button type="button" class="icon-btn" id="racing-pager-first" disabled title="{{ t('racing.history.pager.first') }}">≪</button>
+            <button type="button" class="icon-btn" id="racing-pager-prev" disabled title="{{ t('racing.history.pager.prev') }}">‹</button>
+            <span class="pager-status" id="racing-pager-status">—</span>
+            <button type="button" class="icon-btn" id="racing-pager-next" disabled title="{{ t('racing.history.pager.next') }}">›</button>
+            <button type="button" class="icon-btn" id="racing-pager-last" disabled title="{{ t('racing.history.pager.last') }}">≫</button>
+          </nav>
+        </div>
+      </div>
+      <div class="matches-list-scroll history-scroll" id="racing-history-scroll">
+        <div class="state-box" id="racing-history-state">{{ t('racing.history.loading') }}</div>
+        <div class="table-wrap" id="racing-history-table-wrap" hidden>
+          <table class="matches history-table" id="racing-history-table">
+            <thead id="racing-history-thead"></thead>
+            <tbody id="racing-history-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    {{ layout_settings_panel(
+      id_prefix='racing-history',
+      mode_title=t('racing.history.layout.mode_title'),
+      table_name_value=t('racing.history.layout.table_name_value'),
+      zebra_colors=layout_zebra_colors,
+      zebra_color_id=racing_layout_settings.zebra_color_id,
+      zebra_enabled=racing_layout_settings.zebra_enabled,
+      open=false,
+      id_cancel='racing-layout-cancel',
+      id_save='racing-layout-save',
+      id_zebra_color='racing-layout-zebra-color',
+      id_zebra_enable='racing-layout-zebra-enable',
+      id_cols_table='racing-layout-cols-table',
+      id_cols_body='racing-layout-cols-body',
+      id_status='racing-layout-status',
+      id_toolbar='racing-layout-mode-toolbar'
+    ) }}
+  </div>
+
+  <div class="tab-panel{% if active_tab == 'download' %} active{% endif %}" role="tabpanel"
+       id="racing-tab-panel-download" data-panel="download"{% if active_tab != 'download' %} hidden{% endif %}></div>
+  <div class="tab-panel{% if active_tab == 'tasks' %} active{% endif %}" role="tabpanel"
+       id="racing-tab-panel-tasks" data-panel="tasks"{% if active_tab != 'tasks' %} hidden{% endif %}></div>
+</div>
+
+<div class="export-overlay" id="racing-export-overlay" hidden>
+  <div class="export-dialog" role="dialog" aria-modal="true" aria-labelledby="racing-export-title">
+    <h3 id="racing-export-title">{{ t('racing.history.export.title') }}</h3>
+    <div class="row">
+      <label for="racing-export-type">{{ t('racing.history.export.file_type') }}</label>
+      <select id="racing-export-type">
+        <option value="xlsx">XLSX</option>
+        <option value="csv">CSV</option>
+        <option value="pdf">PDF</option>
+        <option value="jpeg">JPEG</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="racing-export-filename">{{ t('racing.history.export.filename') }}</label>
+      <input id="racing-export-filename" type="text" value="racing_history.xlsx">
+    </div>
+    <div class="row">
+      <button type="button" class="icon-btn" id="racing-export-confirm">{{ t('racing.history.export.confirm') }}</button>
+      <button type="button" class="icon-btn" id="racing-export-cancel">{{ t('racing.history.export.cancel') }}</button>
+    </div>
+    <p class="muted" id="racing-export-status"></p>
+  </div>
+</div>
+
+{% include "partials/hppv_layout_editor_script.html" %}
+<script>
+(function () {
+  const root = document.getElementById("racing-info-root");
+  if (!root) return;
+  const WIDTH_MIN = 60;
+  const WIDTH_MAX = 600;
+  const MSG = {
+    loading: {{ t('racing.history.loading')|tojson }},
+    empty: {{ t('racing.history.empty')|tojson }},
+    error: {{ t('racing.history.error')|tojson }},
+    retry: {{ t('racing.history.retry')|tojson }},
+    layoutSaved: {{ t('soccer.daily.layout.saved')|tojson }},
+    layoutSaveFailed: {{ t('soccer.daily.layout.save_failed')|tojson }},
+    layoutWidthInvalid: {{ t('soccer.daily.layout.width_invalid')|tojson }},
+    layoutSortEmpty: {{ t('soccer.daily.layout.sort_empty')|tojson }},
+    layoutSortAsc: {{ t('soccer.daily.layout.sort_asc')|tojson }},
+    layoutSortDesc: {{ t('soccer.daily.layout.sort_desc')|tojson }},
+    layoutMoveUp: {{ t('soccer.daily.layout.move_up')|tojson }},
+    layoutMoveDown: {{ t('soccer.daily.layout.move_down')|tojson }},
+    sortUnsupported: {{ t('racing.history.layout.sort_unsupported')|tojson }},
+    exportOk: {{ t('racing.history.export.ok')|tojson }},
+    exportFailed: {{ t('racing.history.export.failed')|tojson }},
+  };
+  const COL_LABEL = {
+    id: {{ t('racing.history.col.id')|tojson }},
+    horse_id: {{ t('racing.history.col.horse_id')|tojson }},
+    brand_no: {{ t('racing.history.col.brand_no')|tojson }},
+    name_zh: {{ t('racing.history.col.name_zh')|tojson }},
+    name_en: {{ t('racing.history.col.name_en')|tojson }},
+    race_date: {{ t('racing.history.col.race_date')|tojson }},
+    venue: {{ t('racing.history.col.venue')|tojson }},
+    race_no: {{ t('racing.history.col.race_no')|tojson }},
+    course: {{ t('racing.history.col.course')|tojson }},
+    distance: {{ t('racing.history.col.distance')|tojson }},
+    going: {{ t('racing.history.col.going')|tojson }},
+    class_band: {{ t('racing.history.col.class_band')|tojson }},
+    draw: {{ t('racing.history.col.draw')|tojson }},
+    rating: {{ t('racing.history.col.rating')|tojson }},
+    jockey: {{ t('racing.history.col.jockey')|tojson }},
+    trainer: {{ t('racing.history.col.trainer')|tojson }},
+    finish_pos: {{ t('racing.history.col.finish_pos')|tojson }},
+    running_pos: {{ t('racing.history.col.running_pos')|tojson }},
+    win_odds: {{ t('racing.history.col.win_odds')|tojson }},
+    time: {{ t('racing.history.col.time')|tojson }},
+    prize: {{ t('racing.history.col.prize')|tojson }},
+  };
+  const COL_DESC = {
+    id: {{ t('racing.history.col.desc.id')|tojson }},
+    horse_id: {{ t('racing.history.col.desc.horse_id')|tojson }},
+    brand_no: {{ t('racing.history.col.desc.brand_no')|tojson }},
+    name_zh: {{ t('racing.history.col.desc.name_zh')|tojson }},
+    name_en: {{ t('racing.history.col.desc.name_en')|tojson }},
+    race_date: {{ t('racing.history.col.desc.race_date')|tojson }},
+    venue: {{ t('racing.history.col.desc.venue')|tojson }},
+    race_no: {{ t('racing.history.col.desc.race_no')|tojson }},
+    course: {{ t('racing.history.col.desc.course')|tojson }},
+    distance: {{ t('racing.history.col.desc.distance')|tojson }},
+    going: {{ t('racing.history.col.desc.going')|tojson }},
+    class_band: {{ t('racing.history.col.desc.class_band')|tojson }},
+    draw: {{ t('racing.history.col.desc.draw')|tojson }},
+    rating: {{ t('racing.history.col.desc.rating')|tojson }},
+    jockey: {{ t('racing.history.col.desc.jockey')|tojson }},
+    trainer: {{ t('racing.history.col.desc.trainer')|tojson }},
+    finish_pos: {{ t('racing.history.col.desc.finish_pos')|tojson }},
+    running_pos: {{ t('racing.history.col.desc.running_pos')|tojson }},
+    win_odds: {{ t('racing.history.col.desc.win_odds')|tojson }},
+    time: {{ t('racing.history.col.desc.time')|tojson }},
+    prize: {{ t('racing.history.col.desc.prize')|tojson }},
+  };
+  const ZEBRA_COLORS = {{ layout_zebra_colors|tojson }};
+
+  const buttons = Array.from(root.querySelectorAll(".settings-tab"));
+  const panels = Array.from(root.querySelectorAll(".tab-panel"));
+  const historyPanel = document.getElementById("racing-tab-panel-history");
+  let activeTabName = {{ active_tab|tojson }};
+  let layoutSaved = {{ racing_layout_settings|tojson }};
+  let catalog = {{ (racing_layout_catalog if racing_layout_catalog is defined else [])|tojson }};
+  let pageN = 1;
+  let totalPages = 0;
+  let totalCount = 0;
+  let sortParam = "";
+  let historyLoaded = false;
+  let loading = false;
+  let layoutModeOpen = false;
+  let historyLayoutEditor = null;
+  const SORTABLE = {};
+
+  function rebuildSortable() {
+    Object.keys(SORTABLE).forEach((k) => { delete SORTABLE[k]; });
+    ((layoutSaved && layoutSaved.columns) || []).forEach((c) => { SORTABLE[c.key] = true; });
+    (catalog || []).forEach((c) => { SORTABLE[c.key] = !!c.sortable; });
+  }
+
+  function activateTab(name) {
+    if (!name) return;
+    activeTabName = name;
+    for (const btn of buttons) {
+      const on = btn.dataset.tab === name;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    }
+    for (const panel of panels) {
+      const on = panel.dataset.panel === name;
+      panel.classList.toggle("active", on);
+      if (on) panel.removeAttribute("hidden");
+      else panel.setAttribute("hidden", "hidden");
+    }
+    try {
+      const url = new URL(window.location.href);
+      if (name === "matches") url.searchParams.delete("tab");
+      else url.searchParams.set("tab", name);
+      window.history.replaceState({}, "", url.pathname + url.search);
+    } catch (_e) {}
+    if (name === "history") ensureHistoryLoaded();
+    if (name === "matches" && typeof window.__racingEnsureDailyLoaded === "function") {
+      window.__racingEnsureDailyLoaded();
+    }
+    if (name !== "history") setLayoutMode(false);
+    if (name !== "matches" && typeof window.__racingDailySetLayoutMode === "function") {
+      window.__racingDailySetLayoutMode(false);
+    }
+  }
+  for (const btn of buttons) btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+
+  const allRecords = document.getElementById("racing-all-records");
+  const dateInput = document.getElementById("racing-date");
+  const btnPrevDay = document.getElementById("racing-btn-prev-day");
+  const btnNextDay = document.getElementById("racing-btn-next-day");
+  const searchInput = document.getElementById("racing-search");
+  const searchOp = document.getElementById("racing-search-op");
+  const stateBox = document.getElementById("racing-history-state");
+  const tableWrap = document.getElementById("racing-history-table-wrap");
+  const thead = document.getElementById("racing-history-thead");
+  const tbody = document.getElementById("racing-history-tbody");
+  const pagerStatus = document.getElementById("racing-pager-status");
+
+  function syncDateControls() {
+    const all = !!(allRecords && allRecords.checked);
+    if (dateInput) dateInput.disabled = all;
+    if (btnPrevDay) btnPrevDay.disabled = all;
+    if (btnNextDay) btnNextDay.disabled = all;
+  }
+
+  function shiftDate(days) {
+    if (!dateInput || !dateInput.value) {
+      const d = new Date();
+      dateInput.value = d.toISOString().slice(0, 10);
+    }
+    const d = new Date(dateInput.value + "T12:00:00");
+    d.setDate(d.getDate() + days);
+    dateInput.value = d.toISOString().slice(0, 10);
+    pageN = 1;
+    fetchHistory();
+  }
+
+  function visibleColumns() {
+    return ((layoutSaved && layoutSaved.columns) || []).filter((c) => c.visible);
+  }
+
+  function applyZebraCss(settings) {
+    const src = settings || layoutSaved;
+    if (!src || !src.zebra_enabled) {
+      root.style.removeProperty("--racing-layout-zebra");
+      return;
+    }
+    const found = ZEBRA_COLORS.find((c) => c.id === src.zebra_color_id);
+    if (found) root.style.setProperty("--racing-layout-zebra", found.css);
+  }
+
+  function updatePager() {
+    const atFirst = !totalPages || pageN <= 1;
+    const atLast = !totalPages || pageN >= totalPages;
+    ["racing-pager-first", "racing-pager-prev"].forEach((id) => {
+      const el = document.getElementById(id); if (el) el.disabled = atFirst;
+    });
+    ["racing-pager-next", "racing-pager-last"].forEach((id) => {
+      const el = document.getElementById(id); if (el) el.disabled = atLast;
+    });
+    if (pagerStatus) {
+      pagerStatus.textContent = totalPages
+        ? (pageN + " / " + totalPages + " · " + totalCount)
+        : "0 / 0 · 0";
+    }
+  }
+
+  function renderTable(rows) {
+    applyZebraCss();
+    const cols = visibleColumns();
+    thead.innerHTML = "";
+    tbody.innerHTML = "";
+    const hr = document.createElement("tr");
+    cols.forEach((c) => {
+      const th = document.createElement("th");
+      const arrow = c.sort === "asc" ? " ↑" : (c.sort === "desc" ? " ↓" : "");
+      th.textContent = (COL_LABEL[c.key] || c.key) + arrow;
+      th.dataset.key = c.key;
+      th.style.minWidth = (c.width || 100) + "px";
+      th.addEventListener("click", () => cycleSort(c.key));
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+    rows.forEach((row, idx) => {
+      const tr = document.createElement("tr");
+      if (layoutSaved && layoutSaved.zebra_enabled && idx % 2 === 1) {
+        tr.style.background = getComputedStyle(root).getPropertyValue("--racing-layout-zebra") || "#f4f6f9";
+      }
+      cols.forEach((c) => {
+        const td = document.createElement("td");
+        td.textContent = row[c.key] != null ? row[c.key] : "—";
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  function cycleSort(key) {
+    if (SORTABLE[key] === false) return;
+    const parts = (sortParam || "").split(",").filter(Boolean);
+    let dir = "";
+    const rest = [];
+    parts.forEach((p) => {
+      const [k, d] = p.split(":");
+      if (k === key) dir = d;
+      else rest.push(p);
+    });
+    const next = dir === "asc" ? "desc" : (dir === "desc" ? "" : "asc");
+    if (next) rest.unshift(key + ":" + next);
+    sortParam = rest.join(",");
+    pageN = 1;
+    fetchHistory();
+  }
+
+  async function ensureHistoryLoaded() {
+    if (!catalog.length) {
+      const resp = await fetch("/api/racing/layout/history");
+      const data = await resp.json();
+      if (resp.ok && data && data.ok) {
+        layoutSaved = data.layout_settings;
+        catalog = data.catalog || [];
+        rebuildSortable();
+        if (historyLayoutEditor) historyLayoutEditor.replaceSettings(layoutSaved);
+      }
+    }
+    if (!historyLoaded) {
+      historyLoaded = true;
+      await fetchHistory();
+    }
+  }
+
+  async function fetchHistory() {
+    if (loading) return;
+    loading = true;
+    stateBox.hidden = false;
+    stateBox.textContent = MSG.loading;
+    tableWrap.hidden = true;
+    syncDateControls();
+    const params = new URLSearchParams();
+    const all = !!(allRecords && allRecords.checked);
+    params.set("all_matches", all ? "1" : "0");
+    if (!all && dateInput && dateInput.value) params.set("date", dateInput.value);
+    params.set("n", String(pageN || 1));
+    params.set("q", searchInput ? searchInput.value : "");
+    params.set("q_op", searchOp ? searchOp.value : "approx");
+    if (sortParam) params.set("sort", sortParam);
+    try {
+      const resp = await fetch("/api/racing/history-records?" + params.toString());
+      const data = await resp.json();
+      if (!resp.ok || !data || !data.ok) {
+        stateBox.innerHTML = MSG.error + ' <button type="button" class="icon-btn" id="racing-retry">' + MSG.retry + "</button>";
+        const r = document.getElementById("racing-retry");
+        if (r) r.addEventListener("click", () => fetchHistory());
+        return;
+      }
+      if (data.layout_settings) {
+        layoutSaved = data.layout_settings;
+        if (historyLayoutEditor) historyLayoutEditor.replaceSettings(layoutSaved);
+      }
+      if (Array.isArray(data.catalog) && data.catalog.length) {
+        catalog = data.catalog;
+        rebuildSortable();
+      }
+      pageN = data.n || 0;
+      totalPages = data.total_pages || 0;
+      totalCount = data.total_count || 0;
+      sortParam = data.sort || sortParam;
+      updatePager();
+      if (!data.rows || !data.rows.length) {
+        stateBox.textContent = MSG.empty;
+        tableWrap.hidden = true;
+      } else {
+        stateBox.hidden = true;
+        tableWrap.hidden = false;
+        renderTable(data.rows);
+      }
+    } catch (_e) {
+      stateBox.textContent = MSG.error;
+    } finally {
+      loading = false;
+    }
+  }
+
+  if (!window.HppvLayoutEditor) {
+    throw new Error("racing history requires HppvLayoutEditor");
+  }
+  // sortableMap must be seeded before create(); editor validates every column key.
+  rebuildSortable();
+  const UI_LOCALE = document.documentElement.lang || "zh-Hant";
+  historyLayoutEditor = window.HppvLayoutEditor.create({
+    ids: {
+      mode: "racing-history-layout-mode",
+      openBtn: "racing-btn-open-layout",
+      cancelBtn: "racing-layout-cancel",
+      saveBtn: "racing-layout-save",
+      colsBody: "racing-layout-cols-body",
+      zebraColor: "racing-layout-zebra-color",
+      zebraEnable: "racing-layout-zebra-enable",
+      status: "racing-layout-status",
+      toast: "racing-layout-toast",
+      listMode: "racing-history-list-mode",
+    },
+    messages: {
+      sortEmpty: MSG.layoutSortEmpty,
+      sortAsc: MSG.layoutSortAsc,
+      sortDesc: MSG.layoutSortDesc,
+      sortUnsupported: MSG.sortUnsupported,
+      moveUp: MSG.layoutMoveUp,
+      moveDown: MSG.layoutMoveDown,
+      widthInvalid: MSG.layoutWidthInvalid,
+      saveOk: MSG.layoutSaved,
+      saveFail: MSG.layoutSaveFailed,
+    },
+    colLabels: COL_LABEL,
+    colDescs: COL_DESC,
+    sortableMap: SORTABLE,
+    zebraColors: ZEBRA_COLORS,
+    widthMin: WIDTH_MIN,
+    widthMax: WIDTH_MAX,
+    locale: UI_LOCALE,
+    initialSettings: layoutSaved,
+    autoBind: { open: true, cancel: true, save: true, zebra: true },
+    applyZebraCss: applyZebraCss,
+    onModeChange: function (on) {
+      layoutModeOpen = !!on;
+      root.classList.toggle("is-layout-mode", layoutModeOpen);
+      if (historyPanel) {
+        historyPanel.classList.toggle("matches-mode-layout", layoutModeOpen);
+        historyPanel.classList.toggle("matches-mode-list", !layoutModeOpen);
+      }
+    },
+    save: async function (draft) {
+      const resp = await fetch("/api/racing/layout/history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ layout_settings: draft }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data || !data.ok) {
+        throw new Error((data && data.error) || "save_failed");
+      }
+      layoutSaved = data.layout_settings;
+      if (Array.isArray(data.catalog)) {
+        catalog = data.catalog;
+        rebuildSortable();
+      }
+      return layoutSaved;
+    },
+    onAfterSave: async function () {
+      pageN = 1;
+      await fetchHistory();
+    },
+  });
+
+  function setLayoutMode(on) {
+    if (!historyLayoutEditor) return;
+    if (on) historyLayoutEditor.replaceSettings(layoutSaved);
+    historyLayoutEditor.setMode(!!on);
+  }
+
+  const exportOverlay = document.getElementById("racing-export-overlay");
+  function openExport() {
+    exportOverlay.hidden = false;
+    exportOverlay.classList.add("show");
+    document.getElementById("racing-export-status").textContent = "";
+  }
+  function closeExport() {
+    exportOverlay.classList.remove("show");
+    exportOverlay.hidden = true;
+  }
+  async function doExport() {
+    const type = document.getElementById("racing-export-type").value;
+    let filename = document.getElementById("racing-export-filename").value.trim() || ("racing_history." + type);
+    if (!filename.toLowerCase().endsWith("." + type)) filename += "." + type;
+    const cols = visibleColumns().map((c) => ({ key: c.key, width: c.width || 100 }));
+    const status = document.getElementById("racing-export-status");
+    status.textContent = MSG.loading;
+    try {
+      const resp = await fetch("/api/racing/history-export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({
+          file_type: type,
+          filename: filename,
+          q: searchInput ? searchInput.value : "",
+          q_op: searchOp ? searchOp.value : "approx",
+          all_matches: !!(allRecords && allRecords.checked),
+          date: dateInput ? dateInput.value : null,
+          sort: sortParam,
+          columns: cols,
+          lang: UI_LOCALE,
+        }),
+      });
+      if (!resp.ok) {
+        let err = MSG.exportFailed;
+        try { const j = await resp.json(); if (j && j.error) err += "（" + j.error + "）"; } catch (_e) {}
+        status.textContent = err;
+        return;
+      }
+      const blob = await resp.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      status.textContent = MSG.exportOk;
+    } catch (_e) {
+      status.textContent = MSG.exportFailed;
+    }
+  }
+
+  if (allRecords) allRecords.addEventListener("change", () => { syncDateControls(); pageN = 1; fetchHistory(); });
+  if (dateInput) dateInput.addEventListener("change", () => { pageN = 1; fetchHistory(); });
+  if (btnPrevDay) btnPrevDay.addEventListener("click", () => shiftDate(-1));
+  if (btnNextDay) btnNextDay.addEventListener("click", () => shiftDate(1));
+  let searchTimer = null;
+  if (searchInput) searchInput.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { pageN = 1; fetchHistory(); }, 300);
+  });
+  if (searchOp) searchOp.addEventListener("change", () => { pageN = 1; fetchHistory(); });
+  document.getElementById("racing-pager-first").addEventListener("click", () => { pageN = 1; fetchHistory(); });
+  document.getElementById("racing-pager-prev").addEventListener("click", () => { pageN = Math.max(1, pageN - 1); fetchHistory(); });
+  document.getElementById("racing-pager-next").addEventListener("click", () => { pageN = pageN + 1; fetchHistory(); });
+  document.getElementById("racing-pager-last").addEventListener("click", () => { pageN = totalPages || 1; fetchHistory(); });
+  document.getElementById("racing-btn-open-export").addEventListener("click", openExport);
+  document.getElementById("racing-export-cancel").addEventListener("click", closeExport);
+  document.getElementById("racing-export-confirm").addEventListener("click", doExport);
+  document.getElementById("racing-export-type").addEventListener("change", (e) => {
+    const t = e.target.value;
+    const fn = document.getElementById("racing-export-filename");
+    fn.value = (fn.value.replace(/\.(xlsx|csv|pdf|jpeg)$/i, "") || "racing_history") + "." + t;
+  });
+
+  syncDateControls();
+  rebuildSortable();
+  activateTab(activeTabName);
+})();
+</script>
+{% include "partials/racing_daily_script.html" %}
+{% endblock %}

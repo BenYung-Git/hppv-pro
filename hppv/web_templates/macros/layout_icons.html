@@ -1,0 +1,44 @@
+{# Shared layout toolbar icons (soccer + racing). #}
+{% macro icon_layout_save() -%}
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <rect x="10" y="14" width="44" height="36" rx="4" fill="#e8f6ee" stroke="#1b7a3d" stroke-width="3"/>
+  <path d="M18 22 h28 M18 30 h20 M18 38 h24" stroke="#1b7a3d" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="46" cy="44" r="10" fill="#1b7a3d"/>
+  <path d="M42 44 l3 3 l6 -7" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+{%- endmacro %}
+
+{% macro icon_layout_cancel() -%}
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <circle cx="32" cy="32" r="22" fill="#fff" stroke="#8a97a8" stroke-width="3"/>
+  <path d="M22 22 L42 42 M42 22 L22 42" stroke="#5c6b7e" stroke-width="4" stroke-linecap="round"/>
+</svg>
+{%- endmacro %}
+
+{# Decorative horse mark for daily starters (display + tip only; no click action). #}
+{% macro icon_horse_history() -%}
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <circle cx="32" cy="32" r="28" fill="#1b7a3d"/>
+  <path d="M18 38c2-10 8-16 16-18 4-1 8 0 11 2 2 1 4 1 6-1 1 4-1 8-4 10l2 8c-3 1-6 0-8-2-2 3-5 5-9 6-6 1-11-1-14-5z"
+        fill="#e8f6ee"/>
+  <path d="M28 28c1.5 0 2.5 1.2 2.2 2.4" fill="none" stroke="#1b7a3d" stroke-width="2" stroke-linecap="round"/>
+  <path d="M22 44c3 6 8 9 14 9s11-3 14-9" fill="none" stroke="#e8f6ee" stroke-width="3" stroke-linecap="round"/>
+</svg>
+{%- endmacro %}
+
+{# Shared main-UI toolbar icons (soccer history chrome baseline). #}
+{% macro icon_history_layout() -%}
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <rect x="10" y="14" width="44" height="36" rx="4" fill="#eef3fb" stroke="#1f3d66" stroke-width="3"/>
+  <path d="M18 24 h28 M18 32 h28 M18 40 h18" stroke="#1f3d66" stroke-width="3" stroke-linecap="round"/>
+  <rect x="40" y="36" width="10" height="10" rx="2" fill="#1b7a3d"/>
+</svg>
+{%- endmacro %}
+
+{% macro icon_history_export() -%}
+<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <rect x="14" y="10" width="28" height="36" rx="3" fill="#fff7e8" stroke="#b7791f" stroke-width="3"/>
+  <path d="M22 20 h12 M22 28 h12 M22 36 h8" stroke="#b7791f" stroke-width="3" stroke-linecap="round"/>
+  <path d="M40 34 v16 M34 44 l6 8 l6 -8" fill="none" stroke="#1b7a3d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+{%- endmacro %}

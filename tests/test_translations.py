@@ -118,10 +118,10 @@ def test_translate_active_key(tmp_path: Path) -> None:
     db_path = tmp_path / "soccer.sqlite3"
     init_soccer_db(db_path)
     text_map = load_active_text_map(db_path, "en")
-    assert translate(text_map, "soccer.daily.title") == "Soccer Database"
+    assert translate(text_map, "soccer.daily.title") == "Soccer Info"
     assert translate(text_map, "soccer.daily.tab.history") == "Match History"
     text_map_hant = load_active_text_map(db_path, "zh-Hant")
-    assert translate(text_map_hant, "nav.soccer_daily") == "足球資料庫"
+    assert translate(text_map_hant, "nav.soccer_daily") == "足球資訊"
     assert translate(text_map_hant, "soccer.daily.tab.history") == "球賽往績"
     assert translate(load_active_text_map(db_path, "zh-Hans"), "soccer.daily.tab.history") == "球赛往绩"
     text_map_zh = load_active_text_map(db_path, "zh-Hans")
@@ -151,9 +151,9 @@ def test_seed_label_renames_only_when_old_defaults(tmp_path: Path) -> None:
         ).fetchone()
     assert n == 1
     assert (nav["zh_hant"], nav["en"], nav["zh_hans"]) == (
-        "足球資料庫",
-        "Soccer Database",
-        "足球数据库",
+        "足球資訊",
+        "Soccer Info",
+        "足球资讯",
     )
     assert title["zh_hant"] == "使用者自訂標題"
 
