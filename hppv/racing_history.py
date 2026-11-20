@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from hppv.db import _RACE_RECORD_DATE_ORDER_EXPR, get_connection
+from hppv.display_format import format_field_display
 from hppv.racing_layout import (
     DEFAULT_RACING_SEARCH_KEYS,
     RACING_COLUMN_BY_KEY,
@@ -19,7 +20,6 @@ from hppv.racing_layout import (
 )
 
 RACING_HISTORY_PAGE_SIZE = 50
-EMPTY_DISPLAY = "—"
 
 # Display key → SQL expression (aliases from join).
 _RACING_COL_SQL: dict[str, str] = {
@@ -203,18 +203,15 @@ def _build_q_clause(
     return "", []
 
 
-def _format_cell(value: Any) -> str:
-    if value is None:
-        return EMPTY_DISPLAY
-    text = str(value).strip()
-    return text if text != "" else EMPTY_DISPLAY
+def _format_cell(key: str, value: Any) -> str:
+    return format_field_display(key, value)
 
 
 def _row_to_view(row: Any) -> dict[str, str]:
     keys = list(row.keys()) if hasattr(row, "keys") else []
     out: dict[str, str] = {}
     for key in _RACING_COL_SQL:
-        out[key] = _format_cell(row[key] if key in keys else None)
+        out[key] = _format_cell(key, row[key] if key in keys else None)
     return out
 
 

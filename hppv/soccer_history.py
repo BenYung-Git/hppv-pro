@@ -9,6 +9,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from hppv.display_format import format_date_display
 from hppv.footylogic_schema import FOOTYLOGIC_MATCHES_TABLE
 from hppv.soccer_db import get_connection, table_exists
 from hppv.soccer_ingest import HKJC_RESULT_CONFIRM_STATUS, HKJC_RESULT_VOID_STATUS
@@ -296,7 +297,9 @@ def _row_to_history_view(row: Any) -> dict[str, str]:
     )
     view: dict[str, str] = {
         "source_key": source_key or EMPTY_DISPLAY,
-        "match_date": format_text_field(row["match_date_hkt"] if "match_date_hkt" in keys else None),
+        "match_date": format_date_display(
+            row["match_date_hkt"] if "match_date_hkt" in keys else None
+        ),
         "kickoff_hhmm": format_kickoff_hhmm(row["kickoff_hkt"] if "kickoff_hkt" in keys else None),
         "competition_id": format_text_field(
             row["competition_id"] if "competition_id" in keys else None

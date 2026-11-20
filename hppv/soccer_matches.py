@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from hppv.display_format import EMPTY_DISPLAY, format_date_display, format_text_field
 from hppv.schema import SOCCER_DAILY_TABLE
 from hppv.soccer_db import get_connection, report_schema_diff, table_exists
 
@@ -15,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 HKT = ZoneInfo("Asia/Hong_Kong")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-EMPTY_DISPLAY = "—"
 
 # Status Filter is part of the list filter contract, but source→bucket mapping
 # is not verified yet. Keep False so we never invent match_status SQL.
@@ -207,13 +207,6 @@ def format_kickoff_hhmm(kickoff_at: str | None) -> str:
         return EMPTY_DISPLAY
 
 
-def format_text_field(value: Any) -> str:
-    if value is None:
-        return EMPTY_DISPLAY
-    text = str(value).strip()
-    return text if text else EMPTY_DISPLAY
-
-
 def format_odds(value: Any, *, match_id: str = "", field: str = "") -> str:
     """
     Display odds with 2 decimal places.
@@ -303,7 +296,7 @@ def _row_to_view(row: Any) -> dict[str, str]:
 
     return {
         "match_id": match_id,
-        "match_date": format_text_field(_get("match_date")),
+        "match_date": format_date_display(_get("match_date")),
         "kickoff_hhmm": format_kickoff_hhmm(row["kickoff_at"]),
         "match_code": format_text_field(row["match_code"]),
         "competition_code": format_text_field(row["competition_code"]),

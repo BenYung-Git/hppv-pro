@@ -121,10 +121,11 @@
   let loaded = false;
   const SORTABLE = {};
 
+  // Same as soccer daily: layout-editor map marks every saved column sortable;
+  // list header uses getSortableMap null (do not block by catalog.sortable).
   function rebuildSortable() {
     Object.keys(SORTABLE).forEach((k) => delete SORTABLE[k]);
     ((layoutSaved && layoutSaved.columns) || []).forEach((c) => { SORTABLE[c.key] = true; });
-    (catalog || []).forEach((c) => { SORTABLE[c.key] = !!c.sortable; });
   }
   rebuildSortable();
 
@@ -298,7 +299,7 @@
       retry: MSG.retry,
     },
     getLayout: function () { return layoutSaved; },
-    getSortableMap: function () { return SORTABLE; },
+    getSortableMap: function () { return null; },
     buildParams: function () {
       const params = new URLSearchParams();
       const saved = readSavedSelection();

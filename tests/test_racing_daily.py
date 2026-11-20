@@ -117,6 +117,8 @@ def test_fetch_daily_race_isolated(tmp_path: Path) -> None:
     assert all("舊會馬" not in r["horse_name"] for r in view.rows)
     assert view.summary["event_name"] == "測試賽一"
     assert view.summary["race_course_area"] == "草地"
+    assert view.summary["race_date"] == "2026-11-08"
+    assert all(r["race_date"] == "2026-11-08" for r in view.rows)
     view2 = fetch_racing_daily_race(db, race_no=2)
     assert view2.total_count == 2
     assert all(r["race_no"] == "2" for r in view2.rows)

@@ -71,6 +71,7 @@ def test_fetch_racing_history_from_race_records(tmp_path: Path) -> None:
     assert result.total_count >= 1
     assert result.rows[0]["name_zh"] == "測試馬"
     assert result.rows[0]["horse_id"] == "HK_2020_A001"
+    assert result.rows[0]["race_date"] == "2026-02-01"
     after = get_connection(db).execute("select count(*) c from race_records").fetchone()["c"]
     assert before == after  # read-only
 

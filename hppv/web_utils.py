@@ -2,18 +2,12 @@ from __future__ import annotations
 
 import re
 
+from hppv.display_format import format_date_display
+
 
 def format_race_date_display(date_text: str) -> str:
-    """Format race date to include 4-digit year for display."""
-    if not date_text:
-        return ""
-    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{2})$", date_text.strip())
-    if not m:
-        return date_text
-    dd, mm, yy = m.groups()
-    yy_num = int(yy)
-    yyyy = 2000 + yy_num if yy_num <= 69 else 1900 + yy_num
-    return f"{int(dd):02d}/{int(mm):02d}/{yyyy:04d}"
+    """Display race date as YYYY-MM-DD (shared list date rule)."""
+    return format_date_display(date_text)
 
 
 def race_date_sort_key(date_text: str) -> int:
@@ -29,4 +23,8 @@ def race_date_sort_key(date_text: str) -> int:
         yy_num = int(yy)
         yyyy = 2000 + yy_num if yy_num <= 69 else 1900 + yy_num
         return int(f"{yyyy:04d}{int(mm):02d}{int(dd):02d}")
+    m_iso = re.match(r"^((?:19|20)\d{2})[-/](\d{1,2})[-/](\d{1,2})$", t)
+    if m_iso:
+        yyyy, mm, dd = m_iso.groups()
+        return int(f"{int(yyyy):04d}{int(mm):02d}{int(dd):02d}")
     return 0

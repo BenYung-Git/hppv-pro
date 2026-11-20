@@ -21,6 +21,7 @@ from hppv.soccer_history import (
 # Distinct from neutral (missing FT): void rows show「失效」in the recent-form result column.
 FORM_TEAM_RESULT_VOID = "void"
 from hppv.soccer_ingest import HKJC_RESULT_CONFIRM_STATUS, HKJC_RESULT_VOID_STATUS
+from hppv.display_format import format_date_display
 from hppv.soccer_matches import (
     EMPTY_DISPLAY,
     SoccerDataError,
@@ -519,7 +520,7 @@ def _row_to_h2h_view(row: Any) -> dict[str, str]:
     home_res, away_res = form_display_result_classes(row)
     return {
         "source_key": source_key or EMPTY_DISPLAY,
-        "match_date": format_text_field(row["match_date_hkt"]),
+        "match_date": format_date_display(row["match_date_hkt"]),
         "kickoff_hhmm": format_kickoff_hhmm(row["kickoff_hkt"]),
         "kickoff_hkt": format_text_field(row["kickoff_hkt"]),
         "competition_id": format_text_field(row["competition_id"]),

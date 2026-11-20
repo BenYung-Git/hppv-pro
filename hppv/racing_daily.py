@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from hppv.db import get_connection
+from hppv.display_format import EMPTY_DISPLAY, format_date_display, format_field_display
 from hppv.racing_history import (
     DEFAULT_HISTORY_SEARCH_OP,
     HISTORY_SEARCH_OP_APPROX,
@@ -32,7 +33,6 @@ from hppv.racing_layout import (
 )
 
 RACING_DAILY_PAGE_SIZE = 50
-EMPTY_DISPLAY = "—"
 
 _RACECOURSE_DISPLAY = {"ST": "沙田", "HV": "跑馬地", "FC": "從化"}
 
@@ -267,18 +267,15 @@ def _build_q_clause(q: str, q_op: str, search_keys: list[str]) -> tuple[str, lis
     return "", []
 
 
-def _format_cell(value: Any) -> str:
-    if value is None:
-        return EMPTY_DISPLAY
-    text = str(value).strip()
-    return text if text != "" else EMPTY_DISPLAY
+def _format_cell(key: str, value: Any) -> str:
+    return format_field_display(key, value)
 
 
 def _row_to_view(row: Any) -> dict[str, str]:
     keys = list(row.keys()) if hasattr(row, "keys") else []
     out: dict[str, str] = {}
     for key in _DAILY_COL_SQL:
-        out[key] = _format_cell(row[key] if key in keys else None)
+        out[key] = _format_cell(key, row[key] if key in keys else None)
     return out
 
 
@@ -414,7 +411,7 @@ def _build_race_summary(row: Any | None, meeting: RacingDailyMeeting, race_no: i
     )
     out: dict[str, str] = {
         "race_no": str(race_no),
-        "race_date": meeting.race_date,
+        "race_date": format_date_display(meeting.race_date),
         "race_date_iso": meeting.race_date_iso,
         "racecourse": meeting.racecourse,
         "racecourse_name": meeting.racecourse_name,
@@ -426,7 +423,7 @@ def _build_race_summary(row: Any | None, meeting: RacingDailyMeeting, race_no: i
         return out
     row_keys = set(row.keys()) if hasattr(row, "keys") else set()
     for k in keys:
-        out[k] = _format_cell(row[k] if k in row_keys else None)
+        out[k] = _format_cell(k, row[k] if k in row_keys else None)
     track = out.get("track_name") or ""
     if track and track != EMPTY_DISPLAY and "賽道" not in track:
         out["track_name"] = f"{track} 賽道"

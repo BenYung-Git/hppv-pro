@@ -1098,16 +1098,10 @@ QTabBar#mainShellTabBar::tab:selected {{
 
     @staticmethod
     def _format_race_date_display(date_text: str) -> str:
-        """Format race date to include 4-digit year for display."""
-        if not date_text:
-            return ""
-        m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{2})$", date_text.strip())
-        if not m:
-            return date_text
-        dd, mm, yy = m.groups()
-        yy_num = int(yy)
-        yyyy = 2000 + yy_num if yy_num <= 69 else 1900 + yy_num
-        return f"{int(dd):02d}/{int(mm):02d}/{yyyy:04d}"
+        """Display race date as YYYY-MM-DD (shared list date rule)."""
+        from hppv.display_format import format_date_display
+
+        return format_date_display(date_text)
 
     @staticmethod
     def _race_date_sort_key(date_text: str) -> int:
