@@ -5,6 +5,9 @@
   if (!window.HppvLayoutEditor) {
     throw new Error("racing daily requires HppvLayoutEditor");
   }
+  if (!window.HppvRecordsShell) {
+    throw new Error("racing daily requires HppvRecordsShell");
+  }
   const WIDTH_MIN = 60, WIDTH_MAX = 600;
   const SEL_KEY = "hppv.racing.daily.selectedRace";
   const UI_LOCALE = document.documentElement.lang || "zh-Hant";
@@ -110,10 +113,12 @@
   const horseIconTpl = document.getElementById("racing-daily-horse-icon-template");
   let layoutSaved = {{ racing_daily_layout_settings|tojson }};
   let catalog = {{ (racing_daily_layout_catalog if racing_daily_layout_catalog is defined else [])|tojson }};
-  let sortParam = "", loading = false, loaded = false;
   let meeting = null;
   let races = [];
   let selectedRaceNo = null;
+  let listCtrl = null;
+  let dailyLayoutEditor = null;
+  let loaded = false;
   const SORTABLE = {};
 
   function rebuildSortable() {
@@ -180,7 +185,7 @@
         if (r.race_no === selectedRaceNo) return;
         selectedRaceNo = r.race_no;
         writeSavedSelection();
-        fetchDaily();
+        if (listCtrl) listCtrl.load();
       });
       raceCardsEl.appendChild(btn);
     });
@@ -243,15 +248,22 @@
     thIcon.textContent = "";
     thIcon.setAttribute("aria-label", MSG.horseTip);
     hr.appendChild(thIcon);
+    if (!window.HppvRecordsHeader) throw new Error("racing daily requires HppvRecordsHeader");
+    const RH = window.HppvRecordsHeader;
     cols.forEach((c) => {
       const th = document.createElement("th");
-      const arrow = c.sort === "asc" ? " ↑" : (c.sort === "desc" ? " ↓" : "");
-      th.textContent = (COL_LABEL[c.key] || c.key) + arrow;
+      th.dataset.key = c.key;
+      th.textContent = RH.headerLabel(c, COL_LABEL);
       th.style.minWidth = (c.width || 100) + "px";
-      th.addEventListener("click", () => cycleSort(c.key));
       hr.appendChild(th);
     });
     thead.appendChild(hr);
+    RH.bindHeaderClicks({
+      root: thead,
+      onCycle: function (key) {
+        if (listCtrl) listCtrl.cycleHeaderSort(key);
+      },
+    });
     rows.forEach((row, idx) => {
       const tr = document.createElement("tr");
       if (layoutSaved && layoutSaved.zebra_enabled && idx % 2 === 1) {
@@ -270,22 +282,61 @@
     });
   }
 
-  function cycleSort(key) {
-    if (SORTABLE[key] === false) return;
-    const parts = (sortParam || "").split(",").filter(Boolean);
-    let dir = "";
-    const rest = [];
-    parts.forEach((p) => {
-      const [k, d] = p.split(":");
-      if (k === key) dir = d; else rest.push(p);
-    });
-    const next = dir === "asc" ? "desc" : (dir === "desc" ? "" : "asc");
-    if (next) rest.unshift(key + ":" + next);
-    sortParam = rest.join(",");
-    fetchDaily();
-  }
+  listCtrl = window.HppvRecordsShell.createList({
+    recordsUrl: "/api/records/racing/racing_daily",
+    pagerMode: "none",
+    autoBindSearch: false,
+    autoBindPager: false,
+    els: {
+      state: stateBox,
+      tableWrap: tableWrap,
+    },
+    messages: {
+      loading: MSG.loading,
+      empty: MSG.empty,
+      error: MSG.error,
+      retry: MSG.retry,
+    },
+    getLayout: function () { return layoutSaved; },
+    getSortableMap: function () { return SORTABLE; },
+    buildParams: function () {
+      const params = new URLSearchParams();
+      const saved = readSavedSelection();
+      if (selectedRaceNo != null) params.set("race_no", String(selectedRaceNo));
+      else if (saved && saved.race_no != null) params.set("race_no", String(saved.race_no));
+      if (meeting) {
+        params.set("date", meeting.race_date_iso || meeting.race_date);
+        params.set("racecourse", meeting.racecourse);
+      }
+      return params;
+    },
+    normalizeResponse: function (data) {
+      return { sort: data.sort, totalCount: (data.rows && data.rows.length) || 0 };
+    },
+    beforeFetch: function () {
+      if (summaryEl) summaryEl.innerHTML = "";
+      return true;
+    },
+    onSuccess: function (data) {
+      if (data.layout_settings) {
+        layoutSaved = data.layout_settings;
+        if (dailyLayoutEditor) dailyLayoutEditor.replaceSettings(layoutSaved);
+      }
+      if (Array.isArray(data.catalog) && data.catalog.length) {
+        catalog = data.catalog;
+        rebuildSortable();
+      }
+      meeting = data.meeting || null;
+      races = Array.isArray(data.races) ? data.races : [];
+      selectedRaceNo = data.selected_race_no;
+      writeSavedSelection();
+      renderRaceCards();
+      renderSummary(data.summary || null);
+      if (data.rows && data.rows.length) renderTable(data.rows);
+    },
+  });
 
-  const dailyLayoutEditor = window.HppvLayoutEditor.create({
+  dailyLayoutEditor = window.HppvLayoutEditor.create({
     ids: {
       mode: "racing-daily-layout-mode",
       openBtn: "racing-daily-open-layout",
@@ -344,7 +395,7 @@
       return layoutSaved;
     },
     onAfterSave: async function () {
-      await fetchDaily();
+      await listCtrl.load();
     },
   });
   window.__racingDailySetLayoutMode = function (on) {
@@ -365,64 +416,9 @@
     }
     if (!loaded) {
       loaded = true;
-      await fetchDaily();
+      await listCtrl.load();
     }
   };
-
-  async function fetchDaily() {
-    if (loading) return;
-    loading = true;
-    stateBox.hidden = false;
-    stateBox.textContent = MSG.loading;
-    tableWrap.hidden = true;
-    if (summaryEl) summaryEl.innerHTML = "";
-    const params = new URLSearchParams();
-    const saved = readSavedSelection();
-    if (selectedRaceNo != null) params.set("race_no", String(selectedRaceNo));
-    else if (saved && saved.race_no != null) params.set("race_no", String(saved.race_no));
-    if (meeting) {
-      params.set("date", meeting.race_date_iso || meeting.race_date);
-      params.set("racecourse", meeting.racecourse);
-    }
-    if (sortParam) params.set("sort", sortParam);
-    try {
-      const resp = await fetch("/api/records/racing/racing_daily?" + params.toString());
-      const data = await resp.json();
-      if (!resp.ok || !data || !data.ok) {
-        stateBox.innerHTML = MSG.error + ' <button type="button" class="icon-btn" id="racing-daily-retry">' + MSG.retry + "</button>";
-        const r = document.getElementById("racing-daily-retry");
-        if (r) r.addEventListener("click", () => fetchDaily());
-        return;
-      }
-      if (data.layout_settings) {
-        layoutSaved = data.layout_settings;
-        dailyLayoutEditor.replaceSettings(layoutSaved);
-      }
-      if (Array.isArray(data.catalog) && data.catalog.length) {
-        catalog = data.catalog;
-        rebuildSortable();
-      }
-      meeting = data.meeting || null;
-      races = Array.isArray(data.races) ? data.races : [];
-      selectedRaceNo = data.selected_race_no;
-      writeSavedSelection();
-      sortParam = data.sort || sortParam;
-      renderRaceCards();
-      renderSummary(data.summary || null);
-      if (!data.rows || !data.rows.length) {
-        stateBox.textContent = MSG.empty;
-        tableWrap.hidden = true;
-      } else {
-        stateBox.hidden = true;
-        tableWrap.hidden = false;
-        renderTable(data.rows);
-      }
-    } catch (_e) {
-      stateBox.textContent = MSG.error;
-    } finally {
-      loading = false;
-    }
-  }
 
   const exportOverlay = document.getElementById("racing-daily-export-overlay");
   function openExport() {
@@ -456,7 +452,7 @@
           date: meeting.race_date_iso || meeting.race_date,
           racecourse: meeting.racecourse,
           race_no: selectedRaceNo,
-          sort: sortParam,
+          sort: listCtrl ? listCtrl.sortParam : "",
           columns: cols,
           lang: UI_LOCALE,
         }),

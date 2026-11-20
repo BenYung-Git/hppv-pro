@@ -2175,7 +2175,6 @@
   let userEditedRequest = false;
   let loadingPreset = false;
   let sending = false;
-  let listFetchSeq = 0;
   let currentMatches = {{ matches|tojson }};
   let layoutSaved = {{ layout_settings|tojson }};
   let layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
@@ -2192,6 +2191,7 @@
     ? ({{ load_error|tojson }} ? "error" : (listTotalCount > 0 ? "ready" : "empty"))
     : "pending";
   let dailyLoadErrorDetail = "";
+  let dailyListCtrl = null;
   const allMatchesCheckbox = document.getElementById("match-all-matches");
   const allMatchesHidden = document.getElementById("match-all-matches-hidden");
   const dateInputEl = document.getElementById("match-date");
@@ -3188,14 +3188,16 @@
   }
 
   function currentSortParam() {
-    const parts = [];
-    for (const c of layoutSaved.columns || []) {
-      if (c.sort === "asc" || c.sort === "desc") parts.push(c.key + ":" + c.sort);
-    }
-    return parts.join(",");
+    if (!window.HppvRecordsHeader) throw new Error("soccer daily requires HppvRecordsHeader");
+    return window.HppvRecordsHeader.sortParamFromLayout(layoutSaved, null);
   }
 
   function updatePagerControls() {
+    if (dailyListCtrl) {
+      dailyListCtrl.setTotals({ n: listN, totalCount: listTotalCount });
+      dailyListCtrl.updatePager();
+      return;
+    }
     const statusEl = document.getElementById("pager-status");
     const btnFirst = document.getElementById("pager-first");
     const btnPrev = document.getElementById("pager-prev");
@@ -3263,62 +3265,107 @@
     });
   }
 
-  async function fetchMatchesList(n) {
-    const dateInput = document.getElementById("match-date");
-    if (!dateInput || !dateInput.value) return false;
-    const seq = ++listFetchSeq;
-    dailyListStatus = "loading";
-    renderMatchesLoadState();
-    try {
+  if (!window.HppvRecordsShell) {
+    throw new Error("soccer daily requires HppvRecordsShell");
+  }
+  dailyListCtrl = window.HppvRecordsShell.createList({
+    recordsUrl: "/api/records/soccer/daily_matches",
+    pagerMode: "cursor",
+    searchDebounceMs: 200,
+    initial: {
+      n: listN,
+      q: committedQ,
+      sort: "",
+    },
+    els: {
+      searchInput: searchInput,
+      pagerStatus: document.getElementById("pager-status"),
+      pagerFirst: document.getElementById("pager-first"),
+      pagerPrev: document.getElementById("pager-prev"),
+      pagerNext: document.getElementById("pager-next"),
+      pagerLast: document.getElementById("pager-last"),
+    },
+    messages: {
+      loading: MSG.dailyLoading,
+      empty: MSG.emptyFiltered,
+      error: MSG.dailyReadError,
+      retry: MSG.dailyLoadRetry,
+    },
+    getLayout: function () { return layoutSaved; },
+    getDraftLayout: function () { return layoutDraft; },
+    getSortableMap: function () { return null; },
+    buildParams: function () {
       const params = new URLSearchParams();
+      const dateInput = document.getElementById("match-date");
       params.set("all_matches", committedAllMatches ? "1" : "0");
-      params.set("date", dateInput.value);
-      params.set("n", String(n));
-      if (committedQ) params.set("q", committedQ);
+      if (dateInput && dateInput.value) params.set("date", dateInput.value);
       if (committedStatus) params.set("status", committedStatus);
-      const sort = currentSortParam();
-      if (sort) params.set("sort", sort);
-      const resp = await fetch("/api/records/soccer/daily_matches?" + params.toString());
-      let data = null;
-      try { data = await resp.json(); } catch (_e) { data = null; }
-      if (seq !== listFetchSeq) return false;
-      if (!resp.ok || !data || !data.ok) {
-        dailyListStatus = "error";
-        dailyLoadErrorDetail = (data && data.error) ? String(data.error) : ("http_" + resp.status);
-        renderMatchesLoadState();
-        return false;
-      }
+      return params;
+    },
+    beforeFetch: function () {
+      const dateInput = document.getElementById("match-date");
+      return !!(dateInput && dateInput.value);
+    },
+    normalizeResponse: function (data) {
+      return {
+        n: data.n,
+        totalCount: data.total_count,
+        q: data.q,
+        sort: data.sort,
+      };
+    },
+    renderLoading: function () {
+      dailyListStatus = "loading";
+      renderMatchesLoadState();
+    },
+    renderError: function (api, detail) {
+      dailyListStatus = "error";
+      dailyLoadErrorDetail = detail || "";
+      renderMatchesLoadState();
+    },
+    renderEmpty: function (api, data) {
+      currentMatches = (data && data.matches) || [];
+      listN = api.pageN;
+      listTotalCount = api.totalCount;
+      dailyListStatus = "empty";
+      dailyLoadErrorDetail = "";
+      syncListUrl();
+      updatePagerControls();
+      renderMatches();
+    },
+    onSuccess: function (data, api) {
       currentMatches = data.matches || [];
-      listN = Number(data.n) || 1;
-      listTotalCount = Number(data.total_count) || 0;
+      listN = api.pageN;
+      listTotalCount = api.totalCount;
       if (typeof data.q === "string") committedQ = data.q;
       if (typeof data.status === "string" && data.status) committedStatus = data.status;
       if (typeof data.all_matches === "boolean") {
         applyAllMatchesControls(data.all_matches);
       }
-      if (typeof data.date === "string" && data.date && !committedAllMatches) {
+      const dateInput = document.getElementById("match-date");
+      if (typeof data.date === "string" && data.date && !committedAllMatches && dateInput) {
         dateInput.value = data.date;
       }
       dailyListStatus = listTotalCount > 0 ? "ready" : "empty";
       dailyLoadErrorDetail = "";
       syncListUrl();
       updatePagerControls();
-      renderMatches();
-      return true;
-    } catch (_e) {
-      if (seq !== listFetchSeq) return false;
-      dailyListStatus = "error";
-      dailyLoadErrorDetail = "network";
-      renderMatchesLoadState();
-      return false;
-    }
-  }
+      if (listTotalCount > 0) renderMatches();
+    },
+    onCursorMove: function (api) {
+      listN = api.pageN;
+      syncListUrl();
+      highlightCurrentRow();
+    },
+  });
 
   function ensureDailyLoaded() {
     syncListUrl();
     if (dailyListStatus === "loading") return;
     if (dailyListStatus === "ready" || dailyListStatus === "empty") return;
-    fetchMatchesList(listN || 1);
+    dailyListCtrl.setQuery(committedQ, null);
+    dailyListCtrl.syncSortFromLayout();
+    dailyListCtrl.load({ n: listN || 1 });
   }
 
   function renderMatchesLoadState() {
@@ -3345,21 +3392,22 @@
   }
 
   function submitListCriteria({ n = 1 } = {}) {
-    // Filter = all_matches + status + search (+ date when not all). Reset cursor to 1.
     if (searchInput) committedQ = (searchInput.value || "").trim();
     if (statusFilter) committedStatus = statusFilter.value || "prematch";
     if (allMatchesCheckbox) committedAllMatches = !!allMatchesCheckbox.checked;
     applyAllMatchesControls(committedAllMatches);
-    return fetchMatchesList(n);
+    dailyListCtrl.setQuery(committedQ, null);
+    dailyListCtrl.syncSortFromLayout();
+    return dailyListCtrl.load({ n: n });
   }
 
   function moveRecordCursor(n) {
-    // Full list already loaded; only move N / total_count without re-fetch when possible.
     if (listTotalCount <= 0) return;
     let next = Number(n) || 1;
     if (next < 1) next = 1;
     if (next > listTotalCount) next = listTotalCount;
     listN = next;
+    if (dailyListCtrl) dailyListCtrl.setTotals({ n: listN, totalCount: listTotalCount });
     syncListUrl();
     updatePagerControls();
     highlightCurrentRow();
@@ -3408,11 +3456,12 @@
     closeMatchFormPanels();
     const cols = appliedColumns();
     const listRows = currentMatches;
+    if (!window.HppvRecordsHeader) throw new Error("soccer daily requires HppvRecordsHeader");
+    const RH = window.HppvRecordsHeader;
     let head = "<tr><th class='c-center c-match-form' aria-label='" + MSG.matchFormTooltip + "'></th>";
     for (const c of cols) {
-      const arrow = c.sort === "asc" ? " ↑" : (c.sort === "desc" ? " ↓" : "");
       head += '<th class="c-center" data-col="' + c.key + '" style="min-width:' + c.width + 'px;width:' + c.width + 'px">' +
-        (COL_LABEL[c.key] || c.key) + arrow + "</th>";
+        RH.headerLabel(c, COL_LABEL) + "</th>";
     }
     head += "</tr>";
     panel.innerHTML =
@@ -3525,25 +3574,18 @@
       cardsEl.appendChild(art);
     });
 
-    panel.querySelectorAll("thead th[data-col]").forEach((th) => {
-      th.style.cursor = "pointer";
-      th.addEventListener("click", () => cycleHeaderSort(th.getAttribute("data-col")));
+    window.HppvRecordsHeader.bindHeaderClicks({
+      root: panel,
+      onCycle: cycleHeaderSort,
     });
     highlightCurrentRow();
     syncTheadStickyOffsets();
   }
 
   function cycleHeaderSort(key) {
-    // Session sort on applied layout; sync draft so layout editor stays consistent.
-    const colSaved = layoutSaved.columns.find((c) => c.key === key);
-    const colDraft = layoutDraft.columns.find((c) => c.key === key);
-    if (!colSaved) return;
-    if (colSaved.sort === "desc") colSaved.sort = "";
-    else if (colSaved.sort === "") colSaved.sort = "asc";
-    else colSaved.sort = "desc";
-    if (colDraft) colDraft.sort = colSaved.sort;
+    if (!dailyListCtrl) return;
+    dailyListCtrl.cycleHeaderSort(key);
     renderLayoutEditor();
-    submitListCriteria({ n: 1 });
   }
 
   applyAllMatchesControls(committedAllMatches);
@@ -3562,44 +3604,13 @@
     });
   }
   if (statusFilter) {
-    // Status is part of current filter; changing it reloads and resets N to 1.
     statusFilter.addEventListener("change", () => submitListCriteria({ n: 1 }));
   }
-  if (searchInput) {
-    let searchTimer = null;
-    const commitSearch = () => submitListCriteria({ n: 1 });
-    searchInput.addEventListener("input", () => {
-      if (searchTimer) window.clearTimeout(searchTimer);
-      searchTimer = window.setTimeout(commitSearch, 200);
-    });
-    searchInput.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter") {
-        ev.preventDefault();
-        if (searchTimer) window.clearTimeout(searchTimer);
-        commitSearch();
-      }
-    });
-    searchInput.addEventListener("search", () => {
-      if (searchTimer) window.clearTimeout(searchTimer);
-      commitSearch();
-    });
-  }
-
-  function bindPager() {
-    const btnFirst = document.getElementById("pager-first");
-    const btnPrev = document.getElementById("pager-prev");
-    const btnNext = document.getElementById("pager-next");
-    const btnLast = document.getElementById("pager-last");
-    if (btnFirst) btnFirst.addEventListener("click", () => { if (!btnFirst.disabled) moveRecordCursor(1); });
-    if (btnPrev) btnPrev.addEventListener("click", () => { if (!btnPrev.disabled) moveRecordCursor(listN - 1); });
-    if (btnNext) btnNext.addEventListener("click", () => { if (!btnNext.disabled) moveRecordCursor(listN + 1); });
-    if (btnLast) btnLast.addEventListener("click", () => { if (!btnLast.disabled) moveRecordCursor(listTotalCount); });
-  }
-  bindPager();
+  // Search + pager bound by HppvRecordsShell (cursor mode → onCursorMove).
   updatePagerControls();
 
   async function refreshMatchesPanel() {
-    await fetchMatchesList(listN);
+    await dailyListCtrl.load({ n: listN });
   }
 
   async function sendRequest() {
@@ -3966,8 +3977,8 @@
   let historyQ = historyPageInit.q || "";
   let historyQOp = (historyPageInit.q_op || "approx").toString().trim() || "approx";
   let historySort = historyPageInit.sort || "kickoff_hhmm:desc";
-  let historyFetchSeq = 0;
   let historyLoadedOnce = {{ (history_page_meta.get('loaded') if history_page_meta is defined else false)|tojson }};
+  let historyListCtrl = null;
 
   const historyAllCheckbox = document.getElementById("history-all-matches");
   const historyAllHidden = document.getElementById("history-all-matches-hidden");
@@ -4076,24 +4087,7 @@
   }
 
   function updateHistoryPagerControls() {
-    const statusEl = document.getElementById("history-pager-status");
-    const btnFirst = document.getElementById("history-pager-first");
-    const btnPrev = document.getElementById("history-pager-prev");
-    const btnNext = document.getElementById("history-pager-next");
-    const btnLast = document.getElementById("history-pager-last");
-    const totalPages = historyTotalPages > 0 ? historyTotalPages : 0;
-    const n = totalPages > 0 ? historyN : 0;
-    if (statusEl) {
-      statusEl.textContent =
-        n + " / " + totalPages + " " + historyPagerRecordsLabel(historyTotalCount);
-    }
-    const disableAll = totalPages <= 1;
-    const atFirst = disableAll || historyN <= 1;
-    const atLast = disableAll || historyN >= totalPages;
-    if (btnFirst) btnFirst.disabled = atFirst;
-    if (btnPrev) btnPrev.disabled = atFirst;
-    if (btnNext) btnNext.disabled = atLast;
-    if (btnLast) btnLast.disabled = atLast;
+    if (historyListCtrl) historyListCtrl.updatePager();
   }
 
   let historyLayoutSaved = {{ history_layout_settings|tojson }};
@@ -4155,11 +4149,15 @@
   }
 
   function historyCurrentSortParam() {
-    const parts = [];
-    for (const c of historyLayoutSaved.columns || []) {
-      if (c.sort === "asc" || c.sort === "desc") parts.push(c.key + ":" + c.sort);
-    }
-    return parts.join(",") || "kickoff_hhmm:desc";
+    if (!window.HppvRecordsHeader) throw new Error("soccer history requires HppvRecordsHeader");
+    return window.HppvRecordsHeader.sortParamFromLayout(historyLayoutSaved, HISTORY_SORTABLE)
+      || "kickoff_hhmm:desc";
+  }
+
+  function cycleHistoryHeaderSort(key) {
+    if (!historyListCtrl) return;
+    historyListCtrl.cycleHeaderSort(key);
+    historySort = historyListCtrl.sortParam || historyCurrentSortParam();
   }
 
   function showHistoryLayoutToast(text) {
@@ -4239,17 +4237,19 @@
       panel.querySelector(".muted").textContent = MSG.historyHint;
       return;
     }
+    if (!window.HppvRecordsHeader) throw new Error("soccer history requires HppvRecordsHeader");
+    const RH = window.HppvRecordsHeader;
     const cols = historyAppliedColumns();
     let head = "<tr><th class='c-center c-match-form' aria-label='" + MSG.matchFormTooltip + "'></th>";
     for (const c of cols) {
-      const arrow = c.sort === "asc" ? " ↑" : (c.sort === "desc" ? " ↓" : "");
       head += '<th class="c-center" data-col="' + c.key + '" style="min-width:' + c.width + 'px;width:' + c.width + 'px">' +
-        (HISTORY_COL_LABEL[c.key] || c.key) + arrow + "</th>";
+        RH.headerLabel(c, HISTORY_COL_LABEL) + "</th>";
     }
     head += "</tr>";
     panel.innerHTML =
       "<div class='table-wrap'><table class='matches' id='history-table'><thead>" + head +
       "</thead><tbody id='history-table-body'></tbody></table></div>";
+    RH.bindHeaderClicks({ root: panel, onCycle: cycleHistoryHeaderSort });
     const tbody = document.getElementById("history-table-body");
     const colCount = cols.length + 1;
     historyMatches.forEach((m, rowIdx) => {
@@ -4288,49 +4288,99 @@
     });
   }
 
-  async function fetchHistoryList(n) {
-    if (!historyDateInput || !historyDateInput.value) return false;
-    const seq = ++historyFetchSeq;
-    try {
+  if (!window.HppvRecordsShell) {
+    throw new Error("soccer history requires HppvRecordsShell");
+  }
+  historyListCtrl = window.HppvRecordsShell.createList({
+    recordsUrl: "/api/records/soccer/match_history",
+    pagerMode: "page",
+    searchDebounceMs: 200,
+    initial: {
+      n: historyN,
+      q: historyQ,
+      qOp: historyQOp,
+      sort: historySort,
+    },
+    els: {
+      searchInput: historySearchInput,
+      searchOp: historySearchOp,
+      pagerStatus: document.getElementById("history-pager-status"),
+      pagerFirst: document.getElementById("history-pager-first"),
+      pagerPrev: document.getElementById("history-pager-prev"),
+      pagerNext: document.getElementById("history-pager-next"),
+      pagerLast: document.getElementById("history-pager-last"),
+    },
+    messages: {
+      loading: MSG.dailyLoading || MSG.loading,
+      empty: MSG.historyEmpty,
+      error: MSG.historyReadError || MSG.error,
+      retry: MSG.dailyLoadRetry || MSG.retry,
+    },
+    getLayout: function () { return historyLayoutSaved; },
+    getDraftLayout: function () { return historyLayoutDraft; },
+    getSortableMap: function () { return HISTORY_SORTABLE; },
+    formatPagerStatus: function (api) {
+      const totalPages = api.totalPages > 0 ? api.totalPages : 0;
+      const n = totalPages > 0 ? api.pageN : 0;
+      return n + " / " + totalPages + " " + historyPagerRecordsLabel(api.totalCount);
+    },
+    buildParams: function () {
       const params = new URLSearchParams();
       params.set("all_matches", historyAllMatches ? "1" : "0");
-      params.set("date", historyDateInput.value);
-      params.set("n", String(n));
-      if (historyQ) params.set("q", historyQ);
-      params.set("q_op", historyQOp || "approx");
-      if (historySort) params.set("sort", historySort);
-      const resp = await fetch("/api/records/soccer/match_history?" + params.toString());
-      let data = null;
-      try { data = await resp.json(); } catch (_e) { data = null; }
-      if (seq !== historyFetchSeq) return false;
-      if (!resp.ok || !data || !data.ok) {
-        if (data && data.error === "no_searchable_fields") {
-          syncHistoryLayoutFromApi(data);
-          applyHistorySearchAvailability(
-            Array.isArray(data.search_keys)
-              ? data.search_keys
-              : historySearchKeysFromLayout(historyLayoutSaved)
-          );
-          showHistoryLayoutToast(MSG.historySearchRejected || MSG.historySearchNoFields || "");
-          return false;
-        }
-        if (data && data.error === "read_error") {
-          showHistoryLayoutToast(MSG.historyReadError || "");
-          return false;
-        }
-        showHistoryLayoutToast(MSG.historyReadError || "");
-        return false;
+      if (historyDateInput && historyDateInput.value) {
+        params.set("date", historyDateInput.value);
       }
+      return params;
+    },
+    beforeFetch: function () {
+      if (!historyDateInput || !historyDateInput.value) return false;
+      return true;
+    },
+    normalizeResponse: function (data) {
+      return {
+        n: data.n,
+        totalPages: data.total_pages,
+        totalCount: data.total_count,
+        q: data.q,
+        qOp: data.q_op,
+        sort: data.sort,
+      };
+    },
+    renderLoading: function () {
+      const panel = document.getElementById("history-panel-body");
+      if (!panel) return;
+      panel.innerHTML = '<div class="state-box"><p></p></div>';
+      panel.querySelector("p").textContent = MSG.dailyLoading || "";
+    },
+    renderError: function (api, detail, data) {
+      if (detail === "no_searchable_fields") {
+        if (data) syncHistoryLayoutFromApi(data);
+        applyHistorySearchAvailability(
+          data && Array.isArray(data.search_keys)
+            ? data.search_keys
+            : historySearchKeysFromLayout(historyLayoutSaved)
+        );
+        showHistoryLayoutToast(MSG.historySearchRejected || MSG.historySearchNoFields || "");
+        return;
+      }
+      showHistoryLayoutToast(MSG.historyReadError || "");
+    },
+    renderEmpty: function () {
+      historyMatches = [];
+      renderHistoryMatches(historyMatches);
+    },
+    onSuccess: function (data) {
+      if (!data.ok) return;
       syncHistoryLayoutFromApi(data);
       historyMatches = data.matches || [];
-      historyN = Number(data.n) || 1;
-      historyTotalCount = Number(data.total_count) || 0;
-      historyTotalPages = Number(data.total_pages) || 0;
+      historyN = historyListCtrl.pageN;
+      historyTotalCount = historyListCtrl.totalCount;
+      historyTotalPages = historyListCtrl.totalPages;
       historyPageSize = Number(data.page_size) || historyPageSize;
-      historyQ = data.q || "";
-      historyQOp = (data.q_op || historyQOp || "approx").toString().trim() || "approx";
+      historyQ = historyListCtrl.q;
+      historyQOp = historyListCtrl.qOp;
+      historySort = historyListCtrl.sortParam || historySort;
       if (historySearchOp) historySearchOp.value = historyQOp;
-      historySort = data.sort || historySort;
       if (typeof data.all_matches === "boolean") {
         historyAllMatches = data.all_matches;
         applyHistoryAllMatchesControls(historyAllMatches);
@@ -4340,15 +4390,9 @@
       }
       historyLoadedOnce = true;
       syncHistoryUrl();
-      renderHistoryMatches(historyMatches);
-      return true;
-    } catch (_e) {
-      if (seq === historyFetchSeq) {
-        showHistoryLayoutToast(MSG.historyReadError || "");
-      }
-      return false;
-    }
-  }
+      if (historyMatches.length) renderHistoryMatches(historyMatches);
+    },
+  });
 
   function submitHistoryCriteria({ n = 1 } = {}) {
     if (historySearchInput && !historySearchInput.disabled) {
@@ -4359,7 +4403,9 @@
     }
     if (historyAllCheckbox) historyAllMatches = !!historyAllCheckbox.checked;
     applyHistoryAllMatchesControls(historyAllMatches);
-    return fetchHistoryList(n);
+    historyListCtrl.setQuery(historyQ, historyQOp);
+    historyListCtrl.syncSortFromLayout();
+    return historyListCtrl.load({ n: n });
   }
 
   function ensureHistoryLoaded() {
@@ -4383,36 +4429,6 @@
       submitHistoryCriteria({ n: 1 });
     });
   }
-  if (historySearchInput) {
-    let histSearchTimer = null;
-    const commitHistSearch = () => submitHistoryCriteria({ n: 1 });
-    historySearchInput.addEventListener("input", () => {
-      if (histSearchTimer) window.clearTimeout(histSearchTimer);
-      histSearchTimer = window.setTimeout(commitHistSearch, 200);
-    });
-    historySearchInput.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter") {
-        ev.preventDefault();
-        if (histSearchTimer) window.clearTimeout(histSearchTimer);
-        commitHistSearch();
-      }
-    });
-    historySearchInput.addEventListener("search", () => {
-      if (histSearchTimer) window.clearTimeout(histSearchTimer);
-      commitHistSearch();
-    });
-  }
-  if (historySearchOp) {
-    historySearchOp.addEventListener("change", () => submitHistoryCriteria({ n: 1 }));
-  }
-  const histFirst = document.getElementById("history-pager-first");
-  const histPrev = document.getElementById("history-pager-prev");
-  const histNext = document.getElementById("history-pager-next");
-  const histLast = document.getElementById("history-pager-last");
-  if (histFirst) histFirst.addEventListener("click", () => fetchHistoryList(1));
-  if (histPrev) histPrev.addEventListener("click", () => fetchHistoryList(Math.max(1, historyN - 1)));
-  if (histNext) histNext.addEventListener("click", () => fetchHistoryList(historyN + 1));
-  if (histLast) histLast.addEventListener("click", () => fetchHistoryList(historyTotalPages || 1));
 
   const HISTORY_SORTABLE_MAP = HISTORY_SORTABLE;
   ((historyLayoutSaved && historyLayoutSaved.columns) || []).forEach((c) => {

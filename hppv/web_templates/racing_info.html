@@ -518,15 +518,11 @@
   let activeTabName = {{ active_tab|tojson }};
   let layoutSaved = {{ racing_layout_settings|tojson }};
   let catalog = {{ (racing_layout_catalog if racing_layout_catalog is defined else [])|tojson }};
-  let pageN = 1;
-  let totalPages = 0;
-  let totalCount = 0;
-  let sortParam = "";
   let historyLoaded = false;
-  let loading = false;
   let layoutModeOpen = false;
   let historyLayoutEditor = null;
   let downloadShellApi = null;
+  let listCtrl = null;
   const SORTABLE = {};
 
   function rebuildSortable() {
@@ -597,8 +593,7 @@
     const d = new Date(dateInput.value + "T12:00:00");
     d.setDate(d.getDate() + days);
     dateInput.value = d.toISOString().slice(0, 10);
-    pageN = 1;
-    fetchHistory();
+    if (listCtrl) listCtrl.load({ resetPage: true, n: 1 });
   }
 
   function visibleColumns() {
@@ -615,38 +610,28 @@
     if (found) root.style.setProperty("--racing-layout-zebra", found.css);
   }
 
-  function updatePager() {
-    const atFirst = !totalPages || pageN <= 1;
-    const atLast = !totalPages || pageN >= totalPages;
-    ["racing-pager-first", "racing-pager-prev"].forEach((id) => {
-      const el = document.getElementById(id); if (el) el.disabled = atFirst;
-    });
-    ["racing-pager-next", "racing-pager-last"].forEach((id) => {
-      const el = document.getElementById(id); if (el) el.disabled = atLast;
-    });
-    if (pagerStatus) {
-      pagerStatus.textContent = totalPages
-        ? (pageN + " / " + totalPages + " · " + totalCount)
-        : "0 / 0 · 0";
-    }
-  }
-
   function renderTable(rows) {
     applyZebraCss();
     const cols = visibleColumns();
     thead.innerHTML = "";
     tbody.innerHTML = "";
     const hr = document.createElement("tr");
+    if (!window.HppvRecordsHeader) throw new Error("racing history requires HppvRecordsHeader");
+    const RH = window.HppvRecordsHeader;
     cols.forEach((c) => {
       const th = document.createElement("th");
-      const arrow = c.sort === "asc" ? " ↑" : (c.sort === "desc" ? " ↓" : "");
-      th.textContent = (COL_LABEL[c.key] || c.key) + arrow;
       th.dataset.key = c.key;
+      th.textContent = RH.headerLabel(c, COL_LABEL);
       th.style.minWidth = (c.width || 100) + "px";
-      th.addEventListener("click", () => cycleSort(c.key));
       hr.appendChild(th);
     });
     thead.appendChild(hr);
+    RH.bindHeaderClicks({
+      root: thead,
+      onCycle: function (key) {
+        if (listCtrl) listCtrl.cycleHeaderSort(key);
+      },
+    });
     rows.forEach((row, idx) => {
       const tr = document.createElement("tr");
       if (layoutSaved && layoutSaved.zebra_enabled && idx % 2 === 1) {
@@ -661,22 +646,61 @@
     });
   }
 
-  function cycleSort(key) {
-    if (SORTABLE[key] === false) return;
-    const parts = (sortParam || "").split(",").filter(Boolean);
-    let dir = "";
-    const rest = [];
-    parts.forEach((p) => {
-      const [k, d] = p.split(":");
-      if (k === key) dir = d;
-      else rest.push(p);
-    });
-    const next = dir === "asc" ? "desc" : (dir === "desc" ? "" : "asc");
-    if (next) rest.unshift(key + ":" + next);
-    sortParam = rest.join(",");
-    pageN = 1;
-    fetchHistory();
+  if (!window.HppvRecordsShell) {
+    throw new Error("racing history requires HppvRecordsShell");
   }
+  listCtrl = window.HppvRecordsShell.createList({
+    recordsUrl: "/api/records/racing/racing_history",
+    pagerMode: "page",
+    els: {
+      state: stateBox,
+      tableWrap: tableWrap,
+      searchInput: searchInput,
+      searchOp: searchOp,
+      pagerStatus: pagerStatus,
+      pagerFirst: document.getElementById("racing-pager-first"),
+      pagerPrev: document.getElementById("racing-pager-prev"),
+      pagerNext: document.getElementById("racing-pager-next"),
+      pagerLast: document.getElementById("racing-pager-last"),
+    },
+    messages: {
+      loading: MSG.loading,
+      empty: MSG.empty,
+      error: MSG.error,
+      retry: MSG.retry,
+    },
+    getLayout: function () { return layoutSaved; },
+    getSortableMap: function () { return SORTABLE; },
+    buildParams: function () {
+      syncDateControls();
+      const params = new URLSearchParams();
+      const all = !!(allRecords && allRecords.checked);
+      params.set("all_matches", all ? "1" : "0");
+      if (!all && dateInput && dateInput.value) params.set("date", dateInput.value);
+      return params;
+    },
+    normalizeResponse: function (data) {
+      return {
+        n: data.n,
+        totalPages: data.total_pages,
+        totalCount: data.total_count,
+        q: data.q,
+        qOp: data.q_op,
+        sort: data.sort,
+      };
+    },
+    onSuccess: function (data) {
+      if (data.layout_settings) {
+        layoutSaved = data.layout_settings;
+        if (historyLayoutEditor) historyLayoutEditor.replaceSettings(layoutSaved);
+      }
+      if (Array.isArray(data.catalog) && data.catalog.length) {
+        catalog = data.catalog;
+        rebuildSortable();
+      }
+      if (data.rows && data.rows.length) renderTable(data.rows);
+    },
+  });
 
   async function ensureHistoryLoaded() {
     if (!catalog.length) {
@@ -691,59 +715,7 @@
     }
     if (!historyLoaded) {
       historyLoaded = true;
-      await fetchHistory();
-    }
-  }
-
-  async function fetchHistory() {
-    if (loading) return;
-    loading = true;
-    stateBox.hidden = false;
-    stateBox.textContent = MSG.loading;
-    tableWrap.hidden = true;
-    syncDateControls();
-    const params = new URLSearchParams();
-    const all = !!(allRecords && allRecords.checked);
-    params.set("all_matches", all ? "1" : "0");
-    if (!all && dateInput && dateInput.value) params.set("date", dateInput.value);
-    params.set("n", String(pageN || 1));
-    params.set("q", searchInput ? searchInput.value : "");
-    params.set("q_op", searchOp ? searchOp.value : "approx");
-    if (sortParam) params.set("sort", sortParam);
-    try {
-      const resp = await fetch("/api/records/racing/racing_history?" + params.toString());
-      const data = await resp.json();
-      if (!resp.ok || !data || !data.ok) {
-        stateBox.innerHTML = MSG.error + ' <button type="button" class="icon-btn" id="racing-retry">' + MSG.retry + "</button>";
-        const r = document.getElementById("racing-retry");
-        if (r) r.addEventListener("click", () => fetchHistory());
-        return;
-      }
-      if (data.layout_settings) {
-        layoutSaved = data.layout_settings;
-        if (historyLayoutEditor) historyLayoutEditor.replaceSettings(layoutSaved);
-      }
-      if (Array.isArray(data.catalog) && data.catalog.length) {
-        catalog = data.catalog;
-        rebuildSortable();
-      }
-      pageN = data.n || 0;
-      totalPages = data.total_pages || 0;
-      totalCount = data.total_count || 0;
-      sortParam = data.sort || sortParam;
-      updatePager();
-      if (!data.rows || !data.rows.length) {
-        stateBox.textContent = MSG.empty;
-        tableWrap.hidden = true;
-      } else {
-        stateBox.hidden = true;
-        tableWrap.hidden = false;
-        renderTable(data.rows);
-      }
-    } catch (_e) {
-      stateBox.textContent = MSG.error;
-    } finally {
-      loading = false;
+      await listCtrl.load({ n: 1 });
     }
   }
 
@@ -813,8 +785,7 @@
       return layoutSaved;
     },
     onAfterSave: async function () {
-      pageN = 1;
-      await fetchHistory();
+      await listCtrl.load({ resetPage: true, n: 1 });
     },
   });
 
@@ -848,11 +819,11 @@
         body: JSON.stringify({
           file_type: type,
           filename: filename,
-          q: searchInput ? searchInput.value : "",
-          q_op: searchOp ? searchOp.value : "approx",
+          q: listCtrl ? listCtrl.q : (searchInput ? searchInput.value : ""),
+          q_op: listCtrl ? listCtrl.qOp : (searchOp ? searchOp.value : "approx"),
           all_matches: !!(allRecords && allRecords.checked),
           date: dateInput ? dateInput.value : null,
-          sort: sortParam,
+          sort: listCtrl ? listCtrl.sortParam : "",
           columns: cols,
           lang: UI_LOCALE,
         }),
@@ -875,20 +846,15 @@
     }
   }
 
-  if (allRecords) allRecords.addEventListener("change", () => { syncDateControls(); pageN = 1; fetchHistory(); });
-  if (dateInput) dateInput.addEventListener("change", () => { pageN = 1; fetchHistory(); });
+  if (allRecords) allRecords.addEventListener("change", () => {
+    syncDateControls();
+    listCtrl.load({ resetPage: true, n: 1 });
+  });
+  if (dateInput) dateInput.addEventListener("change", () => {
+    listCtrl.load({ resetPage: true, n: 1 });
+  });
   if (btnPrevDay) btnPrevDay.addEventListener("click", () => shiftDate(-1));
   if (btnNextDay) btnNextDay.addEventListener("click", () => shiftDate(1));
-  let searchTimer = null;
-  if (searchInput) searchInput.addEventListener("input", () => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => { pageN = 1; fetchHistory(); }, 300);
-  });
-  if (searchOp) searchOp.addEventListener("change", () => { pageN = 1; fetchHistory(); });
-  document.getElementById("racing-pager-first").addEventListener("click", () => { pageN = 1; fetchHistory(); });
-  document.getElementById("racing-pager-prev").addEventListener("click", () => { pageN = Math.max(1, pageN - 1); fetchHistory(); });
-  document.getElementById("racing-pager-next").addEventListener("click", () => { pageN = pageN + 1; fetchHistory(); });
-  document.getElementById("racing-pager-last").addEventListener("click", () => { pageN = totalPages || 1; fetchHistory(); });
   document.getElementById("racing-btn-open-export").addEventListener("click", openExport);
   document.getElementById("racing-export-cancel").addEventListener("click", closeExport);
   document.getElementById("racing-export-confirm").addEventListener("click", doExport);
