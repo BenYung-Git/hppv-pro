@@ -101,7 +101,7 @@ def test_api_empty_query_and_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         json.dumps({"query": "", "variables": {}}),
         encoding="utf-8",
     )
-    r = client.get("/api/soccer/request-presets/matches_and_odds")
+    r = client.get("/api/download/soccer/request-presets/matches_and_odds")
     assert r.status_code == 400
     assert r.get_json()["error"] == "empty_query"
 
@@ -110,13 +110,13 @@ def test_api_empty_query_and_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         json.dumps({"query": query, "variables": {}}),
         encoding="utf-8",
     )
-    r2 = client.get("/api/soccer/request-presets/matches_and_odds")
+    r2 = client.get("/api/download/soccer/request-presets/matches_and_odds")
     assert r2.status_code == 200
     body = r2.get_json()
     assert body["ok"] is True
     assert json.loads(body["display"])["query"] == query
 
-    r3 = client.get("/api/soccer/request-presets/not_registered")
+    r3 = client.get("/api/download/soccer/request-presets/not_registered")
     assert r3.status_code == 400
     assert r3.get_json()["error"] == "unsupported_type"
 
@@ -207,7 +207,7 @@ def test_api_match_results_by_year_display_not_hardcoded_2025(
         lambda today=None: ("2030-01-01", "2030-12-31"),
     )
     client = wa.app.test_client()
-    r = client.get("/api/soccer/request-presets/match_results_by_year")
+    r = client.get("/api/download/soccer/request-presets/match_results_by_year")
     assert r.status_code == 200
     body = json.loads(r.get_json()["display"])
     assert body["variables"]["startDate"] == "2030-01-01"

@@ -13,6 +13,7 @@ class AppConfig:
     db_path: Path
     soccer_db_path: Path
     soccer_requests_dir: Path
+    racing_requests_dir: Path
     hkjc_horse_url_template: str
 
 
@@ -28,11 +29,13 @@ def default_config() -> AppConfig:
     db_path = data_dir / "hppv.sqlite3"
     soccer_db_path = data_dir / "soccer.sqlite3"
     soccer_requests_dir = data_dir / "soccer_requests"
+    racing_requests_dir = data_dir / "racing_requests"
     return AppConfig(
         data_dir=data_dir,
         db_path=db_path,
         soccer_db_path=soccer_db_path,
         soccer_requests_dir=soccer_requests_dir,
+        racing_requests_dir=racing_requests_dir,
         # HKJC pages can change; keep this centralized.
         hkjc_horse_url_template="https://racing.hkjc.com/racing/information/Chinese/Horse/Horse.aspx?HorseId={horse_id}",
     )

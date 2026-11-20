@@ -709,7 +709,7 @@ def test_api_history_year_start_and_reject_graphql_by_year(
     assert started["year"] == 2024
 
     bad = client.post(
-        "/api/soccer/graphql/send",
+        "/api/download/soccer/graphql/send",
         json={
             "request_key": "match_results_by_year",
             "payload": json.dumps(

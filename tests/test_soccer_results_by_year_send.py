@@ -98,7 +98,7 @@ def test_send_uses_request_box_dates_not_preset_file(
         "query": query,
     }
     resp = client.post(
-        "/api/soccer/graphql/send",
+        "/api/download/soccer/graphql/send",
         json={
             "request_key": REQUEST_KEY_MATCH_RESULTS_BY_YEAR,
             "payload": json.dumps(user_payload, ensure_ascii=False),
@@ -189,7 +189,7 @@ def test_by_year_creates_unknown_match(
         "query": "query matchResults { x }",
     }
     resp = client.post(
-        "/api/soccer/graphql/send",
+        "/api/download/soccer/graphql/send",
         json={
             "request_key": REQUEST_KEY_MATCH_RESULTS_BY_YEAR,
             "payload": json.dumps(payload),
@@ -288,7 +288,7 @@ def test_manual_match_results_writes_history_without_daily(
         "query": "query matchResults { x }",
     }
     resp = client.post(
-        "/api/soccer/graphql/send",
+        "/api/download/soccer/graphql/send",
         json={
             "request_key": REQUEST_KEY_MATCH_RESULTS,
             "payload": json.dumps(payload),

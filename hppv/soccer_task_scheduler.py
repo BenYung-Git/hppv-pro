@@ -836,9 +836,17 @@ class _TaskSchedulerBase:
     task_key: str
     _run_once: Callable[[Path, Path], dict[str, Any]]
 
-    def __init__(self, db_path: Path, requests_dir: Path) -> None:
+    def __init__(
+        self,
+        db_path: Path,
+        requests_dir: Path,
+        *,
+        settings_db: Path | None = None,
+    ) -> None:
         self.db_path = Path(db_path)
         self.requests_dir = Path(requests_dir)
+        # Settings table may live in a different DB (racing tasks use soccer DB).
+        self.settings_db = Path(settings_db) if settings_db is not None else self.db_path
         self._lock = threading.RLock()
         self._timer: threading.Timer | None = None
         self._running = False
@@ -851,14 +859,16 @@ class _TaskSchedulerBase:
 
     def get_state(self) -> SoccerTaskState:
         with self._lock:
-            return get_task_state(self.db_path, self.task_key, running=self._running)
+            return get_task_state(
+                self.settings_db, self.task_key, running=self._running
+            )
 
     def start(self) -> SoccerTaskState:
         with self._lock:
             if self._started:
                 return self.get_state()
             self._started = True
-            state = restore_task_on_startup(self.db_path, self.task_key)
+            state = restore_task_on_startup(self.settings_db, self.task_key)
             self._arm_timer_locked(state)
             logger.info(
                 "%s scheduler started enabled=%s next_run=%s "
@@ -884,7 +894,7 @@ class _TaskSchedulerBase:
     ) -> SoccerTaskState:
         with self._lock:
             state = save_task_settings(
-                self.db_path,
+                self.settings_db,
                 self.task_key,
                 enabled=enabled,
                 interval_value=interval_value,
@@ -924,7 +934,7 @@ class _TaskSchedulerBase:
             if self._running:
                 logger.warning("%s skipped: previous run still in progress", self.task_key)
                 return
-            state = get_task_state(self.db_path, self.task_key, running=False)
+            state = get_task_state(self.settings_db, self.task_key, running=False)
             if not state.enabled:
                 return
             next_dt = _parse_utc(state.next_run_at)
@@ -934,7 +944,7 @@ class _TaskSchedulerBase:
                 return
             self._running = True
             _upsert_state(
-                self.db_path,
+                self.settings_db,
                 task_key=self.task_key,
                 enabled=True,
                 interval_value=state.interval_value,
@@ -980,7 +990,7 @@ class _TaskSchedulerBase:
 
         with self._lock:
             self._running = False
-            cur = get_task_state(self.db_path, self.task_key, running=False)
+            cur = get_task_state(self.settings_db, self.task_key, running=False)
             finished = _now_utc()
             next_run = None
             # Re-read enabled after job: disable mid-run must not re-arm.
@@ -990,7 +1000,7 @@ class _TaskSchedulerBase:
                     + interval_to_timedelta(cur.interval_value, cur.interval_unit)
                 ).isoformat()
             state = _upsert_state(
-                self.db_path,
+                self.settings_db,
                 task_key=self.task_key,
                 enabled=cur.enabled,
                 interval_value=cur.interval_value,

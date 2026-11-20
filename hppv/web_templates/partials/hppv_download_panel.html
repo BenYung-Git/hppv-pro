@@ -1,0 +1,73 @@
+{#
+  Shared download panel (soccer + racing).
+  Required context:
+    dl_ids: dict with request_type, request, status, send_btn, sync_badge, sync_badge_label, sync_badge_value,
+            graphql_block (optional), history_year_block (optional)
+    dl_options: list of {value, label}  (label already translated)
+    dl_default_option: selected value
+    dl_show_history_year: bool
+    dl_sync_at_hkt: optional string
+    dl_history_year_value: optional year string for input default
+#}
+{% from "macros/download_icons.html" import icon_submit %}
+{% set ids = dl_ids %}
+<div class="hppv-download-shell" data-hppv-download-panel="1">
+  <div class="request-type-row">
+    <div class="field">
+      <label for="{{ ids.request_type }}">{{ t('soccer.daily.request_type') }}</label>
+      <select id="{{ ids.request_type }}">
+        {% for opt in dl_options %}
+        <option value="{{ opt.value }}"{% if opt.value == dl_default_option %} selected{% endif %}>{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="sync-badge" id="{{ ids.sync_badge }}" title="{{ t('soccer.daily.updated_at_label') }}">
+      <span id="{{ ids.sync_badge_label }}">{{ t('soccer.daily.updated_at_label') }}</span><span>：</span>
+      <span id="{{ ids.sync_badge_value }}">{% if dl_sync_at_hkt %}{{ dl_sync_at_hkt }}{% else %}{{ t('soccer.daily.updated_at_never') }}{% endif %}</span>
+    </div>
+  </div>
+
+  <div class="field-block" id="{{ ids.graphql_block }}">
+    <div class="field-head">
+      <span>{{ t('soccer.daily.request_label') }}</span>
+      <button type="button" class="icon-btn" id="{{ ids.send_btn }}"
+              title="{{ t('soccer.daily.send') }}"
+              aria-label="{{ t('soccer.daily.send') }}">
+        {{ icon_submit() }}
+        <span class="btn-label">{{ t('soccer.daily.send') }}</span>
+      </button>
+    </div>
+    <textarea id="{{ ids.request }}"
+              class="mono-box"
+              spellcheck="false"
+              placeholder="{{ t('soccer.daily.request_placeholder') }}"></textarea>
+  </div>
+
+  {% if dl_show_history_year %}
+  <div class="field-block" id="{{ ids.history_year_block }}" hidden>
+    <p class="hint" id="history-year-source-hint">{{ t('soccer.daily.history_year.source') }}</p>
+    <p class="hint muted">{{ t('soccer.daily.history_year.hint') }}</p>
+    <div class="request-type-row" style="gap:12px;align-items:flex-end;flex-wrap:wrap;">
+      <div class="field">
+        <label for="history-year-input">{{ t('soccer.daily.history_year.year_label') }}</label>
+        <input type="number" id="history-year-input" min="1990" max="2100" step="1"
+               value="{{ dl_history_year_value or '' }}" style="width:7rem;">
+      </div>
+      <button type="button" class="icon-btn" id="btn-history-year-start">
+        <span class="btn-label">{{ t('soccer.daily.history_year.start') }}</span>
+      </button>
+      <button type="button" class="icon-btn" id="btn-history-year-resume">
+        <span class="btn-label">{{ t('soccer.daily.history_year.resume') }}</span>
+      </button>
+      <button type="button" class="icon-btn" id="btn-history-year-refresh">
+        <span class="btn-label">{{ t('soccer.daily.history_year.refresh') }}</span>
+      </button>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="field-block">
+    <label for="{{ ids.status }}">{{ t('soccer.daily.status_label') }}</label>
+    <textarea id="{{ ids.status }}" class="mono-box" readonly spellcheck="false"></textarea>
+  </div>
+</div>

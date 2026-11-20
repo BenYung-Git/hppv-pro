@@ -1,0 +1,49 @@
+{#
+  Shared task list panel (soccer + racing).
+  Required:
+    dl_tasks: list of {
+      key, label, note (optional),
+      enabled_id, interval_id, unit_id,
+      last_id, next_id, status_id, msg_id
+    }
+    dl_task_notes_extra: optional list of note strings (page-level notes)
+#}
+<div class="hppv-download-shell" data-hppv-download-tasks="1">
+  <div class="task-list">
+    {% for task in dl_tasks %}
+    <div class="task-row" data-task="{{ task.key }}">
+      <label class="task-enable" for="{{ task.enabled_id }}">
+        <input type="checkbox" id="{{ task.enabled_id }}">
+        <span>{{ task.label }}</span>
+      </label>
+      <div class="task-controls">
+        <select id="{{ task.interval_id }}" aria-label="{{ task.label }}">
+          {% for n in range(1, 11) %}
+          <option value="{{ n }}"{% if n == 1 %} selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+        <select id="{{ task.unit_id }}" aria-label="{{ task.label }}">
+          <option value="mins" selected>{{ t('soccer.daily.task.unit.mins') }}</option>
+          <option value="hour">{{ t('soccer.daily.task.unit.hour') }}</option>
+          <option value="day">{{ t('soccer.daily.task.unit.day') }}</option>
+        </select>
+        <span class="task-time-label">{{ t('soccer.daily.task.last_updated') }}</span>
+        <span class="sync-badge" id="{{ task.last_id }}">{{ t('soccer.daily.updated_at_never') }}</span>
+        <span class="task-time-label">{{ t('soccer.daily.task.next_update') }}</span>
+        <span class="sync-badge" id="{{ task.next_id }}">{{ t('soccer.daily.task.not_scheduled') }}</span>
+        <span class="task-time-label">{{ t('soccer.daily.task.status.idle') }}</span>
+        <span class="sync-badge" id="{{ task.status_id }}">{{ t('soccer.daily.task.status.idle') }}</span>
+      </div>
+      {% if task.note %}
+      <p class="muted dl-note">{{ task.note }}</p>
+      {% endif %}
+      <p class="muted" id="{{ task.msg_id }}" role="status" aria-live="polite"></p>
+    </div>
+    {% endfor %}
+    {% if dl_task_notes_extra %}
+      {% for note in dl_task_notes_extra %}
+      <p class="muted dl-note">{{ note }}</p>
+      {% endfor %}
+    {% endif %}
+  </div>
+</div>

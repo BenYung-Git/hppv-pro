@@ -2,6 +2,7 @@
 {% block title %}{{ t('soccer.daily.title') }} - HPPV Web{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('hppv_web_static', filename='hppv_records_main_ui.css') }}">
+<link rel="stylesheet" href="{{ url_for('hppv_web_static', filename='hppv_download_shell.css') }}">
 <style>
   .soccer-daily {
     --soccer-green: #1b7a3d;
@@ -1538,7 +1539,6 @@
     {% set history_matches = history_matches if history_matches is defined else [] %}
     {% set history_load_error = history_load_error if history_load_error is defined else false %}
     {% set history_date_invalid = history_date_invalid if history_date_invalid is defined else false %}
-    {% set history_layout_settings = history_layout_settings if history_layout_settings is defined else {'zebra_enabled': true, 'zebra_color_id': 'row_alt_gray', 'columns': []} %}
     <div class="matches-list-mode" id="history-list-mode"{% if open_history_layout_panel %} hidden{% endif %}>
       <div class="matches-chrome" id="history-chrome">
         <p class="matches-layout-toast" id="history-layout-toast" role="status" aria-live="polite"></p>
@@ -1711,63 +1711,28 @@
 
   <div class="tab-panel{% if active_tab == 'download' %} active{% endif %}" role="tabpanel" id="tab-panel-download"
        data-panel="download"{% if active_tab != 'download' %} hidden{% endif %}>
-    <div class="request-type-row">
-      <div class="field">
-        <label for="soccer-request-type">{{ t('soccer.daily.request_type') }}</label>
-        <select id="soccer-request-type">
-          <option value="matches_and_odds" selected>{{ t('soccer.daily.request_type.matches_odds') }}</option>
-          <option value="update_odds_and_results">{{ t('soccer.daily.request_type.update_odds_results') }}</option>
-          <option value="match_results">{{ t('soccer.daily.request_type.match_results') }}</option>
-          <option value="match_results_by_year">{{ t('soccer.daily.request_type.match_results_by_year') }}</option>
-        </select>
-      </div>
-      <div class="sync-badge" id="sync-badge" title="{{ t('soccer.daily.updated_at_label') }}">
-        <span id="sync-badge-label">{{ t('soccer.daily.updated_at_label') }}</span><span>：</span>
-        <span id="sync-badge-value">{% if sync_at_hkt %}{{ sync_at_hkt }}{% else %}{{ t('soccer.daily.updated_at_never') }}{% endif %}</span>
-      </div>
-    </div>
-
-    <div class="field-block" id="soccer-graphql-request-block">
-      <div class="field-head">
-        <span>{{ t('soccer.daily.request_label') }}</span>
-        <button type="button" class="icon-btn" id="btn-send-request"
-                title="{{ t('soccer.daily.send') }}"
-                aria-label="{{ t('soccer.daily.send') }}">
-          {{ icon_submit() }}
-          <span class="btn-label">{{ t('soccer.daily.send') }}</span>
-        </button>
-      </div>
-      <textarea id="soccer-request"
-                class="mono-box"
-                spellcheck="false"
-                placeholder="{{ t('soccer.daily.request_placeholder') }}"></textarea>
-    </div>
-
-    <div class="field-block" id="soccer-history-year-block" hidden>
-      <p class="hint" id="history-year-source-hint">{{ t('soccer.daily.history_year.source') }}</p>
-      <p class="hint muted">{{ t('soccer.daily.history_year.hint') }}</p>
-      <div class="request-type-row" style="gap:12px;align-items:flex-end;flex-wrap:wrap;">
-        <div class="field">
-          <label for="history-year-input">{{ t('soccer.daily.history_year.year_label') }}</label>
-          <input type="number" id="history-year-input" min="1990" max="2100" step="1"
-                 value="{{ (selected_date or history_selected_date or '')[:4] }}" style="width:7rem;">
-        </div>
-        <button type="button" class="icon-btn" id="btn-history-year-start">
-          <span class="btn-label">{{ t('soccer.daily.history_year.start') }}</span>
-        </button>
-        <button type="button" class="icon-btn" id="btn-history-year-resume">
-          <span class="btn-label">{{ t('soccer.daily.history_year.resume') }}</span>
-        </button>
-        <button type="button" class="icon-btn" id="btn-history-year-refresh">
-          <span class="btn-label">{{ t('soccer.daily.history_year.refresh') }}</span>
-        </button>
-      </div>
-    </div>
-
-    <div class="field-block">
-      <label for="soccer-status">{{ t('soccer.daily.status_label') }}</label>
-      <textarea id="soccer-status" class="mono-box" readonly spellcheck="false"></textarea>
-    </div>
+    {% set dl_ids = {
+      'request_type': 'soccer-request-type',
+      'request': 'soccer-request',
+      'status': 'soccer-status',
+      'send_btn': 'btn-send-request',
+      'sync_badge': 'sync-badge',
+      'sync_badge_label': 'sync-badge-label',
+      'sync_badge_value': 'sync-badge-value',
+      'graphql_block': 'soccer-graphql-request-block',
+      'history_year_block': 'soccer-history-year-block'
+    } %}
+    {% set dl_options = [
+      {'value': 'matches_and_odds', 'label': t('soccer.daily.request_type.matches_odds')},
+      {'value': 'update_odds_and_results', 'label': t('soccer.daily.request_type.update_odds_results')},
+      {'value': 'match_results', 'label': t('soccer.daily.request_type.match_results')},
+      {'value': 'match_results_by_year', 'label': t('soccer.daily.request_type.match_results_by_year')}
+    ] %}
+    {% set dl_default_option = 'matches_and_odds' %}
+    {% set dl_show_history_year = true %}
+    {% set dl_sync_at_hkt = sync_at_hkt %}
+    {% set dl_history_year_value = (selected_date or history_selected_date or '')[:4] %}
+    {% include "partials/hppv_download_panel.html" %}
   </div>
 
   <div class="tab-panel{% if active_tab == 'tasks' %} active{% endif %}" role="tabpanel" id="tab-panel-tasks"
@@ -2349,7 +2314,7 @@
     loadingPreset = true;
     statusBox.value = MSG.loading;
     try {
-      const resp = await fetch("/api/soccer/request-presets/" + encodeURIComponent(presetId), {
+      const resp = await fetch("/api/download/soccer/request-presets/" + encodeURIComponent(presetId), {
         method: "GET",
         headers: { "Accept": "application/json" },
       });
@@ -3313,7 +3278,7 @@
       if (committedStatus) params.set("status", committedStatus);
       const sort = currentSortParam();
       if (sort) params.set("sort", sort);
-      const resp = await fetch("/api/soccer/daily-matches?" + params.toString());
+      const resp = await fetch("/api/records/soccer/daily_matches?" + params.toString());
       let data = null;
       try { data = await resp.json(); } catch (_e) { data = null; }
       if (seq !== listFetchSeq) return false;
@@ -3654,7 +3619,7 @@
     btnSend.disabled = true;
     statusBox.value = MSG.sending;
     try {
-      const resp = await fetch("/api/soccer/graphql/send", {
+      const resp = await fetch("/api/download/soccer/graphql/send", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({
@@ -3765,17 +3730,17 @@
       if (!skipDailyLayoutUrl) syncListUrl();
     },
     save: async function (draft) {
-      const resp = await fetch("/api/soccer/layout/daily-matches", {
+      const resp = await fetch("/api/layout/soccer/daily_matches", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({ settings: draft }),
+        body: JSON.stringify({ layout_settings: draft }),
       });
       let data = null;
       try { data = await resp.json(); } catch (_e) { data = null; }
       if (!resp.ok || !data || !data.ok) {
         throw new Error((data && data.error) || "save_failed");
       }
-      layoutSaved = data.settings;
+      layoutSaved = data.layout_settings;
       layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
       return layoutSaved;
     },
@@ -4226,7 +4191,7 @@
 
   async function refreshHistoryLayoutFromServer() {
     try {
-      const resp = await fetch("/api/soccer/layout/match-history", {
+      const resp = await fetch("/api/layout/soccer/match_history", {
         headers: { "Accept": "application/json" },
         cache: "no-store",
       });
@@ -4234,7 +4199,7 @@
       if (!resp.ok || !data || !data.ok) return false;
       syncHistoryLayoutFromApi({
         catalog: data.catalog,
-        layout_settings: data.settings,
+        layout_settings: data.layout_settings,
       });
       const zc = document.getElementById("history-layout-zebra-color");
       const ze = document.getElementById("history-layout-zebra-enable");
@@ -4334,7 +4299,7 @@
       if (historyQ) params.set("q", historyQ);
       params.set("q_op", historyQOp || "approx");
       if (historySort) params.set("sort", historySort);
-      const resp = await fetch("/api/soccer/history-matches?" + params.toString());
+      const resp = await fetch("/api/records/soccer/match_history?" + params.toString());
       let data = null;
       try { data = await resp.json(); } catch (_e) { data = null; }
       if (seq !== historyFetchSeq) return false;
@@ -4513,17 +4478,17 @@
       if (!skipHistoryLayoutUrl) syncHistoryUrl();
     },
     save: async function (draft) {
-      const resp = await fetch("/api/soccer/layout/match-history", {
+      const resp = await fetch("/api/layout/soccer/match_history", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({ settings: draft }),
+        body: JSON.stringify({ layout_settings: draft }),
       });
       let data = null;
       try { data = await resp.json(); } catch (_e) { data = null; }
       if (!resp.ok || !data || !data.ok) {
         throw new Error((data && data.error) || "save_failed");
       }
-      historyLayoutSaved = data.settings;
+      historyLayoutSaved = data.layout_settings;
       historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutSaved));
       return historyLayoutSaved;
     },

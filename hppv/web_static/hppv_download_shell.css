@@ -1,0 +1,185 @@
+/**
+ * Shared download + task panel styles (soccer + racing).
+ * Scope: .hppv-download-shell only — pages must not re-define these for different looks.
+ */
+.hppv-download-shell {
+  --hppv-dl-green: #1b7a3d;
+  --hppv-dl-green-bg: #e8f6ee;
+}
+
+.hppv-download-shell .request-type-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: flex-end;
+  margin-bottom: 14px;
+}
+
+.hppv-download-shell .request-type-row .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hppv-download-shell .request-type-row select {
+  width: 100%;
+  max-width: 420px;
+  box-sizing: border-box;
+}
+
+.hppv-download-shell .sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--hppv-dl-green-bg);
+  color: var(--hppv-dl-green);
+  border: 1px solid #b7dfc4;
+  font-weight: 700;
+  font-size: 13px;
+  max-width: 100%;
+}
+
+.hppv-download-shell .field-block {
+  margin-bottom: 14px;
+}
+
+.hppv-download-shell .field-block > label,
+.hppv-download-shell .field-head {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #2c3d52;
+  margin-bottom: 6px;
+}
+
+.hppv-download-shell .field-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hppv-download-shell .mono-box {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 180px;
+  max-height: 320px;
+  overflow: auto;
+  resize: vertical;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+  white-space: pre;
+}
+
+.hppv-download-shell textarea.mono-box {
+  white-space: pre;
+}
+
+.hppv-download-shell textarea.mono-box[readonly] {
+  background: #f7f9fc;
+  color: #1d2a3a;
+}
+
+.hppv-download-shell .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #fff;
+  color: #1f3d66;
+  padding: 8px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.hppv-download-shell .icon-btn svg {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+
+.hppv-download-shell .icon-btn .btn-label {
+  font-size: 13px;
+}
+
+.hppv-download-shell .task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hppv-download-shell .task-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+}
+
+.hppv-download-shell .task-enable {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: #1f3d66;
+  min-width: 7.5rem;
+  cursor: pointer;
+}
+
+.hppv-download-shell .task-enable input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--hppv-dl-green);
+  cursor: pointer;
+}
+
+.hppv-download-shell .task-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: center;
+  flex: 1 1 280px;
+}
+
+.hppv-download-shell .task-controls select {
+  min-width: 4.5rem;
+  padding: 7px 8px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #fff;
+  color: #1f3d66;
+  font-weight: 600;
+}
+
+.hppv-download-shell .task-time-label {
+  color: #4a5d73;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.hppv-download-shell .dl-note {
+  margin-top: 4px;
+}
+
+.hppv-download-shell .hint {
+  margin: 0 0 8px;
+}
+
+@media (max-width: 720px) {
+  .hppv-download-shell .mono-box {
+    min-height: 140px;
+    max-height: 240px;
+  }
+}

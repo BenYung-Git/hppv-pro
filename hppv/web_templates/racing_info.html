@@ -4,6 +4,7 @@
 {% block title %}{{ t('racing.info.title') }} - HPPV Web{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('hppv_web_static', filename='hppv_records_main_ui.css') }}">
+<link rel="stylesheet" href="{{ url_for('hppv_web_static', filename='hppv_download_shell.css') }}">
 <style>
   .racing-info {
     --racing-green: #1b7a3d;
@@ -220,7 +221,6 @@
 </style>
 
 {% set active_tab = active_tab if active_tab is defined else 'matches' %}
-{% set racing_layout_settings = racing_layout_settings if racing_layout_settings is defined else {'zebra_enabled': true, 'zebra_color_id': 'row_alt_gray', 'columns': []} %}
 {% set layout_zebra_colors = layout_zebra_colors if layout_zebra_colors is defined else [] %}
 
 <div class="racing-info hppv-records-main" data-racing-shell="1" id="racing-info-root">
@@ -342,9 +342,56 @@
   </div>
 
   <div class="tab-panel{% if active_tab == 'download' %} active{% endif %}" role="tabpanel"
-       id="racing-tab-panel-download" data-panel="download"{% if active_tab != 'download' %} hidden{% endif %}></div>
+       id="racing-tab-panel-download" data-panel="download"{% if active_tab != 'download' %} hidden{% endif %}>
+    {% set dl_ids = {
+      'request_type': 'racing-request-type',
+      'request': 'racing-request',
+      'status': 'racing-status',
+      'send_btn': 'btn-racing-send-request',
+      'sync_badge': 'racing-sync-badge',
+      'sync_badge_label': 'racing-sync-badge-label',
+      'sync_badge_value': 'racing-sync-badge-value',
+      'graphql_block': 'racing-graphql-request-block'
+    } %}
+    {% set dl_options = [
+      {'value': 'racecard', 'label': t('racing.download.type.racecard')},
+      {'value': 'update_odds', 'label': t('racing.download.type.odds')}
+    ] %}
+    {% set dl_default_option = 'racecard' %}
+    {% set dl_show_history_year = false %}
+    {% set dl_sync_at_hkt = none %}
+    {% include "partials/hppv_download_panel.html" %}
+  </div>
   <div class="tab-panel{% if active_tab == 'tasks' %} active{% endif %}" role="tabpanel"
-       id="racing-tab-panel-tasks" data-panel="tasks"{% if active_tab != 'tasks' %} hidden{% endif %}></div>
+       id="racing-tab-panel-tasks" data-panel="tasks"{% if active_tab != 'tasks' %} hidden{% endif %}>
+    {% set dl_tasks = [
+      {
+        'key': 'update_racecard',
+        'label': t('racing.task.update_racecard'),
+        'note': t('racing.task.racecard_scope_note'),
+        'enabled_id': 'task-racing-racecard-enabled',
+        'interval_id': 'task-racing-racecard-interval',
+        'unit_id': 'task-racing-racecard-unit',
+        'last_id': 'task-racing-racecard-last',
+        'next_id': 'task-racing-racecard-next',
+        'status_id': 'task-racing-racecard-status',
+        'msg_id': 'task-racing-racecard-msg'
+      },
+      {
+        'key': 'update_odds',
+        'label': t('racing.task.update_odds'),
+        'note': t('racing.task.odds_scope_note'),
+        'enabled_id': 'task-racing-odds-enabled',
+        'interval_id': 'task-racing-odds-interval',
+        'unit_id': 'task-racing-odds-unit',
+        'last_id': 'task-racing-odds-last',
+        'next_id': 'task-racing-odds-next',
+        'status_id': 'task-racing-odds-status',
+        'msg_id': 'task-racing-odds-msg'
+      }
+    ] %}
+    {% include "partials/hppv_download_tasks.html" %}
+  </div>
 </div>
 
 <div class="export-overlay" id="racing-export-overlay" hidden>
@@ -372,6 +419,7 @@
 </div>
 
 {% include "partials/hppv_layout_editor_script.html" %}
+<script src="{{ url_for('hppv_web_static', filename='hppv_download_shell.js') }}"></script>
 <script>
 (function () {
   const root = document.getElementById("racing-info-root");
@@ -394,6 +442,27 @@
     sortUnsupported: {{ t('racing.history.layout.sort_unsupported')|tojson }},
     exportOk: {{ t('racing.history.export.ok')|tojson }},
     exportFailed: {{ t('racing.history.export.failed')|tojson }},
+    dlLoading: {{ t('soccer.daily.load_preset_loading')|tojson }},
+    dlLoadSuccess: {{ t('soccer.daily.load_preset_success')|tojson }},
+    dlLoadFailed: {{ t('soccer.daily.load_preset_failed')|tojson }},
+    dlOverwriteConfirm: {{ t('soccer.daily.load_preset_overwrite_confirm')|tojson }},
+    dlSending: {{ t('soccer.daily.sending')|tojson }},
+    dlFetchingTotal: {{ t('racing.download.fetching_total')|tojson }},
+    dlError: {{ t('soccer.daily.send_connection_failed')|tojson }},
+    dlSendComplete: {{ t('soccer.daily.send_complete')|tojson }},
+    ingestProcessed: {{ t('soccer.daily.ingest_processed')|tojson }},
+    dlUpdated: {{ t('racing.download.updated')|tojson }},
+    dlSkipped: {{ t('racing.download.skipped')|tojson }},
+    dlFailed: {{ t('racing.download.failed')|tojson }},
+    taskStatusIdle: {{ t('soccer.daily.task.status.idle')|tojson }},
+    taskStatusRunning: {{ t('soccer.daily.task.status.running')|tojson }},
+    taskStatusSuccess: {{ t('soccer.daily.task.status.success')|tojson }},
+    taskStatusFailed: {{ t('soccer.daily.task.status.failed')|tojson }},
+    taskStatusSkipped: {{ t('soccer.daily.task.status.skipped')|tojson }},
+    taskNever: {{ t('soccer.daily.updated_at_never')|tojson }},
+    taskNotScheduled: {{ t('soccer.daily.task.not_scheduled')|tojson }},
+    taskSaveOk: {{ t('soccer.daily.task.save_ok')|tojson }},
+    taskSaveFailed: {{ t('soccer.daily.task.save_failed')|tojson }},
   };
   const COL_LABEL = {
     id: {{ t('racing.history.col.id')|tojson }},
@@ -457,6 +526,7 @@
   let loading = false;
   let layoutModeOpen = false;
   let historyLayoutEditor = null;
+  let downloadShellApi = null;
   const SORTABLE = {};
 
   function rebuildSortable() {
@@ -492,6 +562,10 @@
     if (name !== "history") setLayoutMode(false);
     if (name !== "matches" && typeof window.__racingDailySetLayoutMode === "function") {
       window.__racingDailySetLayoutMode(false);
+    }
+    if (name === "download" && downloadShellApi && typeof downloadShellApi.loadPreset === "function") {
+      const box = document.getElementById("racing-request");
+      if (box && !box.value.trim()) downloadShellApi.loadPreset();
     }
   }
   for (const btn of buttons) btn.addEventListener("click", () => activateTab(btn.dataset.tab));
@@ -606,7 +680,7 @@
 
   async function ensureHistoryLoaded() {
     if (!catalog.length) {
-      const resp = await fetch("/api/racing/layout/history");
+      const resp = await fetch("/api/layout/racing/racing_history");
       const data = await resp.json();
       if (resp.ok && data && data.ok) {
         layoutSaved = data.layout_settings;
@@ -637,7 +711,7 @@
     params.set("q_op", searchOp ? searchOp.value : "approx");
     if (sortParam) params.set("sort", sortParam);
     try {
-      const resp = await fetch("/api/racing/history-records?" + params.toString());
+      const resp = await fetch("/api/records/racing/racing_history?" + params.toString());
       const data = await resp.json();
       if (!resp.ok || !data || !data.ok) {
         stateBox.innerHTML = MSG.error + ' <button type="button" class="icon-btn" id="racing-retry">' + MSG.retry + "</button>";
@@ -722,7 +796,7 @@
       }
     },
     save: async function (draft) {
-      const resp = await fetch("/api/racing/layout/history", {
+      const resp = await fetch("/api/layout/racing/racing_history", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({ layout_settings: draft }),
@@ -826,6 +900,90 @@
 
   syncDateControls();
   rebuildSortable();
+
+  /* ---- Download + Tasks: shared HppvDownloadShell (same entry as soccer) ---- */
+  const syncBadgeValue = document.getElementById("racing-sync-badge-value");
+  const shell = window.HppvDownloadShell;
+  if (shell && typeof shell.initDownloadShell === "function") {
+    downloadShellApi = shell.initDownloadShell({
+      requestTypeId: "racing-request-type",
+      requestBoxId: "racing-request",
+      statusBoxId: "racing-status",
+      sendBtnId: "btn-racing-send-request",
+      defaultPresetId: "racecard",
+      autoLoad: false,
+      presetUrl: function (presetId) {
+        return "/api/download/racing/request-presets/" + encodeURIComponent(presetId);
+      },
+      sendUrl: "/api/download/racing/graphql/send",
+      messages: {
+        loading: MSG.dlLoading || MSG.dlSending,
+        loadSuccess: MSG.dlLoadSuccess,
+        loadFailed: MSG.dlLoadFailed || MSG.dlError,
+        overwriteConfirm: MSG.dlOverwriteConfirm,
+        sending: MSG.dlFetchingTotal || MSG.dlSending,
+        fetchingTotal: MSG.dlFetchingTotal,
+        error: MSG.dlError,
+        sendComplete: MSG.dlSendComplete,
+        ingestProcessed: MSG.ingestProcessed,
+        updated: MSG.dlUpdated,
+        skipped: MSG.dlSkipped,
+        failed: MSG.dlFailed,
+      },
+      formatStatus: function (data) {
+        return shell.formatRecordDownloadStatus(data, {
+          error: MSG.dlError,
+          sendComplete: MSG.dlSendComplete,
+          ingestProcessed: MSG.ingestProcessed,
+          updated: MSG.dlUpdated,
+          skipped: MSG.dlSkipped,
+          failed: MSG.dlFailed,
+        });
+      },
+      onAfterSuccess: function (data) {
+        if (syncBadgeValue && data.race_date) {
+          syncBadgeValue.textContent =
+            data.race_date + " " + (data.venue_code || "");
+        }
+      },
+    });
+  }
+  const taskMessages = {
+    taskStatusIdle: MSG.taskStatusIdle,
+    taskStatusRunning: MSG.taskStatusRunning,
+    taskStatusSuccess: MSG.taskStatusSuccess,
+    taskStatusFailed: MSG.taskStatusFailed,
+    taskStatusSkipped: MSG.taskStatusSkipped,
+    taskNever: MSG.taskNever,
+    taskNotScheduled: MSG.taskNotScheduled,
+    taskSaveOk: MSG.taskSaveOk,
+    taskSaveFailed: MSG.taskSaveFailed,
+  };
+  if (shell && typeof shell.initTaskUi === "function") {
+    shell.initTaskUi({
+      apiUrl: "/api/racing/tasks/update-racecard",
+      enabledId: "task-racing-racecard-enabled",
+      intervalId: "task-racing-racecard-interval",
+      unitId: "task-racing-racecard-unit",
+      lastId: "task-racing-racecard-last",
+      nextId: "task-racing-racecard-next",
+      statusId: "task-racing-racecard-status",
+      msgId: "task-racing-racecard-msg",
+      messages: taskMessages,
+    });
+    shell.initTaskUi({
+      apiUrl: "/api/racing/tasks/update-odds",
+      enabledId: "task-racing-odds-enabled",
+      intervalId: "task-racing-odds-interval",
+      unitId: "task-racing-odds-unit",
+      lastId: "task-racing-odds-last",
+      nextId: "task-racing-odds-next",
+      statusId: "task-racing-odds-status",
+      msgId: "task-racing-odds-msg",
+      messages: taskMessages,
+    });
+  }
+
   activateTab(activeTabName);
 })();
 </script>

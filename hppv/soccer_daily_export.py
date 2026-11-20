@@ -19,10 +19,11 @@ from hppv.soccer_history_export import (
     build_export_from_rows,
     resolve_export_columns,
 )
-from hppv.soccer_layout import (
+from hppv.shared_layout import (
     LAYOUT_KEY_DAILY_MATCHES,
-    get_layout_settings,
-    default_layout_settings,
+    SPORT_SOCCER,
+    SharedLayoutError,
+    require_layout_settings,
 )
 from hppv.soccer_matches import (
     DEFAULT_STATUS_FILTER,
@@ -137,9 +138,11 @@ def fetch_daily_export_rows(
     layout = layout_settings
     if layout is None:
         try:
-            layout = get_layout_settings(db_path, LAYOUT_KEY_DAILY_MATCHES)
-        except Exception:
-            layout = default_layout_settings(LAYOUT_KEY_DAILY_MATCHES)
+            layout = require_layout_settings(
+                SPORT_SOCCER, LAYOUT_KEY_DAILY_MATCHES, soccer_db_path=db_path
+            )
+        except SharedLayoutError as e:
+            raise HistoryExportError(e.code, e.detail) from e
 
     parsed = parse_sort_param(req.sort_param) if req.sort_param else None
     sort_specs = parsed if parsed is not None else sort_specs_from_layout(layout)

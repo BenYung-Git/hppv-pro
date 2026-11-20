@@ -160,7 +160,7 @@ def test_api_send_rejects_mutation_and_does_not_write_preset(
     client = wa.app.test_client()
 
     r = client.post(
-        "/api/soccer/graphql/send",
+        "/api/download/soccer/graphql/send",
         json={"payload": json.dumps({"query": "mutation M { x }"})},
     )
     assert r.status_code == 400
@@ -181,7 +181,7 @@ def test_api_send_rejects_mutation_and_does_not_write_preset(
     )
     reset_rate_limit_for_tests()
     r2 = client.post(
-        "/api/soccer/graphql/send",
+        "/api/download/soccer/graphql/send",
         json={"payload": json.dumps({"query": VALID_QUERY, "variables": {}})},
     )
     assert r2.status_code == 200

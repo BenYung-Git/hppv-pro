@@ -1,7 +1,6 @@
 {# Daily races: race-card browser + shared layout-settings panel. #}
 {% from "macros/layout_icons.html" import icon_horse_history %}
 {% from "macros/layout_settings_panel.html" import layout_settings_panel with context %}
-{% set racing_daily_layout_settings = racing_daily_layout_settings if racing_daily_layout_settings is defined else {'zebra_enabled': true, 'zebra_color_id': 'row_alt_gray', 'columns': []} %}
 {% set layout_zebra_colors = layout_zebra_colors if layout_zebra_colors is defined else [] %}
 
 <div class="history-list-mode" id="racing-daily-list-mode">

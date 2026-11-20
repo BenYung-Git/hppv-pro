@@ -229,21 +229,10 @@ def default_layout_settings(
     *,
     db_path: Path | None = None,
 ) -> dict[str, Any]:
-    columns = []
-    for c in catalog_for_layout_key(layout_key, db_path=db_path):
-        columns.append(
-            {
-                "key": c["key"],
-                "visible": bool(c["default_visible"]),
-                "width": int(c["default_width"]),
-                "sort": c["default_sort"],
-            }
-        )
-    return {
-        "zebra_enabled": True,
-        "zebra_color_id": ZEBRA_DEFAULT_ID,
-        "columns": columns,
-    }
+    raise SoccerLayoutError(
+        "default_removed",
+        "default_layout_settings removed; use shared_layout.require_layout_settings",
+    )
 
 
 def _migrate_legacy_column_list(
@@ -356,40 +345,15 @@ def ensure_layout_schema(conn: sqlite3.Connection) -> None:
 
 
 def get_layout_settings(db_path: Path, layout_key: str = LAYOUT_KEY_DAILY_MATCHES) -> dict[str, Any]:
-    if not db_path.is_file():
-        return default_layout_settings(layout_key, db_path=db_path)
-    with get_connection(db_path) as conn:
-        if not table_exists(conn, SOCCER_LAYOUT_SETTINGS_TABLE):
-            return default_layout_settings(layout_key, db_path=db_path)
-        row = conn.execute(
-            "SELECT settings_json FROM soccer_layout_settings WHERE layout_key = ?;",
-            (layout_key,),
-        ).fetchone()
-    if not row:
-        return default_layout_settings(layout_key, db_path=db_path)
+    """Soccer-only wrapper. Prefer hppv.shared_layout.require_layout_settings."""
+    from hppv.shared_layout import SharedLayoutError, SPORT_SOCCER, require_layout_settings
+
     try:
-        parsed = json.loads(str(row["settings_json"]))
-    except json.JSONDecodeError as e:
-        raise SoccerLayoutError("invalid_stored_layout", "stored settings_json is not valid JSON") from e
-    normalized = _normalize_saved_settings(parsed, layout_key=layout_key, db_path=db_path)
-    # Persist newly appended catalog keys without resetting others / other layout_keys.
-    catalog_keys = column_keys_for_layout_key(layout_key, db_path=db_path)
-    stored_keys: set[str] = set()
-    cols = parsed.get("columns") if isinstance(parsed, dict) else None
-    if isinstance(cols, list):
-        for item in cols:
-            if isinstance(item, dict) and item.get("key") is not None:
-                key = str(item["key"])
-                if layout_key == LAYOUT_KEY_DAILY_MATCHES:
-                    key = str(LEGACY_LAYOUT_KEY_MAP.get(key, key))
-                stored_keys.add(key)
-    if catalog_keys - stored_keys:
-        try:
-            save_layout_settings(db_path, normalized, layout_key=layout_key)
-        except SoccerLayoutError:
-            # Read path must still return normalized settings even if write-back fails.
-            pass
-    return normalized
+        return require_layout_settings(
+            SPORT_SOCCER, layout_key, soccer_db_path=db_path
+        )
+    except SharedLayoutError as e:
+        raise SoccerLayoutError(e.code, e.detail) from e
 
 
 def save_layout_settings(
@@ -399,25 +363,16 @@ def save_layout_settings(
     layout_key: str = LAYOUT_KEY_DAILY_MATCHES,
     now_utc: str | None = None,
 ) -> dict[str, Any]:
-    if not db_path.is_file():
-        raise SoccerLayoutError("db_missing", f"database missing: {db_path}")
-    normalized = _normalize_saved_settings(settings, layout_key=layout_key, db_path=db_path)
-    stamp = now_utc or utc_now_iso()
-    payload = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
-    with get_connection(db_path) as conn:
-        ensure_layout_schema(conn)
-        conn.execute(
-            """
-            INSERT INTO soccer_layout_settings (layout_key, settings_json, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(layout_key) DO UPDATE SET
-                settings_json = excluded.settings_json,
-                updated_at = excluded.updated_at;
-            """,
-            (layout_key, payload, stamp),
+    """Soccer-only wrapper. Prefer hppv.shared_layout.save_layout_settings."""
+    from hppv.shared_layout import SharedLayoutError, SPORT_SOCCER, save_layout_settings as shared_save
+
+    _ = now_utc  # stamp handled inside shared storage
+    try:
+        return shared_save(
+            SPORT_SOCCER, layout_key, settings, soccer_db_path=db_path
         )
-        conn.commit()
-    return normalized
+    except SharedLayoutError as e:
+        raise SoccerLayoutError(e.code, e.detail) from e
 
 
 def zebra_css_for_id(color_id: str) -> str:

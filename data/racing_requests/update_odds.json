@@ -1,0 +1,12 @@
+{
+  "operationName": "sp4e_racing_pmPool",
+  "query": "\n      query sp4e_racing_pmPool($date: String, $venueCode: String, $oddsTypes: [OddsType], $raceNo: Int) {\n          raceMeetings(date: $date, venueCode: $venueCode)\n          {\n            pmPools(oddsTypes: $oddsTypes, raceNo: $raceNo) {\n              id\n              status\n              sellStatus\n              oddsType\n              lastUpdateTime\n              oddsLastUpdateTime\n              guarantee\n              minTicketCost\n              name_en\n              name_ch\n              leg {\n                number\n                races\n              }\n              cWinSelections {\n                composite\n                name_ch\n                name_en\n                starters\n              }\n              oddsNodes {\n                combString\n                oddsValue\n                hotFavourite\n                oddsDropValue\n                bankerOdds {\n                  combString\n                  oddsValue\n                }\n              }\n            }\n          }\n      }\n  ",
+  "variables": {
+    "date": null,
+    "venueCode": null,
+    "oddsTypes": [
+      "WIN"
+    ],
+    "raceNo": null
+  }
+}

@@ -327,7 +327,7 @@
       }
     },
     save: async function (draft) {
-      const resp = await fetch("/api/racing/layout/daily", {
+      const resp = await fetch("/api/layout/racing/racing_daily", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({ layout_settings: draft }),
@@ -354,7 +354,7 @@
 
   window.__racingEnsureDailyLoaded = async function ensureDailyLoaded() {
     if (!catalog.length) {
-      const resp = await fetch("/api/racing/layout/daily");
+      const resp = await fetch("/api/layout/racing/racing_daily");
       const data = await resp.json();
       if (resp.ok && data && data.ok) {
         layoutSaved = data.layout_settings;
@@ -386,7 +386,7 @@
     }
     if (sortParam) params.set("sort", sortParam);
     try {
-      const resp = await fetch("/api/racing/daily-records?" + params.toString());
+      const resp = await fetch("/api/records/racing/racing_daily?" + params.toString());
       const data = await resp.json();
       if (!resp.ok || !data || !data.ok) {
         stateBox.innerHTML = MSG.error + ' <button type="button" class="icon-btn" id="racing-daily-retry">' + MSG.retry + "</button>";

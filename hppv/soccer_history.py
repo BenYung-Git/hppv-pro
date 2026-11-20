@@ -182,14 +182,14 @@ def history_search_keys_from_layout(layout_settings: dict[str, Any] | None) -> l
     """
     Resolve searchable keys from the effective match_history layout.
 
-    Only visible whitelist columns participate. Missing/invalid layout → default keys.
+    Only visible whitelist columns participate.
     A valid layout that hides every searchable column → empty list.
     """
     if not isinstance(layout_settings, dict):
-        return list(DEFAULT_HISTORY_SEARCH_KEYS)
+        raise ValueError("layout_settings required")
     cols = layout_settings.get("columns")
     if not isinstance(cols, list):
-        return list(DEFAULT_HISTORY_SEARCH_KEYS)
+        raise ValueError("layout_settings.columns must be a list")
     visible: list[str] = []
     for item in cols:
         if not isinstance(item, dict) or not item.get("visible"):
@@ -353,12 +353,12 @@ def default_history_sort_specs() -> list[tuple[str, str]]:
 
 
 def history_sort_specs_from_layout(layout_settings: dict[str, Any] | None) -> list[tuple[str, str]]:
-    specs: list[tuple[str, str]] = []
     if not isinstance(layout_settings, dict):
-        return default_history_sort_specs()
+        raise ValueError("layout_settings required")
     cols = layout_settings.get("columns")
     if not isinstance(cols, list):
-        return default_history_sort_specs()
+        raise ValueError("layout_settings.columns must be a list")
+    specs: list[tuple[str, str]] = []
     for item in cols:
         if not isinstance(item, dict):
             continue
@@ -367,7 +367,7 @@ def history_sort_specs_from_layout(layout_settings: dict[str, Any] | None) -> li
         if key not in _HISTORY_SORT_SQL or sort not in ("asc", "desc"):
             continue
         specs.append((key, sort))
-    return specs or default_history_sort_specs()
+    return specs
 
 
 def history_sort_param(specs: list[tuple[str, str]]) -> str:

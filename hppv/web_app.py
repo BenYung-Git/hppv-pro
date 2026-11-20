@@ -126,25 +126,46 @@ from hppv.soccer_ingest import (
     ingest_official_results_to_history,
     update_odds_for_existing_matches,
 )
-from hppv.soccer_layout import (
+from hppv.shared_layout import (
     LAYOUT_KEY_DAILY_MATCHES,
     LAYOUT_KEY_MATCH_HISTORY,
-    SoccerLayoutError,
+    LAYOUT_KEY_RACING_DAILY,
+    LAYOUT_KEY_RACING_HISTORY,
+    SPORT_RACING,
+    SPORT_SOCCER,
+    SharedLayoutError,
     ZEBRA_COLORS,
-    catalog_public,
-    default_layout_settings,
-    get_layout_settings,
-    save_layout_settings,
+    catalog_public as shared_catalog_public,
+    normalize_layout_key,
+    normalize_sport,
+    require_layout_settings,
+    save_layout_settings as shared_save_layout_settings,
     zebra_css_for_id,
+)
+from hppv.soccer_layout import (
     COLUMN_WIDTH_DEFAULT,
     COLUMN_WIDTH_MAX,
     COLUMN_WIDTH_MIN,
 )
+from hppv.racing_requests import ensure_racing_preset_files
 from hppv.soccer_requests import (
     SOCCER_REQUEST_PRESETS,
     SoccerRequestPresetError,
     ensure_placeholder_preset_files,
     load_soccer_request_preset,
+)
+from hppv.web_download_shell import (
+    DownloadShellError,
+    execute_download,
+    load_preset_display,
+    parse_request_key_and_payload,
+)
+from hppv.racing_task_scheduler import (
+    TASK_KEY_UPDATE_ODDS as RACING_TASK_KEY_UPDATE_ODDS,
+    TASK_KEY_UPDATE_RACECARD as RACING_TASK_KEY_UPDATE_RACECARD,
+    get_racing_task_public_state,
+    get_update_racecard_scheduler,
+    get_update_racing_odds_scheduler,
 )
 from hppv.soccer_task_scheduler import (
     SoccerTaskError,
@@ -211,6 +232,7 @@ cfg = default_config()
 DB_PATH = cfg.db_path
 SOCCER_DB_PATH = cfg.soccer_db_path
 SOCCER_REQUESTS_DIR = cfg.soccer_requests_dir
+RACING_REQUESTS_DIR = cfg.racing_requests_dir
 RANKINGS_UI_VERSION = "rankings-ui-v3"
 
 # One-time process init for soccer DB / translations seed (not per-request DDL).
@@ -223,6 +245,11 @@ try:
     ensure_placeholder_preset_files(SOCCER_REQUESTS_DIR)
 except OSError as _soccer_req_err:
     print(">>> SOCCER REQUEST PRESET INIT FAILED:", _soccer_req_err)
+
+try:
+    ensure_racing_preset_files(RACING_REQUESTS_DIR)
+except OSError as _racing_req_err:
+    print(">>> RACING REQUEST PRESET INIT FAILED:", _racing_req_err)
 
 # Single-process soccer task schedulers (not multi-worker safe).
 _update_matches_scheduler = get_update_matches_scheduler(
@@ -246,6 +273,22 @@ try:
     _update_results_scheduler.start()
 except Exception as _soccer_results_err:
     print(">>> SOCCER UPDATE_RESULTS SCHEDULER START FAILED:", _soccer_results_err)
+
+# Racing task schedulers: settings in soccer DB; data writes to racing DB.
+_racing_racecard_scheduler = get_update_racecard_scheduler(
+    SOCCER_DB_PATH, DB_PATH, RACING_REQUESTS_DIR
+)
+_racing_odds_scheduler = get_update_racing_odds_scheduler(
+    SOCCER_DB_PATH, DB_PATH, RACING_REQUESTS_DIR
+)
+try:
+    _racing_racecard_scheduler.start()
+except Exception as _racing_racecard_err:
+    print(">>> RACING UPDATE_RACECARD SCHEDULER START FAILED:", _racing_racecard_err)
+try:
+    _racing_odds_scheduler.start()
+except Exception as _racing_odds_err:
+    print(">>> RACING UPDATE_ODDS SCHEDULER START FAILED:", _racing_odds_err)
 
 @app.get("/ping")
 def ping():
@@ -550,23 +593,38 @@ def index() -> str:
     )
 
 
+def _layout_error_shell() -> dict[str, Any]:
+    """Minimal shell so templates do not invent catalog defaults when load fails."""
+    return {
+        "zebra_enabled": False,
+        "zebra_color_id": "row_alt_gray",
+        "columns": [],
+    }
+
+
 def _layout_context() -> dict[str, Any]:
     layout_error = ""
     try:
-        layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_DAILY_MATCHES)
-    except SoccerLayoutError as e:
-        layout = default_layout_settings(LAYOUT_KEY_DAILY_MATCHES)
+        layout = require_layout_settings(
+            SPORT_SOCCER, LAYOUT_KEY_DAILY_MATCHES, soccer_db_path=SOCCER_DB_PATH
+        )
+    except SharedLayoutError as e:
+        layout = _layout_error_shell()
         layout_error = e.code
-        logging.getLogger(__name__).warning("soccer layout load failed: %s %s", e.code, e.detail)
-    zebra_css = zebra_css_for_id(layout["zebra_color_id"]) if layout.get("zebra_enabled") else ""
+        logging.getLogger(__name__).warning(
+            "soccer layout load failed: %s %s", e.code, e.detail
+        )
+    zebra_css = (
+        zebra_css_for_id(layout["zebra_color_id"]) if layout.get("zebra_enabled") else ""
+    )
 
     history_layout_error = ""
     try:
-        history_layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_MATCH_HISTORY)
-    except SoccerLayoutError as e:
-        history_layout = default_layout_settings(
-            LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH
+        history_layout = require_layout_settings(
+            SPORT_SOCCER, LAYOUT_KEY_MATCH_HISTORY, soccer_db_path=SOCCER_DB_PATH
         )
+    except SharedLayoutError as e:
+        history_layout = _layout_error_shell()
         history_layout_error = e.code
         logging.getLogger(__name__).warning(
             "soccer history layout load failed: %s %s", e.code, e.detail
@@ -576,8 +634,8 @@ def _layout_context() -> dict[str, Any]:
         if history_layout.get("zebra_enabled")
         else ""
     )
-    history_catalog = catalog_public(
-        LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH
+    history_catalog = shared_catalog_public(
+        SPORT_SOCCER, LAYOUT_KEY_MATCH_HISTORY, soccer_db_path=SOCCER_DB_PATH
     )
     lang = normalize_lang(session.get("lang"))
     try:
@@ -590,7 +648,9 @@ def _layout_context() -> dict[str, Any]:
     )
     return {
         "layout_settings": layout,
-        "layout_catalog": catalog_public(LAYOUT_KEY_DAILY_MATCHES),
+        "layout_catalog": shared_catalog_public(
+            SPORT_SOCCER, LAYOUT_KEY_DAILY_MATCHES, soccer_db_path=SOCCER_DB_PATH
+        ),
         "layout_zebra_colors": list(ZEBRA_COLORS),
         "layout_zebra_css": zebra_css,
         "layout_error": layout_error,
@@ -805,11 +865,7 @@ def _empty_history_page_meta(
     sort: str = "",
     search_keys: list[str] | None = None,
 ) -> dict[str, Any]:
-    keys = (
-        list(search_keys)
-        if search_keys is not None
-        else list(history_search_keys_from_layout(None))
-    )
+    keys = list(search_keys) if search_keys is not None else []
     return {
         "n": 1,
         "total_count": 0,
@@ -829,31 +885,46 @@ _RACING_INFO_TABS = frozenset({"matches", "history", "download", "tasks"})
 @app.get("/racing/info")
 def racing_info() -> str:
     """Horse-racing info UI (daily=racecard; history=race_records; other tabs empty)."""
-    from hppv.racing_layout import (
-        LAYOUT_KEY_RACING_DAILY,
-        LAYOUT_KEY_RACING_HISTORY,
-        catalog_public,
-        get_layout_settings,
-    )
-    from hppv.soccer_layout import ZEBRA_COLORS
-
     raw = (request.args.get("tab") or "matches").strip().lower()
     active_tab = raw if raw in _RACING_INFO_TABS else "matches"
+    racing_layout_error = ""
+    racing_daily_layout_error = ""
+    try:
+        hist_layout = require_layout_settings(SPORT_RACING, LAYOUT_KEY_RACING_HISTORY)
+    except SharedLayoutError as e:
+        hist_layout = _layout_error_shell()
+        racing_layout_error = e.code
+        logging.getLogger(__name__).warning(
+            "racing history layout load failed: %s %s", e.code, e.detail
+        )
+    try:
+        daily_layout = require_layout_settings(SPORT_RACING, LAYOUT_KEY_RACING_DAILY)
+    except SharedLayoutError as e:
+        daily_layout = _layout_error_shell()
+        racing_daily_layout_error = e.code
+        logging.getLogger(__name__).warning(
+            "racing daily layout load failed: %s %s", e.code, e.detail
+        )
     return render_template(
         "racing_info.html",
         active_tab=active_tab,
         racing_page_size=50,
-        racing_layout_settings=get_layout_settings(LAYOUT_KEY_RACING_HISTORY),
-        racing_layout_catalog=catalog_public(layout_key=LAYOUT_KEY_RACING_HISTORY),
-        racing_daily_layout_settings=get_layout_settings(LAYOUT_KEY_RACING_DAILY),
-        racing_daily_layout_catalog=catalog_public(layout_key=LAYOUT_KEY_RACING_DAILY),
+        racing_layout_settings=hist_layout,
+        racing_layout_catalog=shared_catalog_public(
+            SPORT_RACING, LAYOUT_KEY_RACING_HISTORY
+        ),
+        racing_daily_layout_settings=daily_layout,
+        racing_daily_layout_catalog=shared_catalog_public(
+            SPORT_RACING, LAYOUT_KEY_RACING_DAILY
+        ),
         layout_zebra_colors=list(ZEBRA_COLORS),
+        racing_layout_error=racing_layout_error,
+        racing_daily_layout_error=racing_daily_layout_error,
     )
 
 
-@app.get("/api/racing/history-records")
-def api_racing_history_records() -> Any:
-    """Paged race_records list (read-only)."""
+def _records_racing_history() -> Any:
+    """Paged race_records list (read-only). Adapter for shared /api/records."""
     from hppv.racing_history import (
         RacingHistoryError,
         RacingHistorySearchError,
@@ -862,9 +933,6 @@ def api_racing_history_records() -> Any:
         parse_racing_sort_param,
     )
     from hppv.racing_layout import (
-        LAYOUT_KEY_RACING_HISTORY,
-        catalog_public,
-        get_layout_settings,
         racing_search_keys_from_layout,
         racing_sort_specs_from_layout,
     )
@@ -883,7 +951,7 @@ def api_racing_history_records() -> Any:
             n = 1
         q = request.args.get("q") or ""
         q_op = normalize_history_search_op(request.args.get("q_op"))
-        layout = get_layout_settings(LAYOUT_KEY_RACING_HISTORY)
+        layout = require_layout_settings(SPORT_RACING, LAYOUT_KEY_RACING_HISTORY)
         sort_specs = parse_racing_sort_param(request.args.get("sort"))
         if sort_specs is None:
             sort_specs = racing_sort_specs_from_layout(layout)
@@ -901,6 +969,8 @@ def api_racing_history_records() -> Any:
         return jsonify(
             {
                 "ok": True,
+                "sport": SPORT_RACING,
+                "layout_key": LAYOUT_KEY_RACING_HISTORY,
                 "source": "race_records",
                 "db": str(DB_PATH),
                 "table": "race_records",
@@ -917,9 +987,13 @@ def api_racing_history_records() -> Any:
                 "search_keys": list(result.search_keys),
                 "field_keys": list(result.field_keys),
                 "layout_settings": layout,
-                "catalog": catalog_public(),
+                "catalog": shared_catalog_public(
+                    SPORT_RACING, LAYOUT_KEY_RACING_HISTORY
+                ),
             }
         )
+    except SharedLayoutError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
     except RacingHistorySearchError as e:
         return jsonify({"ok": False, "error": e.code}), 400
     except RacingHistoryError as e:
@@ -927,57 +1001,6 @@ def api_racing_history_records() -> Any:
     except Exception as e:
         logging.getLogger(__name__).exception("racing history list failed: %s", e)
         return jsonify({"ok": False, "error": "read_failed"}), 500
-
-
-@app.get("/api/racing/layout/history")
-def api_racing_history_layout_get() -> Any:
-    from hppv.racing_layout import (
-        LAYOUT_KEY_RACING_HISTORY,
-        catalog_public,
-        get_layout_settings,
-    )
-
-    try:
-        return jsonify(
-            {
-                "ok": True,
-                "layout_key": LAYOUT_KEY_RACING_HISTORY,
-                "layout_settings": get_layout_settings(LAYOUT_KEY_RACING_HISTORY),
-                "catalog": catalog_public(),
-            }
-        )
-    except Exception as e:
-        logging.getLogger(__name__).exception("racing layout get failed: %s", e)
-        return jsonify({"ok": False, "error": "read_failed"}), 500
-
-
-@app.post("/api/racing/layout/history")
-def api_racing_history_layout_save() -> Any:
-    from hppv.racing_layout import (
-        LAYOUT_KEY_RACING_HISTORY,
-        catalog_public,
-        default_layout_settings,
-        save_layout_settings,
-    )
-
-    data = request.get_json(silent=True) or {}
-    if bool(data.get("reset")):
-        settings = default_layout_settings(LAYOUT_KEY_RACING_HISTORY)
-    else:
-        settings = data.get("layout_settings") or data
-    try:
-        saved = save_layout_settings(settings, layout_key=LAYOUT_KEY_RACING_HISTORY)
-        return jsonify(
-            {
-                "ok": True,
-                "layout_key": LAYOUT_KEY_RACING_HISTORY,
-                "layout_settings": saved,
-                "catalog": catalog_public(),
-            }
-        )
-    except Exception as e:
-        logging.getLogger(__name__).exception("racing layout save failed: %s", e)
-        return jsonify({"ok": False, "error": "save_failed"}), 500
 
 
 @app.post("/api/racing/history-export")
@@ -1006,9 +1029,8 @@ def api_racing_history_export() -> Any:
         return jsonify({"ok": False, "error": "export_failed"}), 500
 
 
-@app.get("/api/racing/daily-records")
-def api_racing_daily_records() -> Any:
-    """Racecard daily view: active meeting + selected race (all starters for that race)."""
+def _records_racing_daily() -> Any:
+    """Racecard daily view. Adapter for shared /api/records."""
     from hppv.racing_daily import (
         RacingDailyError,
         RacingDailySearchError,
@@ -1016,9 +1038,6 @@ def api_racing_daily_records() -> Any:
         parse_racing_daily_sort_param,
     )
     from hppv.racing_layout import (
-        LAYOUT_KEY_RACING_DAILY,
-        catalog_public,
-        get_layout_settings,
         racing_daily_sort_specs_from_layout,
     )
 
@@ -1032,7 +1051,7 @@ def api_racing_daily_records() -> Any:
                 race_no = int(race_no_raw)
             except (TypeError, ValueError):
                 return jsonify({"ok": False, "error": "invalid_race_no"}), 400
-        layout = get_layout_settings(LAYOUT_KEY_RACING_DAILY)
+        layout = require_layout_settings(SPORT_RACING, LAYOUT_KEY_RACING_DAILY)
         sort_specs = parse_racing_daily_sort_param(request.args.get("sort"))
         if sort_specs is None:
             sort_specs = racing_daily_sort_specs_from_layout(layout)
@@ -1047,6 +1066,8 @@ def api_racing_daily_records() -> Any:
         return jsonify(
             {
                 "ok": True,
+                "sport": SPORT_RACING,
+                "layout_key": LAYOUT_KEY_RACING_DAILY,
                 "source": "racecard_starters",
                 "join": "racecard_race_info",
                 "db": str(DB_PATH),
@@ -1070,9 +1091,13 @@ def api_racing_daily_records() -> Any:
                 "sort": result.sort,
                 "field_keys": list(result.field_keys),
                 "layout_settings": layout,
-                "catalog": catalog_public(layout_key=LAYOUT_KEY_RACING_DAILY),
+                "catalog": shared_catalog_public(
+                    SPORT_RACING, LAYOUT_KEY_RACING_DAILY
+                ),
             }
         )
+    except SharedLayoutError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
     except RacingDailySearchError as e:
         return jsonify({"ok": False, "error": e.code}), 400
     except RacingDailyError as e:
@@ -1080,57 +1105,6 @@ def api_racing_daily_records() -> Any:
     except Exception as e:
         logging.getLogger(__name__).exception("racing daily list failed: %s", e)
         return jsonify({"ok": False, "error": "read_failed"}), 500
-
-
-@app.get("/api/racing/layout/daily")
-def api_racing_daily_layout_get() -> Any:
-    from hppv.racing_layout import (
-        LAYOUT_KEY_RACING_DAILY,
-        catalog_public,
-        get_layout_settings,
-    )
-
-    try:
-        return jsonify(
-            {
-                "ok": True,
-                "layout_key": LAYOUT_KEY_RACING_DAILY,
-                "layout_settings": get_layout_settings(LAYOUT_KEY_RACING_DAILY),
-                "catalog": catalog_public(layout_key=LAYOUT_KEY_RACING_DAILY),
-            }
-        )
-    except Exception as e:
-        logging.getLogger(__name__).exception("racing daily layout get failed: %s", e)
-        return jsonify({"ok": False, "error": "read_failed"}), 500
-
-
-@app.post("/api/racing/layout/daily")
-def api_racing_daily_layout_save() -> Any:
-    from hppv.racing_layout import (
-        LAYOUT_KEY_RACING_DAILY,
-        catalog_public,
-        default_layout_settings,
-        save_layout_settings,
-    )
-
-    data = request.get_json(silent=True) or {}
-    if bool(data.get("reset")):
-        settings = default_layout_settings(LAYOUT_KEY_RACING_DAILY)
-    else:
-        settings = data.get("layout_settings") or data
-    try:
-        saved = save_layout_settings(settings, layout_key=LAYOUT_KEY_RACING_DAILY)
-        return jsonify(
-            {
-                "ok": True,
-                "layout_key": LAYOUT_KEY_RACING_DAILY,
-                "layout_settings": saved,
-                "catalog": catalog_public(layout_key=LAYOUT_KEY_RACING_DAILY),
-            }
-        )
-    except Exception as e:
-        logging.getLogger(__name__).exception("racing daily layout save failed: %s", e)
-        return jsonify({"ok": False, "error": "save_failed"}), 500
 
 
 @app.post("/api/racing/daily-export")
@@ -1388,23 +1362,72 @@ def set_language():
     return redirect(next_url)
 
 
-@app.get("/api/soccer/request-presets/<preset_id>")
-def api_soccer_request_preset(preset_id: str) -> Any:
-    """Load a registered soccer GraphQL preset into the client (read-only; no network)."""
+def _api_download_preset_response(sport: str, preset_id: str) -> Any:
     try:
-        _payload, display = load_soccer_request_preset(SOCCER_REQUESTS_DIR, preset_id)
-    except SoccerRequestPresetError as e:
-        logging.getLogger(__name__).warning(
-            "soccer request preset load failed id=%s code=%s detail=%s",
+        display = load_preset_display(
+            sport,
             preset_id,
-            e.code,
-            e.detail,
+            soccer_requests_dir=SOCCER_REQUESTS_DIR,
+            racing_requests_dir=RACING_REQUESTS_DIR,
         )
-        return jsonify({"ok": False, "error": e.code}), 400
+    except DownloadShellError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), e.http_status
     except Exception as e:
-        logging.getLogger(__name__).exception("soccer request preset unexpected error: %s", e)
+        logging.getLogger(__name__).exception(
+            "download preset load failed sport=%s id=%s: %s", sport, preset_id, e
+        )
         return jsonify({"ok": False, "error": "read_failed"}), 500
-    return jsonify({"ok": True, "display": display})
+    return jsonify({"ok": True, "sport": sport, "display": display})
+
+
+def _api_download_send_response(sport: str) -> Any:
+    raw = request.get_data(as_text=True) or ""
+    data = request.get_json(silent=True)
+    try:
+        request_key, payload_text = parse_request_key_and_payload(
+            data, raw, sport=sport
+        )
+        db_path = SOCCER_DB_PATH if sport == SPORT_SOCCER else DB_PATH
+        body = execute_download(
+            sport=sport,
+            db_path=db_path,
+            request_key=request_key,
+            raw_payload=payload_text,
+        )
+    except DownloadShellError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), e.http_status
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "download send failed sport=%s: %s", sport, e
+        )
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+    body = dict(body)
+    body["sport"] = sport
+    return jsonify(body)
+
+
+@app.get("/api/download/<sport>/request-presets/<preset_id>")
+def api_download_request_preset(sport: str, preset_id: str) -> Any:
+    """Shared preset load for soccer + racing download."""
+    from hppv.web_download_shell import normalize_sport as dl_normalize_sport
+
+    try:
+        sport_n = dl_normalize_sport(sport)
+    except DownloadShellError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), e.http_status
+    return _api_download_preset_response(sport_n, preset_id)
+
+
+@app.post("/api/download/<sport>/graphql/send")
+def api_download_graphql_send(sport: str) -> Any:
+    """Shared download send entry for soccer + racing."""
+    from hppv.web_download_shell import normalize_sport as dl_normalize_sport
+
+    try:
+        sport_n = dl_normalize_sport(sport)
+    except DownloadShellError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), e.http_status
+    return _api_download_send_response(sport_n)
 
 
 def _ingest_public_dict(request_key: str) -> dict[str, Any]:
@@ -1582,128 +1605,87 @@ def _api_soccer_manual_match_results(payload: Any) -> Any:
     )
 
 
-@app.post("/api/soccer/graphql/send")
-def api_soccer_graphql_send() -> Any:
-    """
-    Validate Request-box payload, POST to HKJC GraphQL, and ingest matches/odds
-    into soccer_daily when the response is a complete matches payload.
-    No login/auth (same as other Web APIs).
+def _racing_task_public(scheduler: Any, task_key: str) -> dict[str, Any]:
+    state = scheduler.get_state()
+    pub = state.to_public_dict()
+    pub["scope"] = get_racing_task_public_state(
+        SOCCER_DB_PATH, task_key, running=state.running
+    ).get("scope")
+    return pub
 
-    match_results uses the shared history ingest path (same as update_results task)
-    with the payload date window — not soccer_daily MIN/MAX.
-    """
-    raw = request.get_data(as_text=True) or ""
-    # Prefer JSON body field `payload` (string) or raw JSON object.
+
+@app.get("/api/racing/tasks/update-racecard")
+def api_racing_task_update_racecard_get() -> Any:
+    try:
+        pub = _racing_task_public(
+            _racing_racecard_scheduler, RACING_TASK_KEY_UPDATE_RACECARD
+        )
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing racecard task get failed: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+    return jsonify({"ok": True, "task": pub})
+
+
+@app.put("/api/racing/tasks/update-racecard")
+def api_racing_task_update_racecard_put() -> Any:
     data = request.get_json(silent=True)
-    request_key = REQUEST_KEY_MATCHES_AND_ODDS
-    if isinstance(data, dict):
-        rk = data.get("request_key")
-        if isinstance(rk, str) and rk.strip():
-            request_key = rk.strip()
-        if request_key not in SOCCER_REQUEST_PRESETS:
-            return jsonify({"ok": False, "error": "unsupported_type"}), 400
-        if isinstance(data.get("payload"), str):
-            raw = data["payload"]
-        elif "query" in data:
-            raw = json.dumps(
-                {k: data[k] for k in ("query", "variables", "operationName") if k in data},
-                ensure_ascii=False,
-            )
-
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
     try:
-        payload = parse_and_validate_send_payload(raw)
-    except SoccerGraphQLSendError as e:
-        logging.getLogger(__name__).warning(
-            "soccer graphql send rejected/failed code=%s detail=%s",
-            e.code,
-            e.detail,
+        state = _racing_racecard_scheduler.apply_settings(
+            enabled=bool(data.get("enabled")),
+            interval_value=data.get("interval_value"),
+            interval_unit=data.get("interval_unit"),
         )
-        status = 429 if e.code == "rate_limited" else 400
-        return jsonify({"ok": False, "error": e.code}), status
+        pub = state.to_public_dict()
+        pub["scope"] = get_racing_task_public_state(
+            SOCCER_DB_PATH, RACING_TASK_KEY_UPDATE_RACECARD, running=state.running
+        ).get("scope")
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
     except Exception as e:
-        logging.getLogger(__name__).exception("soccer graphql send unexpected: %s", e)
-        return jsonify({"ok": False, "error": "read_failed"}), 500
+        logging.getLogger(__name__).exception("racing racecard task save failed: %s", e)
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+    return jsonify({"ok": True, "task": pub})
 
-    if request_key == REQUEST_KEY_MATCH_RESULTS:
-        return _api_soccer_manual_match_results(payload)
 
-    if request_key == REQUEST_KEY_MATCH_RESULTS_BY_YEAR:
-        # Year history download is FootyLogic-primary; do not treat HKJC
-        # matchResults as a FootyLogic history substitute.
-        return jsonify({"ok": False, "error": "use_footylogic_year_api"}), 400
-
+@app.get("/api/racing/tasks/update-odds")
+def api_racing_task_update_odds_get() -> Any:
     try:
-        result = send_soccer_graphql(payload)
-    except SoccerGraphQLSendError as e:
-        logging.getLogger(__name__).warning(
-            "soccer graphql send rejected/failed code=%s detail=%s",
-            e.code,
-            e.detail,
+        pub = _racing_task_public(
+            _racing_odds_scheduler, RACING_TASK_KEY_UPDATE_ODDS
         )
-        status = 429 if e.code == "rate_limited" else 400
-        return jsonify({"ok": False, "error": e.code}), status
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
     except Exception as e:
-        logging.getLogger(__name__).exception("soccer graphql send unexpected: %s", e)
+        logging.getLogger(__name__).exception("racing odds task get failed: %s", e)
         return jsonify({"ok": False, "error": "read_failed"}), 500
+    return jsonify({"ok": True, "task": pub})
 
-    ingest = _ingest_public_dict(request_key)
 
-    # Ingest only from backend-validated complete JSON object (never truncated text).
-    if result.truncated:
-        ingest["status"] = "skipped"
-        ingest["code"] = "truncated"
-        ingest["detail"] = "response truncated"
-    elif result.outcome != "success":
-        ingest["status"] = "skipped"
-        ingest["code"] = result.outcome
-        ingest["detail"] = "response not eligible for ingest"
-    else:
-        try:
-            response_obj = json.loads(result.body_text)
-            if request_key == REQUEST_KEY_MATCH_RESULTS_BY_YEAR:
-                # by_year unchanged: still soccer_daily official-results path.
-                ing = ingest_official_match_results(
-                    SOCCER_DB_PATH,
-                    response_obj,
-                    request_key=request_key,
-                    variables=payload.variables,
-                    allow_insert=True,
-                )
-            elif request_key == REQUEST_KEY_UPDATE_ODDS_AND_RESULTS:
-                ing = update_odds_for_existing_matches(
-                    SOCCER_DB_PATH, response_obj, request_key=request_key
-                )
-            else:
-                ing = ingest_matches_and_odds(
-                    SOCCER_DB_PATH, response_obj, request_key=request_key
-                )
-            _apply_ingest_result(ingest, ing, request_key)
-        except SoccerIngestError as e:
-            logging.getLogger(__name__).warning(
-                "soccer ingest failed code=%s detail=%s", e.code, e.detail
-            )
-            ingest["status"] = "failed"
-            ingest["code"] = e.code
-            ingest["detail"] = e.detail
-        except Exception as e:
-            logging.getLogger(__name__).exception("soccer ingest unexpected: %s", e)
-            ingest["status"] = "failed"
-            ingest["code"] = "transaction_failed"
-            ingest["detail"] = "unexpected ingest error"
-
-    return jsonify(
-        {
-            "ok": True,
-            "outcome": result.outcome,
-            "http_status": result.http_status,
-            "elapsed_ms": result.elapsed_ms,
-            "body": result.body_text,
-            "truncated": result.truncated,
-            "match_count": result.match_count,
-            "has_had_odds": result.has_had_odds,
-            "ingest": ingest,
-        }
-    )
+@app.put("/api/racing/tasks/update-odds")
+def api_racing_task_update_odds_put() -> Any:
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
+    try:
+        state = _racing_odds_scheduler.apply_settings(
+            enabled=bool(data.get("enabled")),
+            interval_value=data.get("interval_value"),
+            interval_unit=data.get("interval_unit"),
+        )
+        pub = state.to_public_dict()
+        pub["scope"] = get_racing_task_public_state(
+            SOCCER_DB_PATH, RACING_TASK_KEY_UPDATE_ODDS, running=state.running
+        ).get("scope")
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing odds task save failed: %s", e)
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+    return jsonify({"ok": True, "task": pub})
 
 
 @app.get("/api/soccer/history-year/status")
@@ -1871,9 +1853,8 @@ def api_soccer_sync_state() -> Any:
     return jsonify({"ok": True, "request_key": key, "last_success_at": ts, "last_success_at_hkt": hkt})
 
 
-@app.get("/api/soccer/history-matches")
-def api_soccer_history_matches() -> Any:
-    """Paged Footylogic history list. Never reads quarantine or soccer_daily."""
+def _records_soccer_match_history() -> Any:
+    """Paged Footylogic history list. Adapter for shared /api/records."""
     all_matches = resolve_all_matches_arg(request.args)
     selected, invalid = parse_requested_date(request.args.get("date"))
     if all_matches:
@@ -1882,13 +1863,16 @@ def api_soccer_history_matches() -> Any:
     elif invalid or selected is None:
         return jsonify({"ok": False, "error": "invalid_date"}), 400
     try:
-        hist_layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_MATCH_HISTORY)
-    except SoccerLayoutError:
-        hist_layout = default_layout_settings(
-            LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH
+        hist_layout = require_layout_settings(
+            SPORT_SOCCER, LAYOUT_KEY_MATCH_HISTORY, soccer_db_path=SOCCER_DB_PATH
         )
+    except SharedLayoutError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
     hist_state = _history_list_query_state(hist_layout)
     hist_search_keys = history_search_keys_from_layout(hist_layout)
+    hist_catalog = shared_catalog_public(
+        SPORT_SOCCER, LAYOUT_KEY_MATCH_HISTORY, soccer_db_path=SOCCER_DB_PATH
+    )
     try:
         result = fetch_history_filtered(
             SOCCER_DB_PATH,
@@ -1907,9 +1891,7 @@ def api_soccer_history_matches() -> Any:
                 "detail": e.detail,
                 "search_keys": hist_search_keys,
                 "layout_settings": hist_layout,
-                "catalog": catalog_public(
-                    LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH
-                ),
+                "catalog": hist_catalog,
             }
         ), 400
     except SoccerDataError as e:
@@ -1918,6 +1900,8 @@ def api_soccer_history_matches() -> Any:
     return jsonify(
         {
             "ok": True,
+            "sport": SPORT_SOCCER,
+            "layout_key": LAYOUT_KEY_MATCH_HISTORY,
             "source": "footylogic_matches",
             "date": selected.isoformat(),
             "all_matches": all_matches,
@@ -1932,9 +1916,7 @@ def api_soccer_history_matches() -> Any:
             "search_keys": list(result.search_keys),
             "field_keys": list(result.field_keys),
             "layout_settings": hist_layout,
-            "catalog": catalog_public(
-                LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH
-            ),
+            "catalog": hist_catalog,
         }
     )
 
@@ -1993,8 +1975,8 @@ def api_soccer_match_form() -> Any:
     return jsonify({"ok": True, "data": payload})
 
 
-@app.get("/api/soccer/daily-matches")
-def api_soccer_daily_matches() -> Any:
+def _records_soccer_daily_matches() -> Any:
+    """Soccer daily list. Adapter for shared /api/records."""
     all_matches = resolve_all_matches_arg(request.args)
     selected, invalid = parse_requested_date(request.args.get("date"))
     if all_matches:
@@ -2003,9 +1985,11 @@ def api_soccer_daily_matches() -> Any:
     elif invalid or selected is None:
         return jsonify({"ok": False, "error": "invalid_date"}), 400
     try:
-        layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_DAILY_MATCHES)
-    except SoccerLayoutError:
-        layout = default_layout_settings(LAYOUT_KEY_DAILY_MATCHES)
+        layout = require_layout_settings(
+            SPORT_SOCCER, LAYOUT_KEY_DAILY_MATCHES, soccer_db_path=SOCCER_DB_PATH
+        )
+    except SharedLayoutError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
     list_state = _soccer_list_query_state(layout)
     try:
         result = fetch_matches_filtered(
@@ -2023,6 +2007,8 @@ def api_soccer_daily_matches() -> Any:
     return jsonify(
         {
             "ok": True,
+            "sport": SPORT_SOCCER,
+            "layout_key": LAYOUT_KEY_DAILY_MATCHES,
             "date": selected.isoformat(),
             "all_matches": all_matches,
             "matches": result.matches,
@@ -2039,72 +2025,66 @@ def api_soccer_daily_matches() -> Any:
                     else "source_status_map_unverified"
                 ),
             },
+            "layout_settings": layout,
+            "catalog": shared_catalog_public(
+                SPORT_SOCCER, LAYOUT_KEY_DAILY_MATCHES, soccer_db_path=SOCCER_DB_PATH
+            ),
         }
     )
 
 
-@app.get("/api/soccer/layout/daily-matches")
-def api_soccer_layout_get() -> Any:
+_RECORDS_HANDLERS: dict[tuple[str, str], Any] = {
+    (SPORT_SOCCER, LAYOUT_KEY_DAILY_MATCHES): _records_soccer_daily_matches,
+    (SPORT_SOCCER, LAYOUT_KEY_MATCH_HISTORY): _records_soccer_match_history,
+    (SPORT_RACING, LAYOUT_KEY_RACING_DAILY): _records_racing_daily,
+    (SPORT_RACING, LAYOUT_KEY_RACING_HISTORY): _records_racing_history,
+}
+
+
+@app.get("/api/records/<sport>/<layout_key>")
+def api_records(sport: str, layout_key: str) -> Any:
+    """Shared list read for soccer + racing. Data adapters stay sport-specific."""
     try:
-        settings = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_DAILY_MATCHES)
-    except SoccerLayoutError as e:
+        sport_n = normalize_sport(sport)
+        key = normalize_layout_key(sport_n, layout_key)
+    except SharedLayoutError as e:
         return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
-    return jsonify(
-        {
+    handler = _RECORDS_HANDLERS.get((sport_n, key))
+    if handler is None:
+        return jsonify(
+            {
+                "ok": False,
+                "error": "unsupported_layout_key",
+                "detail": f"sport={sport_n} layout_key={key!r}",
+            }
+        ), 400
+    return handler()
+
+
+@app.route("/api/layout/<sport>/<layout_key>", methods=["GET", "POST"])
+def api_layout(sport: str, layout_key: str) -> Any:
+    """Shared layout read/write for soccer + racing. No default / reset / aliases."""
+    try:
+        sport_n = normalize_sport(sport)
+        key = normalize_layout_key(sport_n, layout_key)
+    except SharedLayoutError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+
+    soccer_db = SOCCER_DB_PATH if sport_n == SPORT_SOCCER else None
+    if request.method == "GET":
+        try:
+            settings = require_layout_settings(
+                sport_n, key, soccer_db_path=soccer_db
+            )
+        except SharedLayoutError as e:
+            return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+        catalog = shared_catalog_public(sport_n, key, soccer_db_path=soccer_db)
+        payload: dict[str, Any] = {
             "ok": True,
-            "layout_key": LAYOUT_KEY_DAILY_MATCHES,
-            "settings": settings,
-            "catalog": catalog_public(LAYOUT_KEY_DAILY_MATCHES),
-            "zebra_colors": list(ZEBRA_COLORS),
-            "width": {
-                "default": COLUMN_WIDTH_DEFAULT,
-                "min": COLUMN_WIDTH_MIN,
-                "max": COLUMN_WIDTH_MAX,
-            },
-        }
-    )
-
-
-@app.post("/api/soccer/layout/daily-matches")
-def api_soccer_layout_save() -> Any:
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict) or "settings" not in data:
-        return jsonify({"ok": False, "error": "invalid_settings"}), 400
-    try:
-        saved = save_layout_settings(
-            SOCCER_DB_PATH, data["settings"], layout_key=LAYOUT_KEY_DAILY_MATCHES
-        )
-    except SoccerLayoutError as e:
-        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
-    except Exception as e:
-        logging.getLogger(__name__).exception("soccer layout save failed: %s", e)
-        return jsonify({"ok": False, "error": "save_failed"}), 500
-    return jsonify({"ok": True, "settings": saved})
-
-
-@app.get("/api/soccer/layout/match-history")
-def api_soccer_history_layout_get() -> Any:
-    try:
-        settings = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_MATCH_HISTORY)
-    except SoccerLayoutError as e:
-        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
-    catalog = catalog_public(LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH)
-    lang = normalize_lang(session.get("lang"))
-    try:
-        text_map = load_active_text_map(SOCCER_DB_PATH, lang)
-    except Exception:
-        text_map = {}
-    labels, descs = history_column_i18n_maps(
-        text_map, [str(c["key"]) for c in catalog]
-    )
-    return jsonify(
-        {
-            "ok": True,
-            "layout_key": LAYOUT_KEY_MATCH_HISTORY,
-            "settings": settings,
+            "sport": sport_n,
+            "layout_key": key,
+            "layout_settings": settings,
             "catalog": catalog,
-            "col_labels": labels,
-            "col_descs": descs,
             "zebra_colors": list(ZEBRA_COLORS),
             "width": {
                 "default": COLUMN_WIDTH_DEFAULT,
@@ -2112,24 +2092,46 @@ def api_soccer_history_layout_get() -> Any:
                 "max": COLUMN_WIDTH_MAX,
             },
         }
-    )
+        if sport_n == SPORT_SOCCER and key == LAYOUT_KEY_MATCH_HISTORY:
+            lang = normalize_lang(session.get("lang"))
+            try:
+                text_map = load_active_text_map(SOCCER_DB_PATH, lang)
+            except Exception:
+                text_map = {}
+            labels, descs = history_column_i18n_maps(
+                text_map, [str(c["key"]) for c in catalog]
+            )
+            payload["col_labels"] = labels
+            payload["col_descs"] = descs
+        return jsonify(payload)
 
-
-@app.post("/api/soccer/layout/match-history")
-def api_soccer_history_layout_save() -> Any:
     data = request.get_json(silent=True)
-    if not isinstance(data, dict) or "settings" not in data:
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_settings"}), 400
+    if "reset" in data:
+        return jsonify({"ok": False, "error": "reset_removed"}), 400
+    if "layout_settings" not in data:
         return jsonify({"ok": False, "error": "invalid_settings"}), 400
     try:
-        saved = save_layout_settings(
-            SOCCER_DB_PATH, data["settings"], layout_key=LAYOUT_KEY_MATCH_HISTORY
+        saved = shared_save_layout_settings(
+            sport_n, key, data["layout_settings"], soccer_db_path=soccer_db
         )
-    except SoccerLayoutError as e:
+    except SharedLayoutError as e:
         return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
     except Exception as e:
-        logging.getLogger(__name__).exception("soccer history layout save failed: %s", e)
+        logging.getLogger(__name__).exception(
+            "layout save failed sport=%s key=%s: %s", sport_n, key, e
+        )
         return jsonify({"ok": False, "error": "save_failed"}), 500
-    return jsonify({"ok": True, "layout_key": LAYOUT_KEY_MATCH_HISTORY, "settings": saved})
+    return jsonify(
+        {
+            "ok": True,
+            "sport": sport_n,
+            "layout_key": key,
+            "layout_settings": saved,
+            "catalog": shared_catalog_public(sport_n, key, soccer_db_path=soccer_db),
+        }
+    )
 
 
 @app.post("/api/soccer/history-export")
@@ -2138,7 +2140,9 @@ def api_soccer_history_export() -> Any:
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"ok": False, "error": "invalid_request"}), 400
-    catalog = catalog_public(LAYOUT_KEY_MATCH_HISTORY, db_path=SOCCER_DB_PATH)
+    catalog = shared_catalog_public(
+        SPORT_SOCCER, LAYOUT_KEY_MATCH_HISTORY, soccer_db_path=SOCCER_DB_PATH
+    )
     catalog_keys = [str(c["key"]) for c in catalog]
     try:
         export_req = parse_history_export_request(
@@ -2171,13 +2175,17 @@ def api_soccer_daily_export() -> Any:
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"ok": False, "error": "invalid_request"}), 400
-    catalog = catalog_public(LAYOUT_KEY_DAILY_MATCHES, db_path=SOCCER_DB_PATH)
+    catalog = shared_catalog_public(
+        SPORT_SOCCER, LAYOUT_KEY_DAILY_MATCHES, soccer_db_path=SOCCER_DB_PATH
+    )
     catalog_keys = [str(c["key"]) for c in catalog]
     try:
         try:
-            daily_layout = get_layout_settings(SOCCER_DB_PATH, LAYOUT_KEY_DAILY_MATCHES)
-        except SoccerLayoutError:
-            daily_layout = default_layout_settings(LAYOUT_KEY_DAILY_MATCHES)
+            daily_layout = require_layout_settings(
+                SPORT_SOCCER, LAYOUT_KEY_DAILY_MATCHES, soccer_db_path=SOCCER_DB_PATH
+            )
+        except SharedLayoutError as e:
+            return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
         export_req = parse_daily_export_request(
             data, catalog_keys=catalog_keys, db_path=SOCCER_DB_PATH
         )
