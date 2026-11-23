@@ -75,47 +75,143 @@
   }
 
   /**
-   * Shared status for unit=record (racing). Never invent totals or percentages.
+   * Shared status for unit=record (racing) — aligned with soccer download Status:
+   * 請求結果 / HTTP / 耗時 / 入庫結果 / 筆數；錯誤依 sendErrors 對碼，不一律「連線失敗」。
    */
   function formatRecordDownloadStatus(data, MSG) {
     MSG = MSG || {};
-    if (!data) return MSG.error || "";
-    if (data.ok === false && data.error && !data.ingest) {
-      return (
-        (MSG.error || "") +
-        "：" +
-        data.error +
-        (data.detail ? " — " + data.detail : "")
-      );
+    const reqPrefix = MSG.requestResult || "";
+    if (!data) {
+      return reqPrefix
+        ? reqPrefix + "：" + (MSG.failed || MSG.error || "")
+        : MSG.error || "";
     }
+    if (data.ok === false) {
+      const code = data.error || "read_failed";
+      const mapped =
+        (MSG.sendErrors && MSG.sendErrors[code]) ||
+        MSG.failed ||
+        code;
+      let line = reqPrefix ? reqPrefix + "：" + mapped : mapped;
+      if (data.detail) line += " — " + data.detail;
+      return line;
+    }
+    const jobRunning =
+      data.job_status === "running" ||
+      data.job_status === "queued" ||
+      data.outcome === "running";
+    const outcome = jobRunning
+      ? MSG.jobRunning || MSG.fetchingTotal || MSG.sending || "下載中…"
+      : data.outcome === "success"
+        ? MSG.sendComplete || ""
+        : MSG.failed || MSG.error || "";
+    const httpDisp =
+      data.http_status === null || data.http_status === undefined
+        ? "—"
+        : String(data.http_status);
     const ing = data.ingest || {};
-    const total = data.total != null ? data.total : ing.total;
+    const detail = data.detail || ing.detail || {};
     const processed =
       (data.processed != null ? data.processed : ing.processed) || 0;
-    const totalDisp = total == null ? "—" : String(total);
-    const lines = [
-      data.outcome === "success"
-        ? MSG.sendComplete || ""
-        : MSG.error || "",
-      (MSG.ingestProcessed || "") + " " + processed + "/" + totalDisp + " record",
-      (MSG.ingestProcessed || "") + "：" + processed,
+    const updated =
+      (data.updated != null ? data.updated : ing.updated) || 0;
+    const skipped =
+      (data.skipped != null ? data.skipped : ing.skipped) || 0;
+    const failed =
+      (data.failed != null ? data.failed : ing.failed) || 0;
+    const total = data.total != null ? data.total : ing.total;
+    const ingestCode = ing.code || data.outcome || "";
+    let ingestReason = MSG.ingestOk || MSG.sendComplete || "";
+    if (jobRunning) {
+      ingestReason = MSG.jobRunning || MSG.fetchingTotal || "進行中";
+    } else if (ingestCode === "partial_failure") {
+      ingestReason = MSG.ingestPartial || ingestReason;
+    } else if (ing.status && ing.status !== "success") {
+      ingestReason = MSG.failed || ingestReason;
+    }
+    let text =
+      (reqPrefix ? reqPrefix + "：" + outcome : outcome) +
+      "\n" +
+      (MSG.labelHttp || "HTTP") +
+      "：" +
+      httpDisp +
+      "\n" +
+      (MSG.labelElapsed || "") +
+      "：" +
+      (data.elapsed_ms || 0) +
+      " ms\n\n";
+    text +=
+      (MSG.ingestSection || "") +
+      "：" +
+      ingestReason +
+      "\n";
+    if (data.message) {
+      text += (MSG.progressMessage || "進度") + "：" + data.message + "\n";
+    }
+    const dateWindow =
+      (ing.date_window && typeof ing.date_window === "object"
+        ? ing.date_window
+        : null) ||
+      (detail.variables &&
+      (detail.variables.startDate != null || detail.variables.endDate != null)
+        ? detail.variables
+        : null);
+    if (dateWindow) {
+      text +=
+        (MSG.ingestDateRange || "") +
+        "：" +
+        String(dateWindow.startDate || "—") +
+        " ～ " +
+        String(dateWindow.endDate || "—") +
+        "\n";
+      if (dateWindow.venueCodes) {
+        const vc = Array.isArray(dateWindow.venueCodes)
+          ? dateWindow.venueCodes.join(",")
+          : String(dateWindow.venueCodes);
+        text += (MSG.venueCodesLabel || "venueCodes") + "：" + vc + "\n";
+      }
+    }
+    if (detail.meetings_scanned != null) {
+      text +=
+        (MSG.meetingsScanned || "meetings_scanned") +
+        "：" +
+        detail.meetings_scanned +
+        "\n";
+    }
+    if (detail.meetings_with_results != null) {
+      text +=
+        (MSG.meetingsWithResults || "meetings_with_results") +
+        "：" +
+        detail.meetings_with_results +
+        "\n";
+    }
+    text +=
+      (MSG.ingestProcessed || "") +
+      "：" +
+      processed +
+      (total == null ? "" : " / " + total) +
+      "\n" +
       (MSG.updated || "") +
-        "：" +
-        ((data.updated != null ? data.updated : ing.updated) || 0),
+      "：" +
+      updated +
+      "\n" +
       (MSG.skipped || "") +
-        "：" +
-        ((data.skipped != null ? data.skipped : ing.skipped) || 0),
+      "：" +
+      skipped +
+      "\n" +
       (MSG.failed || "") +
-        "：" +
-        ((data.failed != null ? data.failed : ing.failed) || 0),
-    ];
-    if (data.race_date) lines.push("race_date：" + data.race_date);
-    if (data.venue_code) lines.push("venue：" + data.venue_code);
-    const detail = data.detail || ing.detail || {};
-    if (detail && detail.operation) lines.push("operation：" + detail.operation);
-    if (detail && detail.odds_path) lines.push("odds_path：" + detail.odds_path);
-    if (data.error) lines.push("error：" + data.error);
-    return lines.join("\n");
+      "：" +
+      failed +
+      "\n";
+    if (data.race_date) text += "race_date：" + data.race_date + "\n";
+    if (data.venue_code) text += "venue：" + data.venue_code + "\n";
+    if (detail.operation) text += "operation：" + detail.operation + "\n";
+    if (detail.odds_path) text += "odds_path：" + detail.odds_path + "\n";
+    if (data.request_key || ing.request_key) {
+      text +=
+        "request_key：" + (data.request_key || ing.request_key) + "\n";
+    }
+    return text.replace(/\n$/, "");
   }
 
   /**
@@ -519,9 +615,67 @@
       await loadPreset();
     });
 
+    const jobStatusUrl =
+      typeof opts.jobStatusUrl === "function"
+        ? opts.jobStatusUrl
+        : typeof opts.jobStatusUrl === "string"
+          ? function (jobId) {
+              return opts.jobStatusUrl + encodeURIComponent(jobId);
+            }
+          : null;
+    const pollMs =
+      typeof opts.jobPollMs === "number" && opts.jobPollMs >= 400
+        ? opts.jobPollMs
+        : 1000;
+
+    async function pollRacingJob(jobId, presetId) {
+      if (!jobStatusUrl) return null;
+      for (;;) {
+        await new Promise(function (resolve) {
+          setTimeout(resolve, pollMs);
+        });
+        let snap = null;
+        try {
+          const r = await fetch(jobStatusUrl(jobId), {
+            headers: { Accept: "application/json" },
+          });
+          snap = await r.json();
+          if (!r.ok && (!snap || snap.error === "job_not_found")) {
+            return {
+              ok: false,
+              error: (snap && snap.error) || "job_not_found",
+            };
+          }
+        } catch (_e) {
+          // Keep polling on transient network blips while job may still run.
+          continue;
+        }
+        if (!snap) continue;
+        statusBox.value = formatStatus(snap);
+        const st = snap.job_status;
+        if (st === "success" || st === "failed") {
+          return snap;
+        }
+      }
+    }
+
     btnSend.addEventListener("click", async function () {
       if (sending) return;
       if (typeof opts.canSend === "function" && opts.canSend(requestType.value) === false) {
+        return;
+      }
+      const rawPayload = requestBox.value;
+      // Align with soccer: validate Request JSON before send.
+      try {
+        JSON.parse(rawPayload);
+      } catch (_e) {
+        const invalid =
+          (MSG.sendErrors && MSG.sendErrors.invalid_json) ||
+          MSG.sendInvalidJson ||
+          "invalid_json";
+        statusBox.value = MSG.requestResult
+          ? MSG.requestResult + "：" + invalid
+          : invalid;
         return;
       }
       sending = true;
@@ -535,7 +689,7 @@
             "Content-Type": "application/json",
             Accept: "application/json",
           },
-          body: JSON.stringify(buildSendBody(presetId, requestBox.value)),
+          body: JSON.stringify(buildSendBody(presetId, rawPayload)),
         });
         let data = null;
         try {
@@ -543,16 +697,51 @@
         } catch (_e) {
           data = null;
         }
-        if (!data) {
-          statusBox.value = (MSG.error || "Error") + "（HTTP " + resp.status + "）";
-        } else {
-          statusBox.value = formatStatus(data);
-          if (onAfterSuccess && (resp.ok || data.ok)) {
-            onAfterSuccess(data, presetId);
+        if (!resp.ok || !data || data.ok === false) {
+          // 202 accepted job still has ok:true; treat as success path below.
+          const code =
+            data && data.error
+              ? data.error
+              : !resp.ok
+                ? "read_failed"
+                : "read_failed";
+          if (MSG.requestResult && MSG.sendErrors) {
+            statusBox.value =
+              MSG.requestResult +
+              "：" +
+              (MSG.sendErrors[code] || MSG.failed || code) +
+              (data && data.detail ? " — " + data.detail : "");
+          } else if (!data) {
+            statusBox.value =
+              (MSG.error || "Error") + "（HTTP " + resp.status + "）";
+          } else {
+            statusBox.value = formatStatus(data);
           }
+          return;
+        }
+        statusBox.value = formatStatus(data);
+        if (
+          data.job_id &&
+          (data.accepted ||
+            data.job_status === "running" ||
+            data.job_status === "queued") &&
+          jobStatusUrl
+        ) {
+          data = await pollRacingJob(data.job_id, presetId);
+          if (data) statusBox.value = formatStatus(data);
+        }
+        if (data && onAfterSuccess && (data.ok || data.job_status === "success")) {
+          onAfterSuccess(data, presetId);
         }
       } catch (_e) {
-        statusBox.value = MSG.error || "";
+        const conn =
+          (MSG.sendErrors && MSG.sendErrors.connection_failed) ||
+          MSG.sendConnFail ||
+          MSG.error ||
+          "";
+        statusBox.value = MSG.requestResult
+          ? MSG.requestResult + "：" + conn
+          : conn;
       } finally {
         sending = false;
         btnSend.disabled = false;

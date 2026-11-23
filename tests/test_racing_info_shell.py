@@ -21,6 +21,12 @@ def test_racing_translation_keys_seeded(tmp_path: Path) -> None:
     assert translate(load_active_text_map(db, "zh-Hans"), "racing.info.tab.download") == "下载资料"
     assert translate(load_active_text_map(db, "zh-Hant"), "racing.history.title") == "賽馬往績"
     assert translate(load_active_text_map(db, "en"), "racing.history.col.horse_id") == "Horse ID"
+    assert translate(load_active_text_map(db, "zh-Hant"), "racing.download.type.daily_results") == "即日賽果"
+    assert translate(load_active_text_map(db, "en"), "racing.task.update_daily_results") == "Same-day results"
+    assert translate(load_active_text_map(db, "zh-Hant"), "racing.download.type.horses") == "馬匹資料"
+    assert translate(load_active_text_map(db, "en"), "racing.download.type.horses") == "Horse data"
+    assert translate(load_active_text_map(db, "zh-Hant"), "racing.task.update_horses") == "馬匹資料"
+    assert translate(load_active_text_map(db, "en"), "racing.task.update_horses") == "Horse data"
     # Soccer keys unchanged
     assert translate(load_active_text_map(db, "en"), "soccer.daily.tab.matches") == "Daily Matches"
     assert translate(load_active_text_map(db, "en"), "nav.soccer_daily") == "Soccer Info"

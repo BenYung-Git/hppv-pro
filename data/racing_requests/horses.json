@@ -1,0 +1,5 @@
+{
+  "operationName": "horseRatingList",
+  "query": "horseRatingList",
+  "variables": {}
+}

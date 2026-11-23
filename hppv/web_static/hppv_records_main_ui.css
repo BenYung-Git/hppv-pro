@@ -28,3 +28,31 @@
   height: 22px;
   flex: 0 0 auto;
 }
+
+/* Shared list header column resize (soccer + racing). */
+th[data-col],
+th[data-key] {
+  position: relative;
+}
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 3;
+}
+.col-resize-handle:hover,
+body.is-col-resizing .col-resize-handle:hover {
+  background: rgba(47, 111, 237, 0.35);
+}
+body.is-col-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.is-col-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}

@@ -355,7 +355,10 @@
     } %}
     {% set dl_options = [
       {'value': 'racecard', 'label': t('racing.download.type.racecard')},
-      {'value': 'update_odds', 'label': t('racing.download.type.odds')}
+      {'value': 'update_odds', 'label': t('racing.download.type.odds')},
+      {'value': 'daily_results', 'label': t('racing.download.type.daily_results')},
+      {'value': 'results_period', 'label': t('racing.download.type.results_period')},
+      {'value': 'horses', 'label': t('racing.download.type.horses')}
     ] %}
     {% set dl_default_option = 'racecard' %}
     {% set dl_show_history_year = false %}
@@ -388,6 +391,30 @@
         'next_id': 'task-racing-odds-next',
         'status_id': 'task-racing-odds-status',
         'msg_id': 'task-racing-odds-msg'
+      },
+      {
+        'key': 'update_daily_results',
+        'label': t('racing.task.update_daily_results'),
+        'note': t('racing.task.daily_results_scope_note'),
+        'enabled_id': 'task-racing-daily-results-enabled',
+        'interval_id': 'task-racing-daily-results-interval',
+        'unit_id': 'task-racing-daily-results-unit',
+        'last_id': 'task-racing-daily-results-last',
+        'next_id': 'task-racing-daily-results-next',
+        'status_id': 'task-racing-daily-results-status',
+        'msg_id': 'task-racing-daily-results-msg'
+      },
+      {
+        'key': 'update_horses',
+        'label': t('racing.task.update_horses'),
+        'note': t('racing.task.horses_scope_note'),
+        'enabled_id': 'task-racing-horses-enabled',
+        'interval_id': 'task-racing-horses-interval',
+        'unit_id': 'task-racing-horses-unit',
+        'last_id': 'task-racing-horses-last',
+        'next_id': 'task-racing-horses-next',
+        'status_id': 'task-racing-horses-status',
+        'msg_id': 'task-racing-horses-msg'
       }
     ] %}
     {% include "partials/hppv_download_tasks.html" %}
@@ -448,12 +475,31 @@
     dlOverwriteConfirm: {{ t('soccer.daily.load_preset_overwrite_confirm')|tojson }},
     dlSending: {{ t('soccer.daily.sending')|tojson }},
     dlFetchingTotal: {{ t('racing.download.fetching_total')|tojson }},
-    dlError: {{ t('soccer.daily.send_connection_failed')|tojson }},
     dlSendComplete: {{ t('soccer.daily.send_complete')|tojson }},
-    ingestProcessed: {{ t('soccer.daily.ingest_processed')|tojson }},
+    requestResult: {{ t('soccer.daily.request_result')|tojson }},
+    labelHttp: {{ t('soccer.daily.status_http')|tojson }},
+    labelElapsed: {{ t('soccer.daily.status_elapsed')|tojson }},
+    ingestSection: {{ t('soccer.daily.ingest_section')|tojson }},
+    ingestDateRange: {{ t('soccer.daily.ingest_date_range')|tojson }},
+    ingestProcessed: {{ t('racing.download.processed')|tojson }},
+    ingestOk: {{ t('racing.download.ingest_ok')|tojson }},
+    ingestPartial: {{ t('racing.download.ingest_partial')|tojson }},
+    meetingsScanned: {{ t('racing.download.meetings_scanned')|tojson }},
+    meetingsWithResults: {{ t('racing.download.meetings_with_results')|tojson }},
+    venueCodesLabel: {{ t('racing.download.venue_codes')|tojson }},
+    progressLabel: {{ t('racing.download.progress')|tojson }},
     dlUpdated: {{ t('racing.download.updated')|tojson }},
     dlSkipped: {{ t('racing.download.skipped')|tojson }},
     dlFailed: {{ t('racing.download.failed')|tojson }},
+    sendInvalidJson: {{ t('soccer.daily.send_invalid_json')|tojson }},
+    sendInvalidPayload: {{ t('soccer.daily.send_invalid_payload')|tojson }},
+    sendConnFail: {{ t('soccer.daily.send_connection_failed')|tojson }},
+    sendTimeout: {{ t('soccer.daily.send_timeout')|tojson }},
+    sendRateLimited: {{ t('soccer.daily.send_rate_limited')|tojson }},
+    sendTooLarge: {{ t('soccer.daily.send_payload_too_large')|tojson }},
+    emptyQuery: {{ t('soccer.daily.load_preset_empty_query')|tojson }},
+    unsupportedType: {{ t('soccer.daily.load_preset_unsupported')|tojson }},
+    failed: {{ t('soccer.daily.load_preset_failed')|tojson }},
     taskStatusIdle: {{ t('soccer.daily.task.status.idle')|tojson }},
     taskStatusRunning: {{ t('soccer.daily.task.status.running')|tojson }},
     taskStatusSuccess: {{ t('soccer.daily.task.status.success')|tojson }},
@@ -517,6 +563,7 @@
   const historyPanel = document.getElementById("racing-tab-panel-history");
   let activeTabName = {{ active_tab|tojson }};
   let layoutSaved = {{ racing_layout_settings|tojson }};
+  let layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
   let catalog = {{ (racing_layout_catalog if racing_layout_catalog is defined else [])|tojson }};
   let historyLoaded = false;
   let layoutModeOpen = false;
@@ -525,6 +572,7 @@
   let listCtrl = null;
   const SORTABLE = {};
 
+  // Align with soccer history: catalog.sortable gates header + layout-editor sort.
   function rebuildSortable() {
     Object.keys(SORTABLE).forEach((k) => { delete SORTABLE[k]; });
     ((layoutSaved && layoutSaved.columns) || []).forEach((c) => { SORTABLE[c.key] = true; });
@@ -622,7 +670,9 @@
       const th = document.createElement("th");
       th.dataset.key = c.key;
       th.textContent = RH.headerLabel(c, COL_LABEL);
-      th.style.minWidth = (c.width || 100) + "px";
+      const w = c.width || 100;
+      th.style.minWidth = w + "px";
+      th.style.width = w + "px";
       hr.appendChild(th);
     });
     thead.appendChild(hr);
@@ -630,6 +680,14 @@
       root: thead,
       onCycle: function (key) {
         if (listCtrl) listCtrl.cycleHeaderSort(key);
+      },
+    });
+    RH.bindHeaderResize({
+      root: thead,
+      widthMin: WIDTH_MIN,
+      widthMax: WIDTH_MAX,
+      onCommit: function (key, width) {
+        if (listCtrl) listCtrl.setColumnWidth(key, width);
       },
     });
     rows.forEach((row, idx) => {
@@ -640,6 +698,9 @@
       cols.forEach((c) => {
         const td = document.createElement("td");
         td.textContent = row[c.key] != null ? row[c.key] : "—";
+        const w = c.width || 100;
+        td.style.minWidth = w + "px";
+        td.style.width = w + "px";
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
@@ -670,7 +731,10 @@
       retry: MSG.retry,
     },
     getLayout: function () { return layoutSaved; },
+    getDraftLayout: function () { return layoutDraft; },
     getSortableMap: function () { return SORTABLE; },
+    widthMin: WIDTH_MIN,
+    widthMax: WIDTH_MAX,
     buildParams: function () {
       syncDateControls();
       const params = new URLSearchParams();
@@ -692,13 +756,36 @@
     onSuccess: function (data) {
       if (data.layout_settings) {
         layoutSaved = data.layout_settings;
-        if (historyLayoutEditor) historyLayoutEditor.replaceSettings(layoutSaved);
+        layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
       }
       if (Array.isArray(data.catalog) && data.catalog.length) {
         catalog = data.catalog;
         rebuildSortable();
       }
-      if (data.rows && data.rows.length) renderTable(data.rows);
+      // Table render waits for afterLayoutSync (shell re-applies sort arrows first).
+    },
+    afterLayoutSync: function (data) {
+      if (historyLayoutEditor) historyLayoutEditor.replaceSettings(layoutSaved);
+      if (data && data.rows && data.rows.length) renderTable(data.rows);
+    },
+    persistLayoutSort: async function (layout) {
+      const resp = await fetch("/api/layout/racing/racing_history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ layout_settings: layout }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data || !data.ok) {
+        throw new Error((data && data.error) || "save_failed");
+      }
+      layoutSaved = data.layout_settings;
+      layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+      if (Array.isArray(data.catalog)) {
+        catalog = data.catalog;
+        rebuildSortable();
+      }
+      if (historyLayoutEditor) historyLayoutEditor.replaceSettings(layoutSaved);
+      return layoutSaved;
     },
   });
 
@@ -708,6 +795,7 @@
       const data = await resp.json();
       if (resp.ok && data && data.ok) {
         layoutSaved = data.layout_settings;
+        layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
         catalog = data.catalog || [];
         rebuildSortable();
         if (historyLayoutEditor) historyLayoutEditor.replaceSettings(layoutSaved);
@@ -778,6 +866,7 @@
         throw new Error((data && data.error) || "save_failed");
       }
       layoutSaved = data.layout_settings;
+      layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
       if (Array.isArray(data.catalog)) {
         catalog = data.catalog;
         rebuildSortable();
@@ -791,7 +880,10 @@
 
   function setLayoutMode(on) {
     if (!historyLayoutEditor) return;
-    if (on) historyLayoutEditor.replaceSettings(layoutSaved);
+    if (on) {
+      layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+      historyLayoutEditor.replaceSettings(layoutSaved);
+    }
     historyLayoutEditor.setMode(!!on);
   }
 
@@ -882,28 +974,96 @@
         return "/api/download/racing/request-presets/" + encodeURIComponent(presetId);
       },
       sendUrl: "/api/download/racing/graphql/send",
+      jobStatusUrl: function (jobId) {
+        return "/api/download/racing/jobs/" + encodeURIComponent(jobId);
+      },
+      jobPollMs: 1000,
       messages: {
         loading: MSG.dlLoading || MSG.dlSending,
         loadSuccess: MSG.dlLoadSuccess,
-        loadFailed: MSG.dlLoadFailed || MSG.dlError,
+        loadFailed: MSG.dlLoadFailed || MSG.failed,
         overwriteConfirm: MSG.dlOverwriteConfirm,
         sending: MSG.dlFetchingTotal || MSG.dlSending,
         fetchingTotal: MSG.dlFetchingTotal,
-        error: MSG.dlError,
+        requestResult: MSG.requestResult,
         sendComplete: MSG.dlSendComplete,
+        sendInvalidJson: MSG.sendInvalidJson,
+        sendConnFail: MSG.sendConnFail,
+        failed: MSG.failed,
+        labelHttp: MSG.labelHttp,
+        labelElapsed: MSG.labelElapsed,
+        ingestSection: MSG.ingestSection,
+        ingestDateRange: MSG.ingestDateRange,
         ingestProcessed: MSG.ingestProcessed,
+        ingestOk: MSG.ingestOk,
+        ingestPartial: MSG.ingestPartial,
+        jobRunning: MSG.dlFetchingTotal,
+        progressMessage: MSG.progressLabel,
+        meetingsScanned: MSG.meetingsScanned,
+        meetingsWithResults: MSG.meetingsWithResults,
+        venueCodesLabel: MSG.venueCodesLabel,
         updated: MSG.dlUpdated,
         skipped: MSG.dlSkipped,
-        failed: MSG.dlFailed,
+        failedCountLabel: MSG.dlFailed,
+        sendErrors: {
+          invalid_json: MSG.sendInvalidJson,
+          invalid_fields: MSG.sendInvalidPayload,
+          empty_query: MSG.emptyQuery,
+          unsupported_type: MSG.unsupportedType,
+          payload_too_large: MSG.sendTooLarge,
+          rate_limited: MSG.sendRateLimited,
+          timeout: MSG.sendTimeout,
+          connection_failed: MSG.sendConnFail,
+          read_failed: MSG.failed,
+          query_not_whitelisted: MSG.sendInvalidPayload,
+          invalid_date_window: MSG.sendInvalidPayload,
+          date_window_too_large: MSG.sendInvalidPayload,
+          graphql_error: MSG.failed,
+          empty_meeting: MSG.failed,
+          localresults_fetch_failed: MSG.sendConnFail,
+          horses_fetch_failed: MSG.sendConnFail,
+          empty_horses: MSG.failed,
+        },
       },
       formatStatus: function (data) {
         return shell.formatRecordDownloadStatus(data, {
-          error: MSG.dlError,
+          requestResult: MSG.requestResult,
           sendComplete: MSG.dlSendComplete,
+          labelHttp: MSG.labelHttp,
+          labelElapsed: MSG.labelElapsed,
+          ingestSection: MSG.ingestSection,
+          ingestDateRange: MSG.ingestDateRange,
           ingestProcessed: MSG.ingestProcessed,
+          ingestOk: MSG.ingestOk,
+          ingestPartial: MSG.ingestPartial,
+          jobRunning: MSG.dlFetchingTotal,
+          progressMessage: MSG.progressLabel,
+          fetchingTotal: MSG.dlFetchingTotal,
+          meetingsScanned: MSG.meetingsScanned,
+          meetingsWithResults: MSG.meetingsWithResults,
+          venueCodesLabel: MSG.venueCodesLabel,
           updated: MSG.dlUpdated,
           skipped: MSG.dlSkipped,
           failed: MSG.dlFailed,
+          sendErrors: {
+            invalid_json: MSG.sendInvalidJson,
+            invalid_fields: MSG.sendInvalidPayload,
+            empty_query: MSG.emptyQuery,
+            unsupported_type: MSG.unsupportedType,
+            payload_too_large: MSG.sendTooLarge,
+            rate_limited: MSG.sendRateLimited,
+            timeout: MSG.sendTimeout,
+            connection_failed: MSG.sendConnFail,
+            read_failed: MSG.failed,
+            query_not_whitelisted: MSG.sendInvalidPayload,
+            invalid_date_window: MSG.sendInvalidPayload,
+            date_window_too_large: MSG.sendInvalidPayload,
+            graphql_error: MSG.failed,
+            empty_meeting: MSG.failed,
+            localresults_fetch_failed: MSG.sendConnFail,
+            horses_fetch_failed: MSG.sendConnFail,
+            empty_horses: MSG.failed,
+          },
         });
       },
       onAfterSuccess: function (data) {
@@ -946,6 +1106,28 @@
       nextId: "task-racing-odds-next",
       statusId: "task-racing-odds-status",
       msgId: "task-racing-odds-msg",
+      messages: taskMessages,
+    });
+    shell.initTaskUi({
+      apiUrl: "/api/racing/tasks/update-daily-results",
+      enabledId: "task-racing-daily-results-enabled",
+      intervalId: "task-racing-daily-results-interval",
+      unitId: "task-racing-daily-results-unit",
+      lastId: "task-racing-daily-results-last",
+      nextId: "task-racing-daily-results-next",
+      statusId: "task-racing-daily-results-status",
+      msgId: "task-racing-daily-results-msg",
+      messages: taskMessages,
+    });
+    shell.initTaskUi({
+      apiUrl: "/api/racing/tasks/update-horses",
+      enabledId: "task-racing-horses-enabled",
+      intervalId: "task-racing-horses-interval",
+      unitId: "task-racing-horses-unit",
+      lastId: "task-racing-horses-last",
+      nextId: "task-racing-horses-next",
+      statusId: "task-racing-horses-status",
+      msgId: "task-racing-horses-msg",
       messages: taskMessages,
     });
   }

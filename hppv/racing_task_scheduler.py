@@ -10,7 +10,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from hppv.racing_requests import REQUEST_KEY_RACECARD, REQUEST_KEY_UPDATE_ODDS
+from hppv.config import HKJC_MCS_HORSES_CLAS_URL_EN
+from hppv.racing_requests import (
+    REQUEST_KEY_DAILY_RESULTS,
+    REQUEST_KEY_HORSES,
+    REQUEST_KEY_RACECARD,
+    REQUEST_KEY_UPDATE_ODDS,
+)
 from hppv.soccer_task_scheduler import (
     SoccerTaskError,
     SoccerTaskState,
@@ -27,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 TASK_KEY_UPDATE_RACECARD = "racing_update_racecard"
 TASK_KEY_UPDATE_ODDS = "racing_update_odds"
+TASK_KEY_UPDATE_DAILY_RESULTS = "racing_update_daily_results"
+TASK_KEY_UPDATE_HORSES = "racing_update_horses"
 
 UPDATE_RACECARD_SCOPE = {
     "operation": "raceMeetings",
@@ -51,10 +59,41 @@ UPDATE_ODDS_SCOPE = {
     "multi_worker_safe": False,
 }
 
+UPDATE_DAILY_RESULTS_SCOPE = {
+    "operation": "raceMeetings",
+    "endpoint": "https://info.cld.hkjc.com/graphql/base-get/",
+    "target": "race_records",
+    "write_mode": "insert_or_ignore",
+    "unit": "record",
+    "note": (
+        "Same-day results via whitelist raceMeetings finalPosition → race_records; "
+        "duplicates skipped (INSERT OR IGNORE); does not rewrite racecard."
+    ),
+    "multi_worker_safe": False,
+}
+
+UPDATE_HORSES_SCOPE = {
+    "operation": "horseRatingList",
+    "endpoint": HKJC_MCS_HORSES_CLAS_URL_EN,
+    "target": "horses",
+    "write_mode": "insert_or_fill_blanks",
+    "unit": "record",
+    "note": (
+        "Horse basics from HKJC rating-list HTML → horses; "
+        "inserts new rows and fills blank/placeholder names only; "
+        "does not overwrite existing real names."
+    ),
+    "multi_worker_safe": False,
+}
+
 
 def scope_for_racing_task(task_key: str) -> dict[str, Any]:
     if task_key == TASK_KEY_UPDATE_ODDS:
         return UPDATE_ODDS_SCOPE
+    if task_key == TASK_KEY_UPDATE_DAILY_RESULTS:
+        return UPDATE_DAILY_RESULTS_SCOPE
+    if task_key == TASK_KEY_UPDATE_HORSES:
+        return UPDATE_HORSES_SCOPE
     return UPDATE_RACECARD_SCOPE
 
 
@@ -105,6 +144,32 @@ def run_update_racing_odds_once(db_path: Path, requests_dir: Path) -> dict[str, 
     return _detail_from_send_body(body)
 
 
+def run_update_daily_results_once(db_path: Path, requests_dir: Path) -> dict[str, Any]:
+    try:
+        body = execute_download_from_preset(
+            sport=SPORT_RACING,
+            db_path=db_path,
+            requests_dir=requests_dir,
+            request_key=REQUEST_KEY_DAILY_RESULTS,
+        )
+    except DownloadShellError as e:
+        raise SoccerTaskError(e.code, e.detail) from e
+    return _detail_from_send_body(body)
+
+
+def run_update_horses_once(db_path: Path, requests_dir: Path) -> dict[str, Any]:
+    try:
+        body = execute_download_from_preset(
+            sport=SPORT_RACING,
+            db_path=db_path,
+            requests_dir=requests_dir,
+            request_key=REQUEST_KEY_HORSES,
+        )
+    except DownloadShellError as e:
+        raise SoccerTaskError(e.code, e.detail) from e
+    return _detail_from_send_body(body)
+
+
 class _RacingSchedulerBase(_TaskSchedulerBase):
     """Settings DB may differ from racing data DB; requests_dir holds whitelist presets."""
 
@@ -127,8 +192,20 @@ class UpdateRacingOddsScheduler(_RacingSchedulerBase):
     _run_once = staticmethod(run_update_racing_odds_once)
 
 
+class UpdateDailyResultsScheduler(_RacingSchedulerBase):
+    task_key = TASK_KEY_UPDATE_DAILY_RESULTS
+    _run_once = staticmethod(run_update_daily_results_once)
+
+
+class UpdateHorsesScheduler(_RacingSchedulerBase):
+    task_key = TASK_KEY_UPDATE_HORSES
+    _run_once = staticmethod(run_update_horses_once)
+
+
 _racing_racecard_scheduler: UpdateRacecardScheduler | None = None
 _racing_odds_scheduler: UpdateRacingOddsScheduler | None = None
+_racing_daily_results_scheduler: UpdateDailyResultsScheduler | None = None
+_racing_horses_scheduler: UpdateHorsesScheduler | None = None
 
 
 def get_update_racecard_scheduler(
@@ -151,6 +228,28 @@ def get_update_racing_odds_scheduler(
             settings_db, racing_db, requests_dir
         )
     return _racing_odds_scheduler
+
+
+def get_update_daily_results_scheduler(
+    settings_db: Path, racing_db: Path, requests_dir: Path
+) -> UpdateDailyResultsScheduler:
+    global _racing_daily_results_scheduler
+    if _racing_daily_results_scheduler is None:
+        _racing_daily_results_scheduler = UpdateDailyResultsScheduler(
+            settings_db, racing_db, requests_dir
+        )
+    return _racing_daily_results_scheduler
+
+
+def get_update_horses_scheduler(
+    settings_db: Path, racing_db: Path, requests_dir: Path
+) -> UpdateHorsesScheduler:
+    global _racing_horses_scheduler
+    if _racing_horses_scheduler is None:
+        _racing_horses_scheduler = UpdateHorsesScheduler(
+            settings_db, racing_db, requests_dir
+        )
+    return _racing_horses_scheduler
 
 
 def get_racing_task_public_state(

@@ -328,9 +328,11 @@ def _save_racing(layout_key: str, normalized: dict[str, Any]) -> dict[str, Any]:
         **normalized,
         "updated_at": utc_now_iso(),
     }
-    path.write_text(
-        json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    # Atomic replace avoids torn/concatenated JSON from concurrent header saves.
+    payload = json.dumps(existing, ensure_ascii=False, indent=2) + "\n"
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    tmp.replace(path)
     return deepcopy(normalized)
 
 

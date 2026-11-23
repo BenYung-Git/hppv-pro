@@ -9,17 +9,34 @@ from pathlib import Path
 from typing import Any
 
 from hppv.racing_hkjc_graphql import RACE_MEETINGS_QUERY, SP4E_RACING_PMPOOL_QUERY
+from hppv.racing_local_results import (
+    RESULTS_PERIOD_OPERATION,
+    RESULTS_PERIOD_QUERY,
+)
 
 logger = logging.getLogger(__name__)
 
+# Marker Request body for horses download (HTML rating list; not GraphQL).
+HORSES_QUERY = "horseRatingList"
+HORSES_OPERATION = "horseRatingList"
+
 # Registered presets only. Frontend sends the key; never treat key as a file path.
+# daily_results reuses the verified raceMeetings whitelist (finalPosition → race_records).
+# results_period uses verified localresults HTML (marker query; not GraphQL).
+# horses uses verified HKJC rating-list HTML → horses via INSERT OR IGNORE.
 RACING_REQUEST_PRESETS: dict[str, str] = {
     "racecard": "racecard.json",
     "update_odds": "update_odds.json",
+    "daily_results": "daily_results.json",
+    "results_period": "results_period.json",
+    "horses": "horses.json",
 }
 
 REQUEST_KEY_RACECARD = "racecard"
 REQUEST_KEY_UPDATE_ODDS = "update_odds"
+REQUEST_KEY_DAILY_RESULTS = "daily_results"
+REQUEST_KEY_RESULTS_PERIOD = "results_period"
+REQUEST_KEY_HORSES = "horses"
 
 
 class RacingRequestPresetError(Exception):
@@ -75,10 +92,14 @@ def format_payload_for_request_box(payload: RacingRequestPayload) -> str:
 
 def expected_query_for_preset(preset_id: str) -> str:
     """Whitelist query text for a registered preset (single source)."""
-    if preset_id == REQUEST_KEY_RACECARD:
+    if preset_id in (REQUEST_KEY_RACECARD, REQUEST_KEY_DAILY_RESULTS):
         return RACE_MEETINGS_QUERY
     if preset_id == REQUEST_KEY_UPDATE_ODDS:
         return SP4E_RACING_PMPOOL_QUERY
+    if preset_id == REQUEST_KEY_RESULTS_PERIOD:
+        return RESULTS_PERIOD_QUERY
+    if preset_id == REQUEST_KEY_HORSES:
+        return HORSES_QUERY
     raise RacingRequestPresetError("unsupported_type", preset_id)
 
 
@@ -93,7 +114,10 @@ def assert_payload_matches_whitelist(
             "request query must match registered whitelist body exactly",
         )
     op = payload.operation_name
-    if preset_id == REQUEST_KEY_RACECARD and op not in (None, "raceMeetings"):
+    if preset_id in (REQUEST_KEY_RACECARD, REQUEST_KEY_DAILY_RESULTS) and op not in (
+        None,
+        "raceMeetings",
+    ):
         raise RacingRequestPresetError(
             "invalid_fields", "operationName must be raceMeetings"
         )
@@ -104,6 +128,42 @@ def assert_payload_matches_whitelist(
         raise RacingRequestPresetError(
             "invalid_fields", "operationName must be sp4e_racing_pmPool"
         )
+    if preset_id == REQUEST_KEY_RESULTS_PERIOD and op not in (
+        None,
+        RESULTS_PERIOD_OPERATION,
+    ):
+        raise RacingRequestPresetError(
+            "invalid_fields",
+            f"operationName must be {RESULTS_PERIOD_OPERATION}",
+        )
+    if preset_id == REQUEST_KEY_HORSES and op not in (None, HORSES_OPERATION):
+        raise RacingRequestPresetError(
+            "invalid_fields",
+            f"operationName must be {HORSES_OPERATION}",
+        )
+
+
+def _apply_results_period_date_defaults(
+    shared: "SharedRequestPayload",
+) -> "SharedRequestPayload":
+    """Fill null startDate/endDate with today's ISO strings (quoted JSON-safe)."""
+    from datetime import date
+
+    from hppv.shared_preset import SharedRequestPayload
+
+    vars_obj = dict(shared.variables or {})
+    today = date.today().isoformat()
+    if vars_obj.get("startDate") in (None, ""):
+        vars_obj["startDate"] = today
+    if vars_obj.get("endDate") in (None, ""):
+        vars_obj["endDate"] = today
+    if not vars_obj.get("venueCodes"):
+        vars_obj["venueCodes"] = ["ST", "HV"]
+    return SharedRequestPayload(
+        query=shared.query,
+        variables=vars_obj,
+        operation_name=shared.operation_name,
+    )
 
 
 def load_racing_request_preset(
@@ -120,6 +180,8 @@ def load_racing_request_preset(
     ) -> SharedRequestPayload:
         if shared.query.strip() == "":
             raise SharedPresetError("empty_query", "query is empty")
+        if key == REQUEST_KEY_RESULTS_PERIOD:
+            shared = _apply_results_period_date_defaults(shared)
         payload = RacingRequestPayload(
             query=shared.query,
             variables=shared.variables,
@@ -178,6 +240,25 @@ def ensure_racing_preset_files(requests_dir: Path) -> None:
                 "oddsTypes": ["WIN"],
                 "raceNo": None,
             },
+        },
+        REQUEST_KEY_DAILY_RESULTS: {
+            "operationName": "raceMeetings",
+            "query": RACE_MEETINGS_QUERY,
+            "variables": {"date": None, "venueCode": None},
+        },
+        REQUEST_KEY_RESULTS_PERIOD: {
+            "operationName": RESULTS_PERIOD_OPERATION,
+            "query": RESULTS_PERIOD_QUERY,
+            "variables": {
+                "startDate": None,
+                "endDate": None,
+                "venueCodes": ["ST", "HV"],
+            },
+        },
+        REQUEST_KEY_HORSES: {
+            "operationName": HORSES_OPERATION,
+            "query": HORSES_QUERY,
+            "variables": {},
         },
     }
     for preset_id, body in specs.items():

@@ -1,6 +1,6 @@
-"""HKJC racing GraphQL helpers for racecard + win odds (whitelist queries only).
+"""HKJC racing GraphQL helpers for racecard + win odds + same-day results.
 
-Results / historical finalPosition paths are intentionally out of scope.
+Whitelist queries only. Daily results reuse ``raceMeetings`` ``finalPosition``.
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import requests
+
+from hppv.models import RaceRecord
 
 # Official bet.hkjc.com racing client uses base-get.
 GRAPHQL_URL = "https://info.cld.hkjc.com/graphql/base-get/"
@@ -362,6 +364,178 @@ def starter_fields_from_graphql(runner: Mapping[str, Any]) -> dict[str, Any]:
         "配備": _txt(runner.get("gearInfo")),
         "win_odds_raw": _txt(runner.get("winOdds")),
     }
+
+
+def _finish_pos_text(final_position: Any) -> str | None:
+    """Return finish position for race_records, or None if not a finished result."""
+    if final_position is None or final_position is False:
+        return None
+    if isinstance(final_position, bool):
+        return None
+    if isinstance(final_position, (int, float)):
+        n = int(final_position)
+        if n <= 0:
+            return None
+        return f"{n:02d}"
+    s = _txt(final_position)
+    if s is None:
+        return None
+    if s.isdigit():
+        n = int(s)
+        if n <= 0:
+            return None
+        return f"{n:02d}"
+    # Non-numeric official marks (e.g. WV) — keep as-is when present.
+    return s
+
+
+def _distance_digits(distance: Any) -> str:
+    s = _txt(distance)
+    if not s:
+        return ""
+    m = re.search(r"\d+", s)
+    return m.group(0) if m else s
+
+
+def _course_for_race_record(
+    meeting: Mapping[str, Any], race: Mapping[str, Any]
+) -> str:
+    """Build course text aligned with horse-page history (venue+track+\"code\")."""
+    venue_code = _txt(meeting.get("venueCode")) or ""
+    venue_zh = _VENUE_DISPLAY.get(venue_code, venue_code)
+    track = race.get("raceTrack") or {}
+    track_zh = _txt(track.get("description_ch")) or _txt(track.get("description_en")) or ""
+    course = race.get("raceCourse") or {}
+    display = _txt(course.get("displayCode"))
+    if display:
+        return f'{venue_zh}{track_zh}"{display}"'
+    desc = _txt(course.get("description_ch")) or _txt(course.get("description_en")) or ""
+    return f"{venue_zh}{track_zh}{desc}".strip()
+
+
+def horse_row_from_graphql_runner(
+    runner: Mapping[str, Any],
+) -> dict[str, str | None] | None:
+    """Horse row for insert_or_fill from a finished runner (incl. WV).
+
+    Uses runner ``name_ch`` / ``name_en`` and ``horse.code``; None if the
+    runner would not produce a race_records row.
+    """
+    if _is_standby_runner(runner):
+        return None
+    if not _finish_pos_text(runner.get("finalPosition")):
+        return None
+    horse = runner.get("horse") or {}
+    horse_id = _txt(horse.get("id"))
+    if not horse_id:
+        return None
+    return {
+        "horse_id": horse_id,
+        "brand_no": _txt(horse.get("code")),
+        "name_zh": _txt(runner.get("name_ch")),
+        "name_en": _txt(runner.get("name_en")),
+        "status": None,
+    }
+
+
+def race_record_from_graphql_runner(
+    meeting: Mapping[str, Any],
+    race: Mapping[str, Any],
+    runner: Mapping[str, Any],
+) -> RaceRecord | None:
+    """Map one finished runner → RaceRecord; None if not a written result."""
+    if _is_standby_runner(runner):
+        return None
+    finish_pos = _finish_pos_text(runner.get("finalPosition"))
+    if not finish_pos:
+        return None
+    horse = runner.get("horse") or {}
+    horse_id = _txt(horse.get("id"))
+    if not horse_id:
+        return None
+    date_iso = _txt(meeting.get("date"))
+    if not date_iso:
+        return None
+    race_no = race.get("no")
+    if race_no is None:
+        return None
+    venue_code = _txt(meeting.get("venueCode")) or ""
+    venue_zh = _VENUE_DISPLAY.get(venue_code, venue_code)
+    jockey = runner.get("jockey") or {}
+    trainer = runner.get("trainer") or {}
+    return RaceRecord(
+        horse_id=horse_id,
+        race_date=to_db_date(date_iso),
+        venue=venue_zh or venue_code,
+        race_no=str(int(race_no)) if str(race_no).isdigit() else str(race_no),
+        course=_course_for_race_record(meeting, race),
+        distance=_distance_digits(race.get("distance")),
+        going=_txt(race.get("go_ch")) or _txt(race.get("go_en")) or "",
+        class_band=_txt(race.get("raceClass_ch")) or _txt(race.get("raceClass_en")) or "",
+        draw=_txt(runner.get("barrierDrawNumber")) or "",
+        rating=_txt(runner.get("currentRating")) or _txt(runner.get("internationalRating")) or "",
+        jockey=_txt(jockey.get("name_ch")) or _txt(jockey.get("name_en")) or "",
+        trainer=_txt(trainer.get("name_ch")) or _txt(trainer.get("name_en")) or "",
+        finish_pos=finish_pos,
+        running_pos="",
+        win_odds=_txt(runner.get("winOdds")) or "",
+        time="",
+        prize="",
+    )
+
+
+def race_records_from_meeting(meeting: Mapping[str, Any]) -> list[RaceRecord]:
+    """Extract finished runners from one raceMeetings meeting payload."""
+    out: list[RaceRecord] = []
+    seen: set[tuple[str, ...]] = set()
+    for race in meeting.get("races") or []:
+        for runner in race.get("runners") or []:
+            rec = race_record_from_graphql_runner(meeting, race, runner)
+            if rec is None:
+                continue
+            key = (
+                rec.horse_id,
+                rec.race_date,
+                rec.venue,
+                rec.race_no,
+                rec.course,
+                rec.distance,
+                rec.going,
+                rec.class_band,
+                rec.draw,
+                rec.rating,
+                rec.jockey,
+                rec.trainer,
+                rec.finish_pos,
+                rec.running_pos,
+                rec.win_odds,
+                rec.time,
+                rec.prize,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(rec)
+    return out
+
+
+def horse_rows_from_meeting(
+    meeting: Mapping[str, Any],
+) -> list[dict[str, str | None]]:
+    """Horse rows for finished runners (incl. WV), deduped by horse_id."""
+    out: list[dict[str, str | None]] = []
+    seen: set[str] = set()
+    for race in meeting.get("races") or []:
+        for runner in race.get("runners") or []:
+            row = horse_row_from_graphql_runner(runner)
+            if row is None:
+                continue
+            hid = row.get("horse_id") or ""
+            if not hid or hid in seen:
+                continue
+            seen.add(hid)
+            out.append(row)
+    return out
 
 
 def extract_win_odds_from_runners(

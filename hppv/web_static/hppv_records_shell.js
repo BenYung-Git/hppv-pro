@@ -49,14 +49,19 @@
    *   normalizeResponse?: (data) => {
    *     n, totalPages?, totalCount, q?, qOp?, sort?, allMatches?, date?
    *   },
-   *   onSuccess: (data, api) => void,   // render rows / domain side effects
-   *   renderLoading?: (api) => void,
-   *   renderError?: (api, detail) => void,
-   *   renderEmpty?: (api, data) => void,
-   *   beforeFetch?: (api) => boolean|void,  // return false to abort
-   *   autoBindSearch?: boolean,
-   *   autoBindPager?: boolean,
-   * }
+ *   onSuccess: (data, api) => void,   // adopt API layout/catalog; prefer not to paint headers yet
+ *   afterLayoutSync?: (data, api) => void,  // after shell re-applies sort arrows; paint table here
+ *   renderLoading?: (api) => void,
+ *   renderError?: (api, detail) => void,
+ *   renderEmpty?: (api, data) => void,
+ *   beforeFetch?: (api) => boolean|void,  // return false to abort
+ *   persistLayoutSort?: (layout, api) => void|Promise,  // header sort/width → save layout
+ *   persistLayout?: (layout, api) => void|Promise,      // alias of persistLayoutSort
+ *   widthMin?: number,  // default 60
+ *   widthMax?: number,  // default 600
+ *   autoBindSearch?: boolean,
+ *   autoBindPager?: boolean,
+ * }
    */
   function createList(cfg) {
     if (!cfg || !cfg.recordsUrl) throw new Error("recordsUrl required");
@@ -96,6 +101,22 @@
     function syncSortFromLayout() {
       sortParam = sortFromLayout();
       return sortParam;
+    }
+
+    function draftLayout() {
+      return typeof cfg.getDraftLayout === "function"
+        ? cfg.getDraftLayout()
+        : cfg.draftLayout || null;
+    }
+
+    /** Write active sortParam onto getLayout(+draft). Call after onSuccess layout replace. */
+    function applyResponseSortToLayouts() {
+      if (typeof sortParam !== "string") return;
+      Header.applySortParamToLayout(cfg.getLayout(), sortParam, sortableMap());
+      const draft = draftLayout();
+      if (draft && draft !== cfg.getLayout()) {
+        Header.applySortParamToLayout(draft, sortParam, sortableMap());
+      }
     }
 
     function recordsUrl() {
@@ -141,6 +162,7 @@
         load: load,
         reload: reload,
         cycleHeaderSort: cycleHeaderSort,
+        setColumnWidth: setColumnWidth,
         updatePager: updatePager,
         showLoading: showLoading,
         showError: showError,
@@ -323,25 +345,30 @@
         if (norm.totalCount != null) totalCount = Number(norm.totalCount) || 0;
         if (typeof norm.q === "string") q = norm.q;
         if (norm.qOp != null) qOp = String(norm.qOp || qOp);
+        // Keep response sort string; apply onto layout AFTER onSuccess so pages that
+        // replace layoutSaved from API disk settings do not wipe header arrows.
         if (typeof norm.sort === "string") {
           sortParam = norm.sort;
-          Header.applySortParamToLayout(
-            cfg.getLayout(),
-            sortParam,
-            sortableMap()
-          );
         }
 
         if (isEmptyPayload(data, norm)) {
           showEmpty(data);
           updatePager();
           cfg.onSuccess(data, api());
+          applyResponseSortToLayouts();
+          if (typeof cfg.afterLayoutSync === "function") {
+            cfg.afterLayoutSync(data, api());
+          }
           return true;
         }
 
         showReady();
         updatePager();
         cfg.onSuccess(data, api());
+        applyResponseSortToLayouts();
+        if (typeof cfg.afterLayoutSync === "function") {
+          cfg.afterLayoutSync(data, api());
+        }
         return true;
       } catch (_e) {
         if (seq !== fetchSeq) return false;
@@ -357,22 +384,59 @@
       return load({ n: pageN });
     }
 
+    function persistLayoutFn() {
+      if (typeof cfg.persistLayout === "function") return cfg.persistLayout;
+      if (typeof cfg.persistLayoutSort === "function") return cfg.persistLayoutSort;
+      return null;
+    }
+
+    function persistLayoutNow(layout) {
+      const persist = persistLayoutFn();
+      if (!persist) return Promise.resolve(null);
+      return Promise.resolve(persist(layout, api()));
+    }
+
     function cycleHeaderSort(key) {
       const layout = cfg.getLayout();
-      const draft =
-        typeof cfg.getDraftLayout === "function"
-          ? cfg.getDraftLayout()
-          : cfg.draftLayout || null;
       if (
         !Header.cycleLayoutSort(layout, key, {
           sortableMap: sortableMap(),
-          draftLayout: draft,
+          draftLayout: draftLayout(),
         })
       ) {
-        return false;
+        return Promise.resolve(false);
       }
       syncSortFromLayout();
-      return load({ resetPage: pagerMode === "page", n: pagerMode === "cursor" ? 1 : pageN });
+      const reloadList = function () {
+        return load({
+          resetPage: pagerMode === "page",
+          n: pagerMode === "cursor" ? 1 : pageN,
+        });
+      };
+      // Persist before reload so records API returns the saved layout/sort.
+      return persistLayoutNow(layout)
+        .catch(function () {
+          // List still reloads with in-memory sort; file save failed.
+        })
+        .then(reloadList);
+    }
+
+    /** Update column width in layout (+ draft) and persist; no list reload. */
+    function setColumnWidth(key, width) {
+      const layout = cfg.getLayout();
+      const clamped = Header.setLayoutColumnWidth(layout, key, width, {
+        draftLayout: draftLayout(),
+        widthMin: cfg.widthMin != null ? cfg.widthMin : 60,
+        widthMax: cfg.widthMax != null ? cfg.widthMax : 600,
+      });
+      if (clamped === false) return Promise.resolve(false);
+      return persistLayoutNow(layout)
+        .catch(function () {
+          // Keep in-memory width even if file save failed.
+        })
+        .then(function () {
+          return clamped;
+        });
     }
 
     function bindSearch() {
@@ -490,6 +554,12 @@
     },
     bindHeaderClicks: function (opts) {
       return requireHeader().bindHeaderClicks(opts);
+    },
+    bindHeaderResize: function (opts) {
+      return requireHeader().bindHeaderResize(opts);
+    },
+    setLayoutColumnWidth: function (layout, key, width, opts) {
+      return requireHeader().setLayoutColumnWidth(layout, key, width, opts);
     },
     headerLabel: function (col, labels) {
       return requireHeader().headerLabel(col, labels);

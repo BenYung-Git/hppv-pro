@@ -331,12 +331,9 @@ def get_all_horse_results_with_default_sort(db_path: Path) -> list[dict[str, str
         return [dict(row) for row in cur.fetchall()]
 
 
-def upsert_horses(db_path: Path, horses: Iterable[Mapping[str, str | None]]) -> int:
-    """Upsert horse basics into `horses` table.
-
-    Each mapping should provide: `horse_id`, `brand_no` (optional), `name_zh`, `name_en`, and optional `status`.
-    """
-
+def _horse_rows_from_mappings(
+    horses: Iterable[Mapping[str, str | None]],
+) -> list[tuple[str, str | None, str | None, str | None, str | None]]:
     rows: list[tuple[str, str | None, str | None, str | None, str | None]] = []
     for h in horses:
         horse_id = str(h.get("horse_id") or "").strip()
@@ -352,7 +349,16 @@ def upsert_horses(db_path: Path, horses: Iterable[Mapping[str, str | None]]) -> 
                 h.get("status"),
             )
         )
+    return rows
 
+
+def upsert_horses(db_path: Path, horses: Iterable[Mapping[str, str | None]]) -> int:
+    """Upsert horse basics into `horses` table.
+
+    Each mapping should provide: `horse_id`, `brand_no` (optional), `name_zh`, `name_en`, and optional `status`.
+    """
+
+    rows = _horse_rows_from_mappings(horses)
     if not rows:
         return 0
 
@@ -369,6 +375,120 @@ def upsert_horses(db_path: Path, horses: Iterable[Mapping[str, str | None]]) -> 
             rows,
         )
         return cur.rowcount
+
+
+def _horse_text(value: str | None) -> str:
+    return str(value or "").strip()
+
+
+def _horse_name_en_is_placeholder(
+    name_en: str | None, *, brand_no: str | None, horse_id: str
+) -> bool:
+    """True when English name is empty or only a brand/烙號 placeholder."""
+    en = _horse_text(name_en)
+    if not en:
+        return True
+    brand = _horse_text(brand_no).upper()
+    en_u = en.upper()
+    if brand and en_u == brand:
+        return True
+    # Legacy rows sometimes stored brand as name_en while brand_no was also set later.
+    hid = _horse_text(horse_id).upper()
+    if brand and hid.endswith("_" + brand) and en_u == brand:
+        return True
+    return False
+
+
+def insert_or_fill_horse(
+    db_path: Path, horse: Mapping[str, str | None]
+) -> str:
+    """Insert a new horse, or fill blank/placeholder fields on an existing row.
+
+    Does not overwrite non-empty real names. Returns one of:
+    ``inserted`` | ``filled`` | ``skipped``.
+    """
+
+    horse_id = _horse_text(horse.get("horse_id"))
+    if not horse_id or not is_acceptable_horse_id(horse_id):
+        return "skipped"
+
+    brand_no = _horse_text(horse.get("brand_no")) or None
+    name_zh = _horse_text(horse.get("name_zh")) or None
+    name_en = _horse_text(horse.get("name_en")) or None
+    status = _horse_text(horse.get("status")) or None
+
+    with get_connection(db_path) as conn:
+        # Prefer HK_ row: drop legacy brand-as-PK duplicate when present.
+        if brand_no and horse_id != brand_no:
+            conn.execute("DELETE FROM horses WHERE horse_id = ?;", (brand_no,))
+
+        existing = conn.execute(
+            """
+            SELECT horse_id, brand_no, name_zh, name_en, status
+            FROM horses WHERE horse_id = ? LIMIT 1;
+            """,
+            (horse_id,),
+        ).fetchone()
+
+        if existing is None:
+            conn.execute(
+                """
+                INSERT INTO horses (horse_id, brand_no, name_zh, name_en, status)
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                (horse_id, brand_no, name_zh, name_en, status),
+            )
+            return "inserted"
+
+        sets: list[str] = []
+        params: list[str | None] = []
+        if not _horse_text(existing["brand_no"]) and brand_no:
+            sets.append("brand_no = ?")
+            params.append(brand_no)
+        if not _horse_text(existing["name_zh"]) and name_zh:
+            sets.append("name_zh = ?")
+            params.append(name_zh)
+        if (
+            _horse_name_en_is_placeholder(
+                existing["name_en"],
+                brand_no=existing["brand_no"] or brand_no,
+                horse_id=horse_id,
+            )
+            and name_en
+            and not _horse_name_en_is_placeholder(
+                name_en, brand_no=brand_no, horse_id=horse_id
+            )
+        ):
+            sets.append("name_en = ?")
+            params.append(name_en)
+        if not _horse_text(existing["status"]) and status:
+            sets.append("status = ?")
+            params.append(status)
+
+        if not sets:
+            return "skipped"
+
+        params.append(horse_id)
+        conn.execute(
+            f"UPDATE horses SET {', '.join(sets)} WHERE horse_id = ?;",
+            params,
+        )
+        return "filled"
+
+
+def insert_horses_ignore(
+    db_path: Path, horses: Iterable[Mapping[str, str | None]]
+) -> int:
+    """Compatibility wrapper: insert/fill horses; return changed row count.
+
+    Prefer :func:`insert_or_fill_horse` for per-row status.
+    """
+
+    changed = 0
+    for h in horses:
+        if insert_or_fill_horse(db_path, h) in ("inserted", "filled"):
+            changed += 1
+    return changed
 
 
 def search_horses_by_name(

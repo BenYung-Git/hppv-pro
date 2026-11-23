@@ -7,17 +7,24 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
 from hppv.racing_download import (
     RacingDownloadError,
+    run_daily_results_download_locked,
+    run_horses_download_locked,
     run_odds_download_locked,
     run_racecard_download_locked,
+    run_results_period_download_locked,
 )
 from hppv.racing_requests import (
     RACING_REQUEST_PRESETS,
+    REQUEST_KEY_DAILY_RESULTS as RACING_REQUEST_KEY_DAILY_RESULTS,
+    REQUEST_KEY_HORSES as RACING_REQUEST_KEY_HORSES,
     REQUEST_KEY_RACECARD,
+    REQUEST_KEY_RESULTS_PERIOD as RACING_REQUEST_KEY_RESULTS_PERIOD,
     REQUEST_KEY_UPDATE_ODDS as RACING_REQUEST_KEY_UPDATE_ODDS,
     RacingRequestPresetError,
     assert_payload_matches_whitelist,
@@ -150,6 +157,7 @@ def send_racing_download(
     db_path: Path,
     request_key: str,
     raw_payload: str,
+    progress_cb: Any | None = None,
 ) -> dict[str, Any]:
     """Shared racing download entry: whitelist payload → locked download/write."""
     if request_key not in RACING_REQUEST_PRESETS:
@@ -166,10 +174,29 @@ def send_racing_download(
     race_date = race_date.strip() if isinstance(race_date, str) and race_date.strip() else None
     venue = venue.strip() if isinstance(venue, str) and venue.strip() else None
 
+    t0 = time.perf_counter()
     try:
         if request_key == RACING_REQUEST_KEY_UPDATE_ODDS:
             result = run_odds_download_locked(
-                db_path, race_date=race_date, venue_code=venue
+                db_path,
+                race_date=race_date,
+                venue_code=venue,
+                progress_cb=progress_cb,
+            )
+        elif request_key == RACING_REQUEST_KEY_DAILY_RESULTS:
+            result = run_daily_results_download_locked(
+                db_path,
+                race_date=race_date,
+                venue_code=venue,
+                progress_cb=progress_cb,
+            )
+        elif request_key == RACING_REQUEST_KEY_RESULTS_PERIOD:
+            result = run_results_period_download_locked(
+                db_path, variables=variables, progress_cb=progress_cb
+            )
+        elif request_key == RACING_REQUEST_KEY_HORSES:
+            result = run_horses_download_locked(
+                db_path, progress_cb=progress_cb
             )
         else:
             result = run_racecard_download_locked(
@@ -177,9 +204,21 @@ def send_racing_download(
                 race_date=race_date,
                 venue_code=venue,
                 fill_predicted=True,
+                progress_cb=progress_cb,
             )
     except RacingDownloadError as e:
         raise DownloadShellError(e.code, e.detail) from e
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+    detail = dict(result.detail or {})
+    date_window = None
+    if request_key == RACING_REQUEST_KEY_RESULTS_PERIOD:
+        vars_out = detail.get("variables") or {}
+        date_window = {
+            "startDate": vars_out.get("startDate"),
+            "endDate": vars_out.get("endDate"),
+            "venueCodes": vars_out.get("venueCodes"),
+        }
 
     ingest = {
         "status": "success" if result.code in {"success", "partial_failure"} else "failed",
@@ -190,13 +229,15 @@ def send_racing_download(
         "failed": result.progress.failed,
         "total": result.progress.total,
         "request_key": request_key,
-        "detail": result.detail,
+        "detail": detail,
     }
+    if date_window is not None:
+        ingest["date_window"] = date_window
     return {
         "ok": ingest["status"] == "success",
         "outcome": "success" if ingest["status"] == "success" else "failed",
         "http_status": 200,
-        "elapsed_ms": 0,
+        "elapsed_ms": elapsed_ms,
         "request_key": request_key,
         "ingest": ingest,
         "processed": result.progress.processed,
@@ -207,7 +248,7 @@ def send_racing_download(
         "message": result.progress.message,
         "race_date": result.progress.race_date,
         "venue_code": result.progress.venue_code,
-        "detail": result.detail,
+        "detail": detail,
         "unit": "record",
     }
 

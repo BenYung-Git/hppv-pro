@@ -3294,6 +3294,8 @@
     getLayout: function () { return layoutSaved; },
     getDraftLayout: function () { return layoutDraft; },
     getSortableMap: function () { return null; },
+    widthMin: WIDTH_MIN,
+    widthMax: WIDTH_MAX,
     buildParams: function () {
       const params = new URLSearchParams();
       const dateInput = document.getElementById("match-date");
@@ -3356,6 +3358,22 @@
       listN = api.pageN;
       syncListUrl();
       highlightCurrentRow();
+    },
+    persistLayoutSort: async function (layout) {
+      const resp = await fetch("/api/layout/soccer/daily_matches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ layout_settings: layout }),
+      });
+      let data = null;
+      try { data = await resp.json(); } catch (_e) { data = null; }
+      if (!resp.ok || !data || !data.ok) {
+        throw new Error((data && data.error) || "save_failed");
+      }
+      layoutSaved = data.layout_settings;
+      layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+      if (dailyLayoutEditor) dailyLayoutEditor.replaceSettings(layoutSaved);
+      return layoutSaved;
     },
   });
 
@@ -3577,6 +3595,14 @@
     window.HppvRecordsHeader.bindHeaderClicks({
       root: panel,
       onCycle: cycleHeaderSort,
+    });
+    window.HppvRecordsHeader.bindHeaderResize({
+      root: panel,
+      widthMin: WIDTH_MIN,
+      widthMax: WIDTH_MAX,
+      onCommit: function (key, width) {
+        if (dailyListCtrl) dailyListCtrl.setColumnWidth(key, width);
+      },
     });
     highlightCurrentRow();
     syncTheadStickyOffsets();
@@ -4250,6 +4276,14 @@
       "<div class='table-wrap'><table class='matches' id='history-table'><thead>" + head +
       "</thead><tbody id='history-table-body'></tbody></table></div>";
     RH.bindHeaderClicks({ root: panel, onCycle: cycleHistoryHeaderSort });
+    RH.bindHeaderResize({
+      root: panel,
+      widthMin: WIDTH_MIN,
+      widthMax: WIDTH_MAX,
+      onCommit: function (key, width) {
+        if (historyListCtrl) historyListCtrl.setColumnWidth(key, width);
+      },
+    });
     const tbody = document.getElementById("history-table-body");
     const colCount = cols.length + 1;
     historyMatches.forEach((m, rowIdx) => {
@@ -4319,6 +4353,8 @@
     getLayout: function () { return historyLayoutSaved; },
     getDraftLayout: function () { return historyLayoutDraft; },
     getSortableMap: function () { return HISTORY_SORTABLE; },
+    widthMin: WIDTH_MIN,
+    widthMax: WIDTH_MAX,
     formatPagerStatus: function (api) {
       const totalPages = api.totalPages > 0 ? api.totalPages : 0;
       const n = totalPages > 0 ? api.pageN : 0;
@@ -4367,7 +4403,6 @@
     },
     renderEmpty: function () {
       historyMatches = [];
-      renderHistoryMatches(historyMatches);
     },
     onSuccess: function (data) {
       if (!data.ok) return;
@@ -4390,7 +4425,27 @@
       }
       historyLoadedOnce = true;
       syncHistoryUrl();
-      if (historyMatches.length) renderHistoryMatches(historyMatches);
+      // Render waits for afterLayoutSync (shell re-applies sort arrows onto layout first).
+    },
+    afterLayoutSync: function () {
+      historySort = historyListCtrl.sortParam || historySort;
+      renderHistoryMatches(historyMatches);
+    },
+    persistLayoutSort: async function (layout) {
+      const resp = await fetch("/api/layout/soccer/match_history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ layout_settings: layout }),
+      });
+      let data = null;
+      try { data = await resp.json(); } catch (_e) { data = null; }
+      if (!resp.ok || !data || !data.ok) {
+        throw new Error((data && data.error) || "save_failed");
+      }
+      historyLayoutSaved = data.layout_settings;
+      historyLayoutDraft = JSON.parse(JSON.stringify(historyLayoutSaved));
+      if (historyLayoutEditor) historyLayoutEditor.replaceSettings(historyLayoutSaved);
+      return historyLayoutSaved;
     },
   });
 

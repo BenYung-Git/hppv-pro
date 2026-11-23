@@ -112,6 +112,7 @@
   const summaryEl = document.getElementById("racing-daily-summary");
   const horseIconTpl = document.getElementById("racing-daily-horse-icon-template");
   let layoutSaved = {{ racing_daily_layout_settings|tojson }};
+  let layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
   let catalog = {{ (racing_daily_layout_catalog if racing_daily_layout_catalog is defined else [])|tojson }};
   let meeting = null;
   let races = [];
@@ -121,11 +122,11 @@
   let loaded = false;
   const SORTABLE = {};
 
-  // Same as soccer daily: layout-editor map marks every saved column sortable;
-  // list header uses getSortableMap null (do not block by catalog.sortable).
+  // Align with soccer history: catalog.sortable gates header + layout-editor sort.
   function rebuildSortable() {
     Object.keys(SORTABLE).forEach((k) => delete SORTABLE[k]);
     ((layoutSaved && layoutSaved.columns) || []).forEach((c) => { SORTABLE[c.key] = true; });
+    (catalog || []).forEach((c) => { SORTABLE[c.key] = !!c.sortable; });
   }
   rebuildSortable();
 
@@ -255,7 +256,9 @@
       const th = document.createElement("th");
       th.dataset.key = c.key;
       th.textContent = RH.headerLabel(c, COL_LABEL);
-      th.style.minWidth = (c.width || 100) + "px";
+      const w = c.width || 100;
+      th.style.minWidth = w + "px";
+      th.style.width = w + "px";
       hr.appendChild(th);
     });
     thead.appendChild(hr);
@@ -263,6 +266,14 @@
       root: thead,
       onCycle: function (key) {
         if (listCtrl) listCtrl.cycleHeaderSort(key);
+      },
+    });
+    RH.bindHeaderResize({
+      root: thead,
+      widthMin: WIDTH_MIN,
+      widthMax: WIDTH_MAX,
+      onCommit: function (key, width) {
+        if (listCtrl) listCtrl.setColumnWidth(key, width);
       },
     });
     rows.forEach((row, idx) => {
@@ -277,6 +288,9 @@
       cols.forEach((c) => {
         const td = document.createElement("td");
         td.textContent = row[c.key] != null ? row[c.key] : "—";
+        const w = c.width || 100;
+        td.style.minWidth = w + "px";
+        td.style.width = w + "px";
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
@@ -299,7 +313,10 @@
       retry: MSG.retry,
     },
     getLayout: function () { return layoutSaved; },
-    getSortableMap: function () { return null; },
+    getDraftLayout: function () { return layoutDraft; },
+    getSortableMap: function () { return SORTABLE; },
+    widthMin: WIDTH_MIN,
+    widthMax: WIDTH_MAX,
     buildParams: function () {
       const params = new URLSearchParams();
       const saved = readSavedSelection();
@@ -321,7 +338,7 @@
     onSuccess: function (data) {
       if (data.layout_settings) {
         layoutSaved = data.layout_settings;
-        if (dailyLayoutEditor) dailyLayoutEditor.replaceSettings(layoutSaved);
+        layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
       }
       if (Array.isArray(data.catalog) && data.catalog.length) {
         catalog = data.catalog;
@@ -333,7 +350,30 @@
       writeSavedSelection();
       renderRaceCards();
       renderSummary(data.summary || null);
-      if (data.rows && data.rows.length) renderTable(data.rows);
+      // Table render waits for afterLayoutSync (shell re-applies sort arrows first).
+    },
+    afterLayoutSync: function (data) {
+      if (dailyLayoutEditor) dailyLayoutEditor.replaceSettings(layoutSaved);
+      if (data && data.rows && data.rows.length) renderTable(data.rows);
+    },
+    persistLayoutSort: async function (layout) {
+      const resp = await fetch("/api/layout/racing/racing_daily", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ layout_settings: layout }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data || !data.ok) {
+        throw new Error((data && data.error) || "save_failed");
+      }
+      layoutSaved = data.layout_settings;
+      layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+      if (Array.isArray(data.catalog)) {
+        catalog = data.catalog;
+        rebuildSortable();
+      }
+      if (dailyLayoutEditor) dailyLayoutEditor.replaceSettings(layoutSaved);
+      return layoutSaved;
     },
   });
 
@@ -389,6 +429,7 @@
         throw new Error((data && data.error) || "save_failed");
       }
       layoutSaved = data.layout_settings;
+      layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
       if (Array.isArray(data.catalog)) {
         catalog = data.catalog;
         rebuildSortable();
@@ -400,7 +441,10 @@
     },
   });
   window.__racingDailySetLayoutMode = function (on) {
-    if (on) dailyLayoutEditor.replaceSettings(layoutSaved);
+    if (on) {
+      layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+      dailyLayoutEditor.replaceSettings(layoutSaved);
+    }
     dailyLayoutEditor.setMode(!!on);
   };
 
@@ -410,6 +454,7 @@
       const data = await resp.json();
       if (resp.ok && data && data.ok) {
         layoutSaved = data.layout_settings;
+        layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
         catalog = data.catalog || [];
         rebuildSortable();
         dailyLayoutEditor.replaceSettings(layoutSaved);

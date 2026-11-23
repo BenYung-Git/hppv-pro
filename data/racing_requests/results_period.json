@@ -1,0 +1,12 @@
+{
+  "operationName": "localResultsPeriod",
+  "query": "localResultsPeriod",
+  "variables": {
+    "startDate": null,
+    "endDate": null,
+    "venueCodes": [
+      "ST",
+      "HV"
+    ]
+  }
+}

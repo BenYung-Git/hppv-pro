@@ -161,9 +161,13 @@ from hppv.web_download_shell import (
     parse_request_key_and_payload,
 )
 from hppv.racing_task_scheduler import (
+    TASK_KEY_UPDATE_DAILY_RESULTS as RACING_TASK_KEY_UPDATE_DAILY_RESULTS,
+    TASK_KEY_UPDATE_HORSES as RACING_TASK_KEY_UPDATE_HORSES,
     TASK_KEY_UPDATE_ODDS as RACING_TASK_KEY_UPDATE_ODDS,
     TASK_KEY_UPDATE_RACECARD as RACING_TASK_KEY_UPDATE_RACECARD,
     get_racing_task_public_state,
+    get_update_daily_results_scheduler,
+    get_update_horses_scheduler,
     get_update_racecard_scheduler,
     get_update_racing_odds_scheduler,
 )
@@ -281,6 +285,12 @@ _racing_racecard_scheduler = get_update_racecard_scheduler(
 _racing_odds_scheduler = get_update_racing_odds_scheduler(
     SOCCER_DB_PATH, DB_PATH, RACING_REQUESTS_DIR
 )
+_racing_daily_results_scheduler = get_update_daily_results_scheduler(
+    SOCCER_DB_PATH, DB_PATH, RACING_REQUESTS_DIR
+)
+_racing_horses_scheduler = get_update_horses_scheduler(
+    SOCCER_DB_PATH, DB_PATH, RACING_REQUESTS_DIR
+)
 try:
     _racing_racecard_scheduler.start()
 except Exception as _racing_racecard_err:
@@ -289,6 +299,17 @@ try:
     _racing_odds_scheduler.start()
 except Exception as _racing_odds_err:
     print(">>> RACING UPDATE_ODDS SCHEDULER START FAILED:", _racing_odds_err)
+try:
+    _racing_daily_results_scheduler.start()
+except Exception as _racing_daily_results_err:
+    print(
+        ">>> RACING UPDATE_DAILY_RESULTS SCHEDULER START FAILED:",
+        _racing_daily_results_err,
+    )
+try:
+    _racing_horses_scheduler.start()
+except Exception as _racing_horses_err:
+    print(">>> RACING UPDATE_HORSES SCHEDULER START FAILED:", _racing_horses_err)
 
 @app.get("/ping")
 def ping():
@@ -1381,6 +1402,8 @@ def _api_download_preset_response(sport: str, preset_id: str) -> Any:
 
 
 def _api_download_send_response(sport: str) -> Any:
+    from hppv.web_download_shell import SPORT_RACING as _SPORT_RACING
+
     raw = request.get_data(as_text=True) or ""
     data = request.get_json(silent=True)
     try:
@@ -1388,6 +1411,28 @@ def _api_download_send_response(sport: str) -> Any:
             data, raw, sport=sport
         )
         db_path = SOCCER_DB_PATH if sport == SPORT_SOCCER else DB_PATH
+        # Racing Web send is async so Status can poll live progress.
+        if sport == _SPORT_RACING:
+            from hppv.racing_download_jobs import (
+                RacingDownloadJobError,
+                start_racing_download_job,
+            )
+
+            try:
+                job = start_racing_download_job(
+                    db_path=db_path,
+                    request_key=request_key,
+                    raw_payload=payload_text,
+                )
+            except RacingDownloadJobError as e:
+                return (
+                    jsonify({"ok": False, "error": e.code, "detail": e.detail}),
+                    e.http_status,
+                )
+            body = job.to_public()
+            body["accepted"] = True
+            body["sport"] = sport
+            return jsonify(body), 202
         body = execute_download(
             sport=sport,
             db_path=db_path,
@@ -1403,6 +1448,19 @@ def _api_download_send_response(sport: str) -> Any:
         return jsonify({"ok": False, "error": "read_failed"}), 500
     body = dict(body)
     body["sport"] = sport
+    return jsonify(body)
+
+
+@app.get("/api/download/racing/jobs/<job_id>")
+def api_racing_download_job(job_id: str) -> Any:
+    """Poll racing download job progress / final result."""
+    from hppv.racing_download_jobs import get_racing_download_job
+
+    job = get_racing_download_job(job_id)
+    if job is None:
+        return jsonify({"ok": False, "error": "job_not_found"}), 404
+    body = job.to_public()
+    body["sport"] = "racing"
     return jsonify(body)
 
 
@@ -1684,6 +1742,88 @@ def api_racing_task_update_odds_put() -> Any:
         return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
     except Exception as e:
         logging.getLogger(__name__).exception("racing odds task save failed: %s", e)
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+    return jsonify({"ok": True, "task": pub})
+
+
+@app.get("/api/racing/tasks/update-daily-results")
+def api_racing_task_update_daily_results_get() -> Any:
+    try:
+        pub = _racing_task_public(
+            _racing_daily_results_scheduler, RACING_TASK_KEY_UPDATE_DAILY_RESULTS
+        )
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "racing daily results task get failed: %s", e
+        )
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+    return jsonify({"ok": True, "task": pub})
+
+
+@app.put("/api/racing/tasks/update-daily-results")
+def api_racing_task_update_daily_results_put() -> Any:
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
+    try:
+        state = _racing_daily_results_scheduler.apply_settings(
+            enabled=bool(data.get("enabled")),
+            interval_value=data.get("interval_value"),
+            interval_unit=data.get("interval_unit"),
+        )
+        pub = state.to_public_dict()
+        pub["scope"] = get_racing_task_public_state(
+            SOCCER_DB_PATH,
+            RACING_TASK_KEY_UPDATE_DAILY_RESULTS,
+            running=state.running,
+        ).get("scope")
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "racing daily results task save failed: %s", e
+        )
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+    return jsonify({"ok": True, "task": pub})
+
+
+@app.get("/api/racing/tasks/update-horses")
+def api_racing_task_update_horses_get() -> Any:
+    try:
+        pub = _racing_task_public(
+            _racing_horses_scheduler, RACING_TASK_KEY_UPDATE_HORSES
+        )
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing horses task get failed: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+    return jsonify({"ok": True, "task": pub})
+
+
+@app.put("/api/racing/tasks/update-horses")
+def api_racing_task_update_horses_put() -> Any:
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
+    try:
+        state = _racing_horses_scheduler.apply_settings(
+            enabled=bool(data.get("enabled")),
+            interval_value=data.get("interval_value"),
+            interval_unit=data.get("interval_unit"),
+        )
+        pub = state.to_public_dict()
+        pub["scope"] = get_racing_task_public_state(
+            SOCCER_DB_PATH,
+            RACING_TASK_KEY_UPDATE_HORSES,
+            running=state.running,
+        ).get("scope")
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing horses task save failed: %s", e)
         return jsonify({"ok": False, "error": "save_failed"}), 500
     return jsonify({"ok": True, "task": pub})
 

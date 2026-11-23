@@ -2,6 +2,11 @@
 
 Racecard: whitelist ``raceMeetings`` only.
 Odds: single path ``sp4e_racing_pmPool`` WIN ``oddsNodes`` only (no winOdds fallback).
+Daily results: same ``raceMeetings`` whitelist → ``race_records`` via INSERT OR IGNORE;
+also insert/fill ``horses`` names from runners (incl. WV).
+Results period: verified localresults HTML (startDate/endDate × venueCodes);
+also insert/fill ``horses`` from 馬名 cells.
+Horses: verified HKJC rating-list HTML → ``horses`` via insert_or_fill.
 """
 
 from __future__ import annotations
@@ -13,7 +18,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from hppv.db import get_connection, init_db
+from hppv.config import HKJC_MCS_HORSES_CLAS_URL_EN
+from hppv.db import (
+    get_connection,
+    init_db,
+    insert_or_fill_horse,
+    is_acceptable_horse_id,
+    upsert_race_records,
+)
+from hppv.racing_requests import HORSES_OPERATION, HORSES_QUERY
+from hppv.scraper import fetch_all_horses_basic_info
 from hppv.racing_hkjc_graphql import (
     GRAPHQL_URL,
     ActiveMeeting,
@@ -23,6 +37,8 @@ from hppv.racing_hkjc_graphql import (
     extract_win_odds_from_sp4e_pools,
     pick_active_meeting,
     race_info_from_graphql,
+    horse_rows_from_meeting,
+    race_records_from_meeting,
     resolve_latest_meeting_from_graphql,
     starter_fields_from_graphql,
     to_db_date,
@@ -30,6 +46,14 @@ from hppv.racing_hkjc_graphql import (
     update_immediate_win_odds,
     upsert_race_info_from_graphql,
     upsert_starter_from_graphql,
+)
+from hppv.racing_local_results import (
+    LOCAL_RESULTS_URL,
+    RacingLocalResultsError,
+    collect_period_race_records,
+    iter_dates_inclusive,
+    parse_results_period_variables,
+    to_localresults_date,
 )
 from hppv.schema import (
     RACECARD_STARTERS_DEFAULT_DISPLAY_FIELDS,
@@ -486,6 +510,96 @@ def run_odds_download(
     return RacingDownloadResult(code=code, progress=prog, detail=detail)
 
 
+def run_daily_results_download(
+    db_path: Path,
+    *,
+    race_date: str | None = None,
+    venue_code: str | None = None,
+    progress_cb: ProgressCb | None = None,
+) -> RacingDownloadResult:
+    """Write finished raceMeetings runners into race_records (INSERT OR IGNORE)."""
+    ensure_racecard_db(db_path)
+    prog = RacingDownloadProgress(phase="fetching_total", message="正在取得總數")
+    _emit(progress_cb, prog)
+    started = utc_now_iso()
+
+    try:
+        meeting_meta = resolve_meeting_for_download(
+            race_date=race_date, venue_code=venue_code
+        )
+        data = fetch_race_meetings(meeting_meta.date_iso, meeting_meta.venue_code)
+    except RacingGraphQLError as e:
+        raise RacingDownloadError("graphql_error", str(e)) from e
+
+    meetings = data.get("raceMeetings") or []
+    if not meetings:
+        raise RacingDownloadError("empty_meeting", "raceMeetings empty")
+    meeting = meetings[0]
+    db_date = to_db_date(str(meeting.get("date") or meeting_meta.date_iso))
+    venue = str(meeting.get("venueCode") or meeting_meta.venue_code)
+    prog.race_date = db_date
+    prog.venue_code = venue
+
+    records = race_records_from_meeting(meeting)
+    horse_rows = horse_rows_from_meeting(meeting)
+    horses_filled = 0
+    for hrow in horse_rows:
+        try:
+            if insert_or_fill_horse(db_path, hrow) in ("inserted", "filled"):
+                horses_filled += 1
+        except Exception:
+            logger.exception(
+                "horses insert/fill from results failed horse=%s",
+                hrow.get("horse_id"),
+            )
+
+    prog.total = len(records)
+    prog.phase = "processing"
+    prog.message = f"已處理 {prog.processed}/{prog.total} record"
+    _emit(progress_cb, prog)
+
+    # Insert one-by-one so updated/skipped counts stay honest under OR IGNORE.
+    for rec in records:
+        try:
+            n = upsert_race_records(db_path, [rec])
+            if n:
+                prog.updated += 1
+            else:
+                prog.skipped += 1
+        except Exception:
+            logger.exception("race_records insert failed horse=%s", rec.horse_id)
+            prog.failed += 1
+        prog.processed += 1
+        prog.message = f"已處理 {prog.processed}/{prog.total} record"
+        _emit(progress_cb, prog)
+
+    prog.phase = "done"
+    prog.message = f"已處理 {prog.processed}/{prog.total} record"
+    _emit(progress_cb, prog)
+    detail = {
+        "started_at": started,
+        "finished_at": utc_now_iso(),
+        "operation": "raceMeetings",
+        "endpoint": GRAPHQL_URL,
+        "target": "race_records",
+        "write_mode": "insert_or_ignore",
+        "horses_write_mode": "insert_or_fill_blanks",
+        "horses_filled": horses_filled,
+        "variables": {
+            "date": meeting_meta.date_iso,
+            "venueCode": meeting_meta.venue_code,
+        },
+        "ingest_status": "success",
+        "processed": prog.processed,
+        "updated": prog.updated,
+        "skipped": prog.skipped,
+        "failed": prog.failed,
+        "total": prog.total,
+    }
+    code = "success" if prog.failed == 0 else "partial_failure"
+    return RacingDownloadResult(code=code, progress=prog, detail=detail)
+
+
 def run_racecard_download_locked(
     db_path: Path, **kwargs: Any
 ) -> RacingDownloadResult:
@@ -496,3 +610,252 @@ def run_racecard_download_locked(
 def run_odds_download_locked(db_path: Path, **kwargs: Any) -> RacingDownloadResult:
     with _RACING_JOB_LOCK:
         return run_odds_download(db_path, **kwargs)
+
+
+def run_daily_results_download_locked(
+    db_path: Path, **kwargs: Any
+) -> RacingDownloadResult:
+    with _RACING_JOB_LOCK:
+        return run_daily_results_download(db_path, **kwargs)
+
+
+def run_results_period_download(
+    db_path: Path,
+    *,
+    variables: dict[str, Any] | None = None,
+    progress_cb: ProgressCb | None = None,
+) -> RacingDownloadResult:
+    """Write localresults HTML runners for a date window into race_records."""
+    ensure_racecard_db(db_path)
+    prog = RacingDownloadProgress(phase="fetching_total", message="正在取得總數")
+    _emit(progress_cb, prog)
+    started = utc_now_iso()
+
+    try:
+        start, end, venues = parse_results_period_variables(variables)
+    except RacingLocalResultsError as e:
+        raise RacingDownloadError(e.code, e.detail) from e
+
+    prog.race_date = f"{to_localresults_date(start)}..{to_localresults_date(end)}"
+    prog.venue_code = ",".join(venues)
+
+    meetings_planned = len(iter_dates_inclusive(start, end)) * max(len(venues), 1)
+    prog.total = meetings_planned
+    prog.processed = 0
+    prog.phase = "fetching"
+    prog.message = f"掃描賽日 0/{meetings_planned}"
+    _emit(
+        progress_cb,
+        prog,
+    )
+    # Attach extras for job polling (formatters read via to_public keys only;
+    # pass through a side dict on the callback payload).
+    def _emit_fetch(extra: dict[str, Any] | None = None) -> None:
+        pub = prog.to_public()
+        pub["operation"] = "localResultsPeriod"
+        pub["meetings_planned"] = meetings_planned
+        pub["meetings_scanned"] = prog.processed
+        pub["variables"] = {
+            "startDate": start.isoformat(),
+            "endDate": end.isoformat(),
+            "venueCodes": list(venues),
+        }
+        if extra:
+            pub.update(extra)
+        if progress_cb is not None:
+            try:
+                progress_cb(pub)
+            except Exception:
+                logger.exception("racing period progress callback failed")
+
+    _emit_fetch()
+
+    try:
+        def _on_meeting(meta: dict[str, Any]) -> None:
+            prog.processed += 1
+            prog.phase = "fetching"
+            day = meta.get("race_date") or ""
+            venue = meta.get("venue_code") or ""
+            found = int(meta.get("record_count") or 0)
+            prog.message = (
+                f"掃描賽日 {prog.processed}/{meetings_planned}"
+                f"：{day} {venue}（+{found}）"
+            )
+            _emit_fetch(
+                {
+                    "current_meeting": f"{day} {venue}",
+                    "meetings_scanned": prog.processed,
+                }
+            )
+
+        records, horse_rows, meeting_metas = collect_period_race_records(
+            start=start,
+            end=end,
+            venue_codes=venues,
+            on_meeting=_on_meeting,
+        )
+    except RacingLocalResultsError as e:
+        raise RacingDownloadError(e.code, e.detail) from e
+    except Exception as e:
+        raise RacingDownloadError("localresults_fetch_failed", str(e)) from e
+
+    horses_filled = 0
+    for hrow in horse_rows:
+        try:
+            if insert_or_fill_horse(db_path, hrow) in ("inserted", "filled"):
+                horses_filled += 1
+        except Exception:
+            logger.exception(
+                "horses insert/fill from results failed horse=%s",
+                hrow.get("horse_id"),
+            )
+
+    prog.total = len(records)
+    prog.processed = 0
+    prog.updated = 0
+    prog.skipped = 0
+    prog.failed = 0
+    prog.phase = "processing"
+    prog.message = f"已處理 {prog.processed}/{prog.total} record"
+    _emit(progress_cb, prog)
+
+    for rec in records:
+        try:
+            n = upsert_race_records(db_path, [rec])
+            if n:
+                prog.updated += 1
+            else:
+                prog.skipped += 1
+        except Exception:
+            logger.exception("race_records insert failed horse=%s", rec.horse_id)
+            prog.failed += 1
+        prog.processed += 1
+        prog.message = f"已處理 {prog.processed}/{prog.total} record"
+        _emit(progress_cb, prog)
+
+    prog.phase = "done"
+    prog.message = f"已處理 {prog.processed}/{prog.total} record"
+    _emit(progress_cb, prog)
+    meetings_with_results = sum(
+        1 for m in meeting_metas if int(m.get("races_with_results") or 0) > 0
+    )
+    detail = {
+        "started_at": started,
+        "finished_at": utc_now_iso(),
+        "operation": "localResultsPeriod",
+        "endpoint": LOCAL_RESULTS_URL,
+        "target": "race_records",
+        "write_mode": "insert_or_ignore",
+        "horses_write_mode": "insert_or_fill_blanks",
+        "horses_filled": horses_filled,
+        "variables": {
+            "startDate": start.isoformat(),
+            "endDate": end.isoformat(),
+            "venueCodes": list(venues),
+        },
+        "meetings_scanned": len(meeting_metas),
+        "meetings_with_results": meetings_with_results,
+        "meeting_metas": meeting_metas,
+        "ingest_status": "success",
+        "processed": prog.processed,
+        "updated": prog.updated,
+        "skipped": prog.skipped,
+        "failed": prog.failed,
+        "total": prog.total,
+    }
+    code = "success" if prog.failed == 0 else "partial_failure"
+    return RacingDownloadResult(code=code, progress=prog, detail=detail)
+
+
+def run_results_period_download_locked(
+    db_path: Path, **kwargs: Any
+) -> RacingDownloadResult:
+    with _RACING_JOB_LOCK:
+        return run_results_period_download(db_path, **kwargs)
+
+
+def run_horses_download(
+    db_path: Path,
+    *,
+    progress_cb: ProgressCb | None = None,
+) -> RacingDownloadResult:
+    """Fetch HKJC horse rating list; insert new or fill blank/placeholder names."""
+    ensure_racecard_db(db_path)
+    prog = RacingDownloadProgress(phase="fetching_total", message="正在取得總數")
+    _emit(progress_cb, prog)
+    started = utc_now_iso()
+
+    try:
+        basics = fetch_all_horses_basic_info()
+    except Exception as e:
+        raise RacingDownloadError("horses_fetch_failed", str(e)) from e
+
+    rows = [
+        {
+            "horse_id": h.horse_id,
+            "brand_no": h.brand_no,
+            "name_zh": h.name_zh,
+            "name_en": h.name_en,
+            "status": h.status,
+        }
+        for h in basics
+        if is_acceptable_horse_id(h.horse_id)
+    ]
+    if not rows:
+        raise RacingDownloadError("empty_horses", "horse rating list empty")
+
+    prog.total = len(rows)
+    prog.phase = "processing"
+    prog.message = f"已處理 {prog.processed}/{prog.total} record"
+    _emit(progress_cb, prog)
+
+    inserted = 0
+    filled = 0
+    for row in rows:
+        try:
+            action = insert_or_fill_horse(db_path, row)
+            if action == "inserted":
+                inserted += 1
+                prog.updated += 1
+            elif action == "filled":
+                filled += 1
+                prog.updated += 1
+            else:
+                prog.skipped += 1
+        except Exception:
+            logger.exception("horses insert/fill failed horse=%s", row.get("horse_id"))
+            prog.failed += 1
+        prog.processed += 1
+        prog.message = f"已處理 {prog.processed}/{prog.total} record"
+        _emit(progress_cb, prog)
+
+    prog.phase = "done"
+    prog.message = f"已處理 {prog.processed}/{prog.total} record"
+    _emit(progress_cb, prog)
+    detail = {
+        "started_at": started,
+        "finished_at": utc_now_iso(),
+        "operation": HORSES_OPERATION,
+        "query": HORSES_QUERY,
+        "endpoint": HKJC_MCS_HORSES_CLAS_URL_EN,
+        "target": "horses",
+        "write_mode": "insert_or_fill_blanks",
+        "variables": {},
+        "ingest_status": "success",
+        "processed": prog.processed,
+        "updated": prog.updated,
+        "inserted": inserted,
+        "filled": filled,
+        "skipped": prog.skipped,
+        "failed": prog.failed,
+        "total": prog.total,
+    }
+    code = "success" if prog.failed == 0 else "partial_failure"
+    return RacingDownloadResult(code=code, progress=prog, detail=detail)
+
+
+def run_horses_download_locked(
+    db_path: Path, **kwargs: Any
+) -> RacingDownloadResult:
+    with _RACING_JOB_LOCK:
+        return run_horses_download(db_path, **kwargs)
