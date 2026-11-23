@@ -229,10 +229,19 @@ def default_layout_settings(
     *,
     db_path: Path | None = None,
 ) -> dict[str, Any]:
-    raise SoccerLayoutError(
-        "default_removed",
-        "default_layout_settings removed; use shared_layout.require_layout_settings",
+    """Catalog-built seed settings (not yet persisted). Prefer require_layout_settings at runtime."""
+    from hppv.shared_layout import (
+        SharedLayoutError,
+        SPORT_SOCCER,
+        layout_settings_from_catalog,
     )
+
+    try:
+        return layout_settings_from_catalog(
+            SPORT_SOCCER, layout_key, soccer_db_path=db_path
+        )
+    except SharedLayoutError as e:
+        raise SoccerLayoutError(e.code, e.detail) from e
 
 
 def _migrate_legacy_column_list(

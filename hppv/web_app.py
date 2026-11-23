@@ -136,6 +136,7 @@ from hppv.shared_layout import (
     SharedLayoutError,
     ZEBRA_COLORS,
     catalog_public as shared_catalog_public,
+    ensure_all_layout_settings,
     normalize_layout_key,
     normalize_sport,
     require_layout_settings,
@@ -254,6 +255,13 @@ try:
     ensure_racing_preset_files(RACING_REQUESTS_DIR)
 except OSError as _racing_req_err:
     print(">>> RACING REQUEST PRESET INIT FAILED:", _racing_req_err)
+
+try:
+    ensure_all_layout_settings(soccer_db_path=SOCCER_DB_PATH)
+except SharedLayoutError as _layout_seed_err:
+    print(">>> LAYOUT SEED FAILED:", _layout_seed_err)
+except OSError as _layout_seed_os_err:
+    print(">>> LAYOUT SEED FAILED:", _layout_seed_os_err)
 
 # Single-process soccer task schedulers (not multi-worker safe).
 _update_matches_scheduler = get_update_matches_scheduler(

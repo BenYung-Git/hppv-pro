@@ -205,9 +205,10 @@ def catalog_public(
 
 
 def default_layout_settings(layout_key: str = LAYOUT_KEY_RACING_HISTORY) -> dict[str, Any]:
-    raise RuntimeError(
-        "default_layout_settings removed; use shared_layout.require_layout_settings"
-    )
+    """Catalog-built seed settings (not yet persisted). Prefer require_layout_settings at runtime."""
+    from hppv.shared_layout import SPORT_RACING, layout_settings_from_catalog
+
+    return layout_settings_from_catalog(SPORT_RACING, layout_key)
 
 
 def get_layout_settings(layout_key: str = LAYOUT_KEY_RACING_HISTORY) -> dict[str, Any]:

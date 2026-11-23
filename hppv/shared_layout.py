@@ -1,7 +1,8 @@
 """Shared layout settings entry for soccer + racing.
 
 One read / save / catalog procedure; sport + layout_key select catalog + storage.
-Missing or invalid stored settings → SharedLayoutError (no default / no silent repair).
+Missing stored settings → seed from catalog and persist (first-use).
+Invalid stored settings → SharedLayoutError (no silent repair of corrupt data).
 Soccer storage: SQLite. Racing storage: JSON file. No cross-sport data merge.
 """
 
@@ -27,15 +28,16 @@ from hppv.soccer_layout import (
     SORT_EMPTY,
     ZEBRA_COLOR_IDS,
     ZEBRA_COLORS,
+    ZEBRA_DEFAULT_ID,
     catalog_for_layout_key as soccer_catalog_for_layout_key,
     utc_now_iso,
     zebra_css_for_id as soccer_zebra_css_for_id,
 )
+from hppv import racing_layout as racing_layout_mod
 from hppv.racing_layout import (
     LAYOUT_KEY_RACING_DAILY,
     LAYOUT_KEY_RACING_HISTORY,
     catalog_for_layout_key as racing_catalog_for_layout_key,
-    layout_settings_path,
 )
 
 SPORT_SOCCER = "soccer"
@@ -290,7 +292,7 @@ def _save_soccer(
 
 
 def _load_racing_raw(layout_key: str) -> dict[str, Any]:
-    path = layout_settings_path()
+    path = racing_layout_mod.layout_settings_path()
     if not path.exists():
         raise SharedLayoutError("layout_missing", f"layout file missing: {path}")
     try:
@@ -308,7 +310,7 @@ def _load_racing_raw(layout_key: str) -> dict[str, Any]:
 
 
 def _save_racing(layout_key: str, normalized: dict[str, Any]) -> dict[str, Any]:
-    path = layout_settings_path()
+    path = racing_layout_mod.layout_settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     existing: dict[str, Any] = {}
     if path.exists():
@@ -336,6 +338,35 @@ def _save_racing(layout_key: str, normalized: dict[str, Any]) -> dict[str, Any]:
     return deepcopy(normalized)
 
 
+def layout_settings_from_catalog(
+    sport: str,
+    layout_key: str,
+    *,
+    soccer_db_path: Path | None = None,
+) -> dict[str, Any]:
+    """Build complete layout settings from the sport catalog (seed / reset source)."""
+    sport_n = normalize_sport(sport)
+    key = normalize_layout_key(sport_n, layout_key)
+    db_path = soccer_db_path
+    if sport_n == SPORT_SOCCER and db_path is None:
+        db_path = default_config().soccer_db_path
+    catalog = catalog_for(sport_n, key, soccer_db_path=db_path)
+    columns = [
+        {
+            "key": c["key"],
+            "visible": bool(c.get("default_visible", True)),
+            "width": int(c.get("default_width") or 100),
+            "sort": str(c.get("default_sort") or SORT_EMPTY),
+        }
+        for c in catalog
+    ]
+    return {
+        "zebra_enabled": True,
+        "zebra_color_id": ZEBRA_DEFAULT_ID,
+        "columns": columns,
+    }
+
+
 def require_layout_settings(
     sport: str,
     layout_key: str,
@@ -343,24 +374,65 @@ def require_layout_settings(
     soccer_db_path: Path | None = None,
 ) -> dict[str, Any]:
     """
-    Shared layout read. Raises SharedLayoutError when missing or invalid.
-    No default_layout_settings / no auto-repair write-back.
+    Shared layout read.
+
+    If stored settings are missing, seed from catalog and persist, then return.
+    Corrupt / invalid stored settings still raise SharedLayoutError.
     """
     sport_n = normalize_sport(sport)
     key = normalize_layout_key(sport_n, layout_key)
     db_path = soccer_db_path
     if sport_n == SPORT_SOCCER and db_path is None:
         db_path = default_config().soccer_db_path
-    if sport_n == SPORT_SOCCER:
-        assert db_path is not None
-        raw = _load_soccer_raw(db_path, key)
+    try:
+        if sport_n == SPORT_SOCCER:
+            assert db_path is not None
+            raw = _load_soccer_raw(db_path, key)
+        else:
+            raw = _load_racing_raw(key)
         return normalize_layout_settings(
             raw, sport=sport_n, layout_key=key, soccer_db_path=db_path
         )
-    raw = _load_racing_raw(key)
-    return normalize_layout_settings(
-        raw, sport=sport_n, layout_key=key, soccer_db_path=db_path
+    except SharedLayoutError as e:
+        if e.code != "layout_missing":
+            raise
+        seeded = layout_settings_from_catalog(
+            sport_n, key, soccer_db_path=db_path
+        )
+        return save_layout_settings(
+            sport_n, key, seeded, soccer_db_path=db_path
+        )
+
+
+def ensure_layout_settings(
+    sport: str,
+    layout_key: str,
+    *,
+    soccer_db_path: Path | None = None,
+) -> dict[str, Any]:
+    """Alias for require_layout_settings (seed-on-missing)."""
+    return require_layout_settings(
+        sport, layout_key, soccer_db_path=soccer_db_path
     )
+
+
+def ensure_all_layout_settings(
+    *,
+    soccer_db_path: Path | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Seed every soccer + racing layout key if missing. Returns loaded settings."""
+    db_path = soccer_db_path
+    if db_path is None:
+        db_path = default_config().soccer_db_path
+    out: dict[str, dict[str, Any]] = {}
+    for sport, keys in SPORT_LAYOUT_KEYS.items():
+        for key in sorted(keys):
+            out[f"{sport}:{key}"] = require_layout_settings(
+                sport,
+                key,
+                soccer_db_path=db_path if sport == SPORT_SOCCER else None,
+            )
+    return out
 
 
 def save_layout_settings(
@@ -413,6 +485,9 @@ __all__ = [
     "ZEBRA_COLORS",
     "catalog_for",
     "catalog_public",
+    "ensure_all_layout_settings",
+    "ensure_layout_settings",
+    "layout_settings_from_catalog",
     "normalize_layout_key",
     "normalize_layout_settings",
     "normalize_sport",
