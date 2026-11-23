@@ -762,6 +762,16 @@
         catalog = data.catalog;
         rebuildSortable();
       }
+      // Sync date input when backend defaulted blank → newest race_records date.
+      if (
+        data &&
+        data.all_matches === false &&
+        data.date &&
+        dateInput &&
+        !dateInput.value
+      ) {
+        dateInput.value = data.date;
+      }
       // Table render waits for afterLayoutSync (shell re-applies sort arrows first).
     },
     afterLayoutSync: function (data) {

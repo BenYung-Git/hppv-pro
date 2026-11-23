@@ -1003,7 +1003,7 @@ def _records_racing_history() -> Any:
                 "source": "race_records",
                 "db": str(DB_PATH),
                 "table": "race_records",
-                "date": None if all_matches else race_date,
+                "date": None if all_matches else result.race_date,
                 "all_matches": result.all_matches,
                 "rows": result.rows,
                 "n": result.n,

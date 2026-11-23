@@ -111,6 +111,27 @@ class RacingHistoryListResult:
     q_op: str = DEFAULT_HISTORY_SEARCH_OP
     field_keys: tuple[str, ...] = ()
     search_keys: tuple[str, ...] = ()
+    race_date: str | None = None  # effective YYYY-MM-DD when not all_matches
+
+
+def latest_race_record_date_iso(db_path: Path) -> str | None:
+    """Newest race_records date as YYYY-MM-DD, or None if empty / unparseable."""
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            f"""
+            SELECT {_RACE_RECORD_DATE_ORDER_EXPR} AS d
+            FROM race_records AS rr
+            WHERE TRIM(COALESCE(rr.race_date, '')) != ''
+            ORDER BY {_RACE_RECORD_DATE_ORDER_EXPR} DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    if row is None:
+        return None
+    text = str(row["d"] or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return text
+    return None
 
 
 def normalize_history_search_op(raw: str | None) -> str:
@@ -235,10 +256,15 @@ def fetch_racing_history_filtered(
 
     where: list[str] = []
     params: list[Any] = []
+    effective_date: str | None = None
     if not all_matches:
         date_text = str(race_date or "").strip()
+        if not date_text:
+            # First-use / UI left date blank → default to newest record date.
+            date_text = latest_race_record_date_iso(db_path) or ""
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_text):
             raise RacingHistoryError("invalid_date", date_text)
+        effective_date = date_text
         where.append(f"{_race_date_iso_expr()} = ?")
         params.append(date_text)
 
@@ -303,6 +329,7 @@ def fetch_racing_history_filtered(
         q_op=normalize_history_search_op(q_op),
         field_keys=field_keys,
         search_keys=tuple(keys),
+        race_date=effective_date,
     )
 
 

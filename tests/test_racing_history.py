@@ -76,6 +76,31 @@ def test_fetch_racing_history_from_race_records(tmp_path: Path) -> None:
     assert before == after  # read-only
 
 
+def test_blank_date_defaults_to_latest_record(tmp_path: Path) -> None:
+    from hppv.racing_history import latest_race_record_date_iso
+
+    db = tmp_path / "hppv.sqlite3"
+    _seed_minimal_racing_db(db)
+    with get_connection(db) as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO race_records (
+              horse_id, race_date, venue, race_no, course, distance, going, class_band,
+              draw, rating, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
+            ) VALUES (
+              'HK_2020_A001', '15/03/2026', '沙田', '2', '草地', '1400', '好', '第三班',
+              '1', '62', '騎師甲', '練馬師乙', '01', '1 1 1', '3.2', '1.22.00', '200000'
+            )
+            """
+        )
+        conn.commit()
+    assert latest_race_record_date_iso(db) == "2026-03-15"
+    result = fetch_racing_history_filtered(db, all_matches=False, race_date=None)
+    assert result.race_date == "2026-03-15"
+    assert result.total_count >= 1
+    assert all(r["race_date"] == "2026-03-15" for r in result.rows)
+
+
 def test_api_racing_history_and_layout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
