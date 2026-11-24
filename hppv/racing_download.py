@@ -7,6 +7,8 @@ also insert/fill ``horses`` names from runners (incl. WV).
 Results period: verified localresults HTML (startDate/endDate × venueCodes);
 also insert/fill ``horses`` from 馬名 cells.
 Horses: verified HKJC rating-list HTML → ``horses`` via insert_or_fill.
+Standard times: verified yearly PDF → ``racing_standard_times`` upsert.
+Draw statistics: verified drawadvsearch HTML → ``racing_draw_statistics`` upsert.
 """
 
 from __future__ import annotations
@@ -875,3 +877,219 @@ def run_horses_download_locked(
 ) -> RacingDownloadResult:
     with _RACING_JOB_LOCK:
         return run_horses_download(db_path, **kwargs)
+
+
+def run_standard_times_download(
+    db_path: Path,
+    *,
+    years: Any = None,
+    progress_cb: ProgressCb | None = None,
+    overwrite: bool = False,
+) -> RacingDownloadResult:
+    """Fetch registered HKJC standard-times PDFs and upsert racing_standard_times."""
+    from hppv.racing_standard_times import (
+        STANDARD_TIMES_OPERATION,
+        STANDARD_TIMES_QUERY,
+        StandardTimesError,
+        ensure_standard_times_table,
+        fetch_standard_times_pdf,
+        parse_standard_times_pdf_bytes,
+        pdf_url_for_year,
+        resolve_download_years,
+        upsert_standard_times_rows,
+    )
+
+    ensure_racecard_db(db_path)
+    ensure_standard_times_table(db_path)
+    prog = RacingDownloadProgress(phase="fetching_total", message="正在取得總數")
+    _emit(progress_cb, prog)
+    started = utc_now_iso()
+
+    try:
+        year_list = resolve_download_years(years)
+    except StandardTimesError as e:
+        raise RacingDownloadError(e.code, e.detail) from e
+
+    prog.total = len(year_list)
+    prog.phase = "processing"
+    prog.message = f"已處理 {prog.processed}/{prog.total} record"
+    _emit(progress_cb, prog)
+
+    inserted = 0
+    updated = 0
+    skipped = 0
+    year_details: list[dict[str, Any]] = []
+    for year in year_list:
+        try:
+            pdf_bytes = fetch_standard_times_pdf(year)
+            published_on, rows = parse_standard_times_pdf_bytes(
+                pdf_bytes, source_year=year
+            )
+            counts = upsert_standard_times_rows(
+                db_path, rows, overwrite=bool(overwrite)
+            )
+            inserted += int(counts.get("inserted") or 0)
+            updated += int(counts.get("updated") or 0)
+            skipped += int(counts.get("skipped") or 0)
+            prog.updated += int(counts.get("inserted") or 0) + int(
+                counts.get("updated") or 0
+            )
+            prog.skipped += int(counts.get("skipped") or 0)
+            year_details.append(
+                {
+                    "year": year,
+                    "published_on": published_on,
+                    "url": pdf_url_for_year(year),
+                    "rows": len(rows),
+                    "inserted": counts.get("inserted"),
+                    "updated": counts.get("updated"),
+                    "skipped": counts.get("skipped"),
+                }
+            )
+        except StandardTimesError as e:
+            logger.exception("standard times year failed year=%s code=%s", year, e.code)
+            prog.failed += 1
+            year_details.append(
+                {"year": year, "error": e.code, "detail": e.detail}
+            )
+        except Exception as e:
+            logger.exception("standard times year failed year=%s", year)
+            prog.failed += 1
+            year_details.append({"year": year, "error": "year_failed", "detail": str(e)})
+        prog.processed += 1
+        prog.message = f"已處理 {prog.processed}/{prog.total} record"
+        _emit(progress_cb, prog)
+
+    prog.phase = "done"
+    prog.message = f"已處理 {prog.processed}/{prog.total} record"
+    _emit(progress_cb, prog)
+    detail = {
+        "started_at": started,
+        "finished_at": utc_now_iso(),
+        "operation": STANDARD_TIMES_OPERATION,
+        "query": STANDARD_TIMES_QUERY,
+        "target": "racing_standard_times",
+        "write_mode": "overwrite" if overwrite else "insert_or_ignore",
+        "overwrite": bool(overwrite),
+        "variables": {"years": year_list},
+        "years": year_details,
+        "ingest_status": "success" if prog.failed == 0 else "failed",
+        "processed": prog.processed,
+        "updated": prog.updated,
+        "inserted": inserted,
+        "row_updated": updated,
+        "skipped": skipped,
+        "failed": prog.failed,
+        "total": prog.total,
+    }
+    if prog.failed and (inserted or updated):
+        code = "partial_failure"
+        detail["ingest_status"] = "success"
+    elif prog.failed:
+        code = "failed"
+    else:
+        code = "success"
+    return RacingDownloadResult(code=code, progress=prog, detail=detail)
+
+
+def run_standard_times_download_locked(
+    db_path: Path, **kwargs: Any
+) -> RacingDownloadResult:
+    with _RACING_JOB_LOCK:
+        return run_standard_times_download(db_path, **kwargs)
+
+
+def run_draw_statistics_download(
+    db_path: Path,
+    *,
+    progress_cb: ProgressCb | None = None,
+    overwrite: bool = False,
+) -> RacingDownloadResult:
+    """Fetch HKJC drawadvsearch matrix; upsert racing_draw_statistics by unique key."""
+    from hppv.racing_draw_statistics import (
+        DRAW_STATISTICS_OPERATION,
+        DRAW_STATISTICS_QUERY,
+        DrawStatisticsError,
+        download_all_draw_statistics,
+        ensure_draw_statistics_table,
+        upsert_draw_statistics_rows,
+    )
+
+    ensure_racecard_db(db_path)
+    ensure_draw_statistics_table(db_path)
+    prog = RacingDownloadProgress(phase="fetching_total", message="正在取得總數")
+    _emit(progress_cb, prog)
+    started = utc_now_iso()
+
+    def _progress_bridge(payload: dict[str, Any]) -> None:
+        if not isinstance(payload, dict):
+            return
+        if payload.get("total") is not None:
+            try:
+                prog.total = int(payload["total"])
+            except (TypeError, ValueError):
+                pass
+        if payload.get("processed") is not None:
+            try:
+                prog.processed = int(payload["processed"])
+            except (TypeError, ValueError):
+                pass
+        prog.phase = str(payload.get("phase") or prog.phase)
+        prog.message = str(payload.get("message") or prog.message)
+        _emit(progress_cb, prog)
+
+    try:
+        rows, fetch_detail = download_all_draw_statistics(
+            progress_cb=_progress_bridge
+        )
+    except DrawStatisticsError as e:
+        raise RacingDownloadError(e.code, e.detail) from e
+
+    prog.total = len(rows)
+    prog.processed = 0
+    prog.phase = "processing"
+    prog.message = f"已處理 {prog.processed}/{prog.total} record"
+    _emit(progress_cb, prog)
+
+    try:
+        counts = upsert_draw_statistics_rows(
+            db_path, rows, overwrite=bool(overwrite)
+        )
+    except Exception as e:
+        raise RacingDownloadError("draw_upsert_failed", str(e)) from e
+
+    prog.processed = len(rows)
+    prog.updated = int(counts.get("inserted") or 0) + int(counts.get("updated") or 0)
+    prog.skipped = int(counts.get("skipped") or 0) + int(counts.get("filled") or 0)
+    prog.phase = "done"
+    prog.message = f"已處理 {prog.processed}/{prog.total} record"
+    _emit(progress_cb, prog)
+
+    detail = {
+        "started_at": started,
+        "finished_at": utc_now_iso(),
+        "operation": DRAW_STATISTICS_OPERATION,
+        "query": DRAW_STATISTICS_QUERY,
+        "target": "racing_draw_statistics",
+        "write_mode": "overwrite" if overwrite else "insert_or_fill_meta",
+        "overwrite": bool(overwrite),
+        "variables": {"going": "ALL"},
+        "fetch": fetch_detail,
+        "ingest_status": "success",
+        "processed": prog.processed,
+        "updated": prog.updated,
+        "inserted": counts.get("inserted"),
+        "row_updated": counts.get("updated"),
+        "filled": counts.get("filled"),
+        "skipped": counts.get("skipped"),
+        "failed": prog.failed,
+        "total": prog.total,
+    }
+    return RacingDownloadResult(code="success", progress=prog, detail=detail)
+
+
+def run_draw_statistics_download_locked(
+    db_path: Path, **kwargs: Any
+) -> RacingDownloadResult:
+    with _RACING_JOB_LOCK:
+        return run_draw_statistics_download(db_path, **kwargs)

@@ -13,6 +13,15 @@ from hppv.racing_local_results import (
     RESULTS_PERIOD_OPERATION,
     RESULTS_PERIOD_QUERY,
 )
+from hppv.racing_draw_statistics import (
+    DRAW_STATISTICS_OPERATION,
+    DRAW_STATISTICS_QUERY,
+)
+from hppv.racing_standard_times import (
+    REGISTERED_STANDARD_TIMES_YEARS,
+    STANDARD_TIMES_OPERATION,
+    STANDARD_TIMES_QUERY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +33,15 @@ HORSES_OPERATION = "horseRatingList"
 # daily_results reuses the verified raceMeetings whitelist (finalPosition → race_records).
 # results_period uses verified localresults HTML (marker query; not GraphQL).
 # horses uses verified HKJC rating-list HTML → horses via INSERT OR IGNORE.
+# standard_times uses verified yearly PDFs → racing_standard_times.
 RACING_REQUEST_PRESETS: dict[str, str] = {
     "racecard": "racecard.json",
     "update_odds": "update_odds.json",
     "daily_results": "daily_results.json",
     "results_period": "results_period.json",
     "horses": "horses.json",
+    "standard_times": "standard_times.json",
+    "draw_statistics": "draw_statistics.json",
 }
 
 REQUEST_KEY_RACECARD = "racecard"
@@ -37,6 +49,8 @@ REQUEST_KEY_UPDATE_ODDS = "update_odds"
 REQUEST_KEY_DAILY_RESULTS = "daily_results"
 REQUEST_KEY_RESULTS_PERIOD = "results_period"
 REQUEST_KEY_HORSES = "horses"
+REQUEST_KEY_STANDARD_TIMES = "standard_times"
+REQUEST_KEY_DRAW_STATISTICS = "draw_statistics"
 
 
 class RacingRequestPresetError(Exception):
@@ -100,6 +114,10 @@ def expected_query_for_preset(preset_id: str) -> str:
         return RESULTS_PERIOD_QUERY
     if preset_id == REQUEST_KEY_HORSES:
         return HORSES_QUERY
+    if preset_id == REQUEST_KEY_STANDARD_TIMES:
+        return STANDARD_TIMES_QUERY
+    if preset_id == REQUEST_KEY_DRAW_STATISTICS:
+        return DRAW_STATISTICS_QUERY
     raise RacingRequestPresetError("unsupported_type", preset_id)
 
 
@@ -140,6 +158,22 @@ def assert_payload_matches_whitelist(
         raise RacingRequestPresetError(
             "invalid_fields",
             f"operationName must be {HORSES_OPERATION}",
+        )
+    if preset_id == REQUEST_KEY_STANDARD_TIMES and op not in (
+        None,
+        STANDARD_TIMES_OPERATION,
+    ):
+        raise RacingRequestPresetError(
+            "invalid_fields",
+            f"operationName must be {STANDARD_TIMES_OPERATION}",
+        )
+    if preset_id == REQUEST_KEY_DRAW_STATISTICS and op not in (
+        None,
+        DRAW_STATISTICS_OPERATION,
+    ):
+        raise RacingRequestPresetError(
+            "invalid_fields",
+            f"operationName must be {DRAW_STATISTICS_OPERATION}",
         )
 
 
@@ -259,6 +293,16 @@ def ensure_racing_preset_files(requests_dir: Path) -> None:
             "operationName": HORSES_OPERATION,
             "query": HORSES_QUERY,
             "variables": {},
+        },
+        REQUEST_KEY_STANDARD_TIMES: {
+            "operationName": STANDARD_TIMES_OPERATION,
+            "query": STANDARD_TIMES_QUERY,
+            "variables": {"years": list(REGISTERED_STANDARD_TIMES_YEARS)},
+        },
+        REQUEST_KEY_DRAW_STATISTICS: {
+            "operationName": DRAW_STATISTICS_OPERATION,
+            "query": DRAW_STATISTICS_QUERY,
+            "variables": {"going": "ALL"},
         },
     }
     for preset_id, body in specs.items():

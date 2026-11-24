@@ -18,6 +18,10 @@ def test_racing_translation_keys_seeded(tmp_path: Path) -> None:
     assert translate(load_active_text_map(db, "zh-Hans"), "nav.racing_info") == "赛马资讯"
     assert translate(load_active_text_map(db, "en"), "racing.info.tab.matches") == "Daily Races"
     assert translate(load_active_text_map(db, "en"), "racing.info.tab.history") == "Racing History"
+    assert (
+        translate(load_active_text_map(db, "zh-Hant"), "racing.info.tab.standard_times")
+        == "標準時間"
+    )
     assert translate(load_active_text_map(db, "zh-Hans"), "racing.info.tab.download") == "下载资料"
     assert translate(load_active_text_map(db, "zh-Hant"), "racing.history.title") == "賽馬往績"
     assert translate(load_active_text_map(db, "en"), "racing.history.col.horse_id") == "Horse ID"
@@ -72,7 +76,14 @@ def test_racing_info_route_default_and_tabs(
     hist_html = hist.get_data(as_text=True)
     assert 'data-tab="history"' in hist_html
     assert "racing-history-table" in hist_html
-    assert "/api/racing/history-records" in hist_html
+    assert "/api/records/racing/racing_history" in hist_html
+
+    std = client.get("/racing/info?tab=standard_times")
+    assert std.status_code == 200
+    std_html = std.get_data(as_text=True)
+    assert 'data-tab="standard_times"' in std_html
+    assert "racing-std-table" in std_html
+    assert "/api/records/racing/racing_standard_times" in std_html
 
     bad = client.get("/racing/info?tab=nope")
     assert bad.status_code == 200

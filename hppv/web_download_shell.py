@@ -18,13 +18,17 @@ from hppv.racing_download import (
     run_odds_download_locked,
     run_racecard_download_locked,
     run_results_period_download_locked,
+    run_draw_statistics_download_locked,
+    run_standard_times_download_locked,
 )
 from hppv.racing_requests import (
     RACING_REQUEST_PRESETS,
     REQUEST_KEY_DAILY_RESULTS as RACING_REQUEST_KEY_DAILY_RESULTS,
+    REQUEST_KEY_DRAW_STATISTICS as RACING_REQUEST_KEY_DRAW_STATISTICS,
     REQUEST_KEY_HORSES as RACING_REQUEST_KEY_HORSES,
     REQUEST_KEY_RACECARD,
     REQUEST_KEY_RESULTS_PERIOD as RACING_REQUEST_KEY_RESULTS_PERIOD,
+    REQUEST_KEY_STANDARD_TIMES as RACING_REQUEST_KEY_STANDARD_TIMES,
     REQUEST_KEY_UPDATE_ODDS as RACING_REQUEST_KEY_UPDATE_ODDS,
     RacingRequestPresetError,
     assert_payload_matches_whitelist,
@@ -217,6 +221,19 @@ def send_racing_download(
         elif request_key == RACING_REQUEST_KEY_HORSES:
             result = run_horses_download_locked(
                 db_path, progress_cb=progress_cb, overwrite=overwrite_n
+            )
+        elif request_key == RACING_REQUEST_KEY_STANDARD_TIMES:
+            result = run_standard_times_download_locked(
+                db_path,
+                years=variables.get("years"),
+                progress_cb=progress_cb,
+                overwrite=overwrite_n,
+            )
+        elif request_key == RACING_REQUEST_KEY_DRAW_STATISTICS:
+            result = run_draw_statistics_download_locked(
+                db_path,
+                progress_cb=progress_cb,
+                overwrite=overwrite_n,
             )
         else:
             result = run_racecard_download_locked(

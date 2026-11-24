@@ -135,7 +135,9 @@ from hppv.shared_layout import (
     LAYOUT_KEY_DAILY_MATCHES,
     LAYOUT_KEY_MATCH_HISTORY,
     LAYOUT_KEY_RACING_DAILY,
+    LAYOUT_KEY_RACING_DRAW_STATISTICS,
     LAYOUT_KEY_RACING_HISTORY,
+    LAYOUT_KEY_RACING_STANDARD_TIMES,
     SPORT_RACING,
     SPORT_SOCCER,
     SharedLayoutError,
@@ -171,11 +173,15 @@ from hppv.racing_task_scheduler import (
     TASK_KEY_UPDATE_HORSES as RACING_TASK_KEY_UPDATE_HORSES,
     TASK_KEY_UPDATE_ODDS as RACING_TASK_KEY_UPDATE_ODDS,
     TASK_KEY_UPDATE_RACECARD as RACING_TASK_KEY_UPDATE_RACECARD,
+    TASK_KEY_UPDATE_DRAW_STATISTICS as RACING_TASK_KEY_UPDATE_DRAW_STATISTICS,
+    TASK_KEY_UPDATE_STANDARD_TIMES as RACING_TASK_KEY_UPDATE_STANDARD_TIMES,
     get_racing_task_public_state,
     get_update_daily_results_scheduler,
+    get_update_draw_statistics_scheduler,
     get_update_horses_scheduler,
     get_update_racecard_scheduler,
     get_update_racing_odds_scheduler,
+    get_update_standard_times_scheduler,
 )
 from hppv.soccer_task_scheduler import (
     SoccerTaskError,
@@ -304,6 +310,12 @@ _racing_daily_results_scheduler = get_update_daily_results_scheduler(
 _racing_horses_scheduler = get_update_horses_scheduler(
     SOCCER_DB_PATH, DB_PATH, RACING_REQUESTS_DIR
 )
+_racing_standard_times_scheduler = get_update_standard_times_scheduler(
+    SOCCER_DB_PATH, DB_PATH, RACING_REQUESTS_DIR
+)
+_racing_draw_statistics_scheduler = get_update_draw_statistics_scheduler(
+    SOCCER_DB_PATH, DB_PATH, RACING_REQUESTS_DIR
+)
 try:
     _racing_racecard_scheduler.start()
 except Exception as _racing_racecard_err:
@@ -323,6 +335,20 @@ try:
     _racing_horses_scheduler.start()
 except Exception as _racing_horses_err:
     print(">>> RACING UPDATE_HORSES SCHEDULER START FAILED:", _racing_horses_err)
+try:
+    _racing_standard_times_scheduler.start()
+except Exception as _racing_std_times_err:
+    print(
+        ">>> RACING UPDATE_STANDARD_TIMES SCHEDULER START FAILED:",
+        _racing_std_times_err,
+    )
+try:
+    _racing_draw_statistics_scheduler.start()
+except Exception as _racing_draw_stats_err:
+    print(
+        ">>> RACING UPDATE_DRAW_STATISTICS SCHEDULER START FAILED:",
+        _racing_draw_stats_err,
+    )
 
 @app.get("/ping")
 def ping():
@@ -960,16 +986,27 @@ def _empty_history_page_meta(
     }
 
 
-_RACING_INFO_TABS = frozenset({"matches", "history", "download", "tasks"})
+_RACING_INFO_TABS = frozenset(
+    {
+        "matches",
+        "history",
+        "standard_times",
+        "draw_statistics",
+        "download",
+        "tasks",
+    }
+)
 
 
 @app.get("/racing/info")
 def racing_info() -> str:
-    """Horse-racing info UI (daily=racecard; history=race_records; other tabs empty)."""
+    """Horse-racing info UI (daily=racecard; history=race_records; standard times)."""
     raw = (request.args.get("tab") or "matches").strip().lower()
     active_tab = raw if raw in _RACING_INFO_TABS else "matches"
     racing_layout_error = ""
     racing_daily_layout_error = ""
+    racing_std_layout_error = ""
+    racing_draw_layout_error = ""
     try:
         hist_layout = require_layout_settings(SPORT_RACING, LAYOUT_KEY_RACING_HISTORY)
     except SharedLayoutError as e:
@@ -986,6 +1023,26 @@ def racing_info() -> str:
         logging.getLogger(__name__).warning(
             "racing daily layout load failed: %s %s", e.code, e.detail
         )
+    try:
+        std_layout = require_layout_settings(
+            SPORT_RACING, LAYOUT_KEY_RACING_STANDARD_TIMES
+        )
+    except SharedLayoutError as e:
+        std_layout = _layout_error_shell()
+        racing_std_layout_error = e.code
+        logging.getLogger(__name__).warning(
+            "racing standard times layout load failed: %s %s", e.code, e.detail
+        )
+    try:
+        draw_layout = require_layout_settings(
+            SPORT_RACING, LAYOUT_KEY_RACING_DRAW_STATISTICS
+        )
+    except SharedLayoutError as e:
+        draw_layout = _layout_error_shell()
+        racing_draw_layout_error = e.code
+        logging.getLogger(__name__).warning(
+            "racing draw statistics layout load failed: %s %s", e.code, e.detail
+        )
     return render_template(
         "racing_info.html",
         active_tab=active_tab,
@@ -998,9 +1055,19 @@ def racing_info() -> str:
         racing_daily_layout_catalog=shared_catalog_public(
             SPORT_RACING, LAYOUT_KEY_RACING_DAILY
         ),
+        racing_std_layout_settings=std_layout,
+        racing_std_layout_catalog=shared_catalog_public(
+            SPORT_RACING, LAYOUT_KEY_RACING_STANDARD_TIMES
+        ),
+        racing_draw_layout_settings=draw_layout,
+        racing_draw_layout_catalog=shared_catalog_public(
+            SPORT_RACING, LAYOUT_KEY_RACING_DRAW_STATISTICS
+        ),
         layout_zebra_colors=list(ZEBRA_COLORS),
         racing_layout_error=racing_layout_error,
         racing_daily_layout_error=racing_daily_layout_error,
+        racing_std_layout_error=racing_std_layout_error,
+        racing_draw_layout_error=racing_draw_layout_error,
     )
 
 
@@ -1081,6 +1148,174 @@ def _records_racing_history() -> Any:
         return jsonify({"ok": False, "error": e.code}), 400
     except Exception as e:
         logging.getLogger(__name__).exception("racing history list failed: %s", e)
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+
+
+def _records_racing_standard_times() -> Any:
+    """Paged racing_standard_times list (read-only)."""
+    from hppv.racing_layout import (
+        racing_standard_times_search_keys_from_layout,
+        racing_standard_times_sort_specs_from_layout,
+    )
+    from hppv.racing_standard_times import (
+        StandardTimesError,
+        StandardTimesSearchError,
+        fetch_standard_times_filtered,
+        normalize_history_search_op,
+        parse_standard_times_sort_param,
+    )
+
+    try:
+        all_matches = str(request.args.get("all_matches", "1")).strip() not in (
+            "0",
+            "false",
+            "False",
+        )
+        published_on = request.args.get("date")
+        n_raw = request.args.get("n", "1")
+        try:
+            n = int(n_raw)
+        except (TypeError, ValueError):
+            n = 1
+        q = request.args.get("q") or ""
+        q_op = normalize_history_search_op(request.args.get("q_op"))
+        layout = require_layout_settings(
+            SPORT_RACING, LAYOUT_KEY_RACING_STANDARD_TIMES
+        )
+        sort_specs = parse_standard_times_sort_param(request.args.get("sort"))
+        if sort_specs is None:
+            sort_specs = racing_standard_times_sort_specs_from_layout(layout)
+        search_keys = racing_standard_times_search_keys_from_layout(layout)
+        result = fetch_standard_times_filtered(
+            DB_PATH,
+            all_matches=all_matches,
+            published_on=None if all_matches else published_on,
+            n=n,
+            q=q,
+            q_op=q_op,
+            sort_specs=sort_specs,
+            search_keys=search_keys,
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "sport": SPORT_RACING,
+                "layout_key": LAYOUT_KEY_RACING_STANDARD_TIMES,
+                "source": "racing_standard_times",
+                "db": str(DB_PATH),
+                "table": "racing_standard_times",
+                "date": None if all_matches else result.published_on,
+                "all_matches": result.all_matches,
+                "rows": result.rows,
+                "n": result.n,
+                "total_count": result.total_count,
+                "total_pages": result.total_pages,
+                "page_size": result.page_size,
+                "q": result.q,
+                "q_op": result.q_op,
+                "sort": result.sort,
+                "search_keys": list(result.search_keys),
+                "field_keys": list(result.field_keys),
+                "layout_settings": layout,
+                "catalog": shared_catalog_public(
+                    SPORT_RACING, LAYOUT_KEY_RACING_STANDARD_TIMES
+                ),
+            }
+        )
+    except SharedLayoutError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except StandardTimesSearchError as e:
+        return jsonify({"ok": False, "error": e.code}), 400
+    except StandardTimesError as e:
+        return jsonify({"ok": False, "error": e.code}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "racing standard times list failed: %s", e
+        )
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+
+
+def _records_racing_draw_statistics() -> Any:
+    """Paged racing_draw_statistics list (read-only)."""
+    from hppv.racing_draw_statistics import (
+        DrawStatisticsError,
+        DrawStatisticsSearchError,
+        fetch_draw_statistics_filtered,
+        normalize_history_search_op,
+        parse_draw_statistics_sort_param,
+    )
+    from hppv.racing_layout import (
+        racing_draw_statistics_search_keys_from_layout,
+        racing_draw_statistics_sort_specs_from_layout,
+    )
+
+    try:
+        n_raw = request.args.get("n", "1")
+        try:
+            n = int(n_raw)
+        except (TypeError, ValueError):
+            n = 1
+        q = request.args.get("q") or ""
+        q_op = normalize_history_search_op(request.args.get("q_op"))
+        layout = require_layout_settings(
+            SPORT_RACING, LAYOUT_KEY_RACING_DRAW_STATISTICS
+        )
+        sort_specs = parse_draw_statistics_sort_param(request.args.get("sort"))
+        if sort_specs is None:
+            sort_specs = racing_draw_statistics_sort_specs_from_layout(layout)
+        search_keys = racing_draw_statistics_search_keys_from_layout(layout)
+        result = fetch_draw_statistics_filtered(
+            DB_PATH,
+            n=n,
+            q=q,
+            q_op=q_op,
+            sort_specs=sort_specs,
+            search_keys=search_keys,
+            venue_code=request.args.get("venue_code"),
+            rail_position=request.args.get("rail_position"),
+            distance_m=request.args.get("distance_m"),
+            draw_no=request.args.get("draw_no"),
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "sport": SPORT_RACING,
+                "layout_key": LAYOUT_KEY_RACING_DRAW_STATISTICS,
+                "source": "racing_draw_statistics",
+                "db": str(DB_PATH),
+                "table": "racing_draw_statistics",
+                "all_matches": True,
+                "rows": result.rows,
+                "n": result.n,
+                "total_count": result.total_count,
+                "total_pages": result.total_pages,
+                "page_size": result.page_size,
+                "q": result.q,
+                "q_op": result.q_op,
+                "sort": result.sort,
+                "search_keys": list(result.search_keys),
+                "field_keys": list(result.field_keys),
+                "filter_options": result.filter_options or {},
+                "venue_code": result.venue_code,
+                "rail_position": result.rail_position,
+                "distance_m": result.distance_m,
+                "draw_no": result.draw_no,
+                "layout_settings": layout,
+                "catalog": shared_catalog_public(
+                    SPORT_RACING, LAYOUT_KEY_RACING_DRAW_STATISTICS
+                ),
+            }
+        )
+    except SharedLayoutError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except DrawStatisticsSearchError as e:
+        return jsonify({"ok": False, "error": e.code}), 400
+    except DrawStatisticsError as e:
+        return jsonify({"ok": False, "error": e.code}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "racing draw statistics list failed: %s", e
+        )
         return jsonify({"ok": False, "error": "read_failed"}), 500
 
 
@@ -1897,6 +2132,96 @@ def api_racing_task_update_horses_put() -> Any:
     return jsonify({"ok": True, "task": pub})
 
 
+@app.get("/api/racing/tasks/update-standard-times")
+def api_racing_task_update_standard_times_get() -> Any:
+    try:
+        pub = _racing_task_public(
+            _racing_standard_times_scheduler,
+            RACING_TASK_KEY_UPDATE_STANDARD_TIMES,
+        )
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "racing standard times task get failed: %s", e
+        )
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+    return jsonify({"ok": True, "task": pub})
+
+
+@app.put("/api/racing/tasks/update-standard-times")
+def api_racing_task_update_standard_times_put() -> Any:
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
+    try:
+        state = _racing_standard_times_scheduler.apply_settings(
+            enabled=bool(data.get("enabled")),
+            interval_value=data.get("interval_value"),
+            interval_unit=data.get("interval_unit"),
+            overwrite=bool(data.get("overwrite")),
+        )
+        pub = state.to_public_dict()
+        pub["scope"] = get_racing_task_public_state(
+            SOCCER_DB_PATH,
+            RACING_TASK_KEY_UPDATE_STANDARD_TIMES,
+            running=state.running,
+        ).get("scope")
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "racing standard times task save failed: %s", e
+        )
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+    return jsonify({"ok": True, "task": pub})
+
+
+@app.get("/api/racing/tasks/update-draw-statistics")
+def api_racing_task_update_draw_statistics_get() -> Any:
+    try:
+        pub = _racing_task_public(
+            _racing_draw_statistics_scheduler,
+            RACING_TASK_KEY_UPDATE_DRAW_STATISTICS,
+        )
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "racing draw statistics task get failed: %s", e
+        )
+        return jsonify({"ok": False, "error": "read_failed"}), 500
+    return jsonify({"ok": True, "task": pub})
+
+
+@app.put("/api/racing/tasks/update-draw-statistics")
+def api_racing_task_update_draw_statistics_put() -> Any:
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
+    try:
+        state = _racing_draw_statistics_scheduler.apply_settings(
+            enabled=bool(data.get("enabled")),
+            interval_value=data.get("interval_value"),
+            interval_unit=data.get("interval_unit"),
+            overwrite=bool(data.get("overwrite")),
+        )
+        pub = state.to_public_dict()
+        pub["scope"] = get_racing_task_public_state(
+            SOCCER_DB_PATH,
+            RACING_TASK_KEY_UPDATE_DRAW_STATISTICS,
+            running=state.running,
+        ).get("scope")
+    except SoccerTaskError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except Exception as e:
+        logging.getLogger(__name__).exception(
+            "racing draw statistics task save failed: %s", e
+        )
+        return jsonify({"ok": False, "error": "save_failed"}), 500
+    return jsonify({"ok": True, "task": pub})
+
+
 @app.get("/api/soccer/history-year/status")
 def api_soccer_history_year_status() -> Any:
     """FootyLogic year history download status / integrity report."""
@@ -2277,6 +2602,8 @@ _RECORDS_HANDLERS: dict[tuple[str, str], Any] = {
     (SPORT_SOCCER, LAYOUT_KEY_MATCH_HISTORY): _records_soccer_match_history,
     (SPORT_RACING, LAYOUT_KEY_RACING_DAILY): _records_racing_daily,
     (SPORT_RACING, LAYOUT_KEY_RACING_HISTORY): _records_racing_history,
+    (SPORT_RACING, LAYOUT_KEY_RACING_STANDARD_TIMES): _records_racing_standard_times,
+    (SPORT_RACING, LAYOUT_KEY_RACING_DRAW_STATISTICS): _records_racing_draw_statistics,
 }
 
 
@@ -2345,6 +2672,18 @@ def api_layout(sport: str, layout_key: str) -> Any:
             from hppv.racing_history_export import racing_history_layout_i18n_maps
 
             labels, descs = racing_history_layout_i18n_maps(text_map, catalog_keys)
+            payload["col_labels"] = labels
+            payload["col_descs"] = descs
+        elif sport_n == SPORT_RACING and key == LAYOUT_KEY_RACING_STANDARD_TIMES:
+            from hppv.racing_standard_times import standard_times_layout_i18n_maps
+
+            labels, descs = standard_times_layout_i18n_maps(text_map, catalog_keys)
+            payload["col_labels"] = labels
+            payload["col_descs"] = descs
+        elif sport_n == SPORT_RACING and key == LAYOUT_KEY_RACING_DRAW_STATISTICS:
+            from hppv.racing_draw_statistics import draw_statistics_layout_i18n_maps
+
+            labels, descs = draw_statistics_layout_i18n_maps(text_map, catalog_keys)
             payload["col_labels"] = labels
             payload["col_descs"] = descs
         return jsonify(payload)

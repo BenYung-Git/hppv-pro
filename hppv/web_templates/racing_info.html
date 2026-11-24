@@ -33,18 +33,26 @@
   .racing-info .tab-panel { display: none; }
   .racing-info .tab-panel.active { display: block; min-height: 12rem; }
   .racing-info .tab-panel[data-panel="history"].active,
+  .racing-info .tab-panel[data-panel="standard_times"].active,
+  .racing-info .tab-panel[data-panel="draw_statistics"].active,
   .racing-info .tab-panel[data-panel="matches"].active {
     display: flex; flex-direction: column; height: calc(100dvh - 9.5rem); min-height: 22rem;
   }
   .racing-info .tab-panel[data-panel="history"].matches-mode-layout.active,
+  .racing-info .tab-panel[data-panel="standard_times"].matches-mode-layout.active,
+  .racing-info .tab-panel[data-panel="draw_statistics"].matches-mode-layout.active,
   .racing-info .tab-panel[data-panel="matches"].matches-mode-layout.active {
     display: block; height: auto; min-height: 0;
   }
   .racing-info .tab-panel[data-panel="history"].matches-mode-layout .history-list-mode,
+  .racing-info .tab-panel[data-panel="standard_times"].matches-mode-layout .history-list-mode,
+  .racing-info .tab-panel[data-panel="draw_statistics"].matches-mode-layout .history-list-mode,
   .racing-info .tab-panel[data-panel="matches"].matches-mode-layout .history-list-mode {
     display: none !important;
   }
   .racing-info .tab-panel[data-panel="history"].matches-mode-list .matches-layout-mode,
+  .racing-info .tab-panel[data-panel="standard_times"].matches-mode-list .matches-layout-mode,
+  .racing-info .tab-panel[data-panel="draw_statistics"].matches-mode-list .matches-layout-mode,
   .racing-info .tab-panel[data-panel="matches"].matches-mode-list .matches-layout-mode {
     display: none !important;
   }
@@ -309,6 +317,14 @@
             id="racing-tab-btn-history" data-tab="history"
             aria-selected="{{ 'true' if active_tab == 'history' else 'false' }}"
             aria-controls="racing-tab-panel-history">{{ t('racing.info.tab.history') }}</button>
+    <button type="button" class="settings-tab{% if active_tab == 'standard_times' %} active{% endif %}" role="tab"
+            id="racing-tab-btn-standard_times" data-tab="standard_times"
+            aria-selected="{{ 'true' if active_tab == 'standard_times' else 'false' }}"
+            aria-controls="racing-tab-panel-standard_times">{{ t('racing.info.tab.standard_times') }}</button>
+    <button type="button" class="settings-tab{% if active_tab == 'draw_statistics' %} active{% endif %}" role="tab"
+            id="racing-tab-btn-draw_statistics" data-tab="draw_statistics"
+            aria-selected="{{ 'true' if active_tab == 'draw_statistics' else 'false' }}"
+            aria-controls="racing-tab-panel-draw_statistics">{{ t('racing.info.tab.draw_statistics') }}</button>
     <button type="button" class="settings-tab{% if active_tab == 'download' %} active{% endif %}" role="tab"
             id="racing-tab-btn-download" data-tab="download"
             aria-selected="{{ 'true' if active_tab == 'download' else 'false' }}"
@@ -413,6 +429,16 @@
     ) }}
   </div>
 
+  <div class="tab-panel matches-mode-list{% if active_tab == 'standard_times' %} active{% endif %}" role="tabpanel"
+       id="racing-tab-panel-standard_times" data-panel="standard_times"{% if active_tab != 'standard_times' %} hidden{% endif %}>
+    {% include "partials/racing_standard_times_panel.html" %}
+  </div>
+
+  <div class="tab-panel matches-mode-list{% if active_tab == 'draw_statistics' %} active{% endif %}" role="tabpanel"
+       id="racing-tab-panel-draw_statistics" data-panel="draw_statistics"{% if active_tab != 'draw_statistics' %} hidden{% endif %}>
+    {% include "partials/racing_draw_statistics_panel.html" %}
+  </div>
+
   <div class="tab-panel{% if active_tab == 'download' %} active{% endif %}" role="tabpanel"
        id="racing-tab-panel-download" data-panel="download"{% if active_tab != 'download' %} hidden{% endif %}>
     {% set dl_ids = {
@@ -431,7 +457,9 @@
       {'value': 'update_odds', 'label': t('racing.download.type.odds')},
       {'value': 'daily_results', 'label': t('racing.download.type.daily_results')},
       {'value': 'results_period', 'label': t('racing.download.type.results_period')},
-      {'value': 'horses', 'label': t('racing.download.type.horses')}
+      {'value': 'horses', 'label': t('racing.download.type.horses')},
+      {'value': 'standard_times', 'label': t('racing.download.type.standard_times')},
+      {'value': 'draw_statistics', 'label': t('racing.download.type.draw_statistics')}
     ] %}
     {% set dl_default_option = 'racecard' %}
     {% set dl_show_history_year = false %}
@@ -492,6 +520,34 @@
         'next_id': 'task-racing-horses-next',
         'status_id': 'task-racing-horses-status',
         'msg_id': 'task-racing-horses-msg'
+      },
+      {
+        'key': 'update_standard_times',
+        'label': t('racing.task.update_standard_times'),
+        'note': t('racing.task.standard_times_scope_note'),
+        'enabled_id': 'task-racing-std-enabled',
+        'overwrite_id': 'task-racing-std-overwrite',
+        'interval_id': 'task-racing-std-interval',
+        'unit_id': 'task-racing-std-unit',
+        'unit_default': 'year',
+        'last_id': 'task-racing-std-last',
+        'next_id': 'task-racing-std-next',
+        'status_id': 'task-racing-std-status',
+        'msg_id': 'task-racing-std-msg'
+      },
+      {
+        'key': 'update_draw_statistics',
+        'label': t('racing.task.update_draw_statistics'),
+        'note': t('racing.task.draw_statistics_scope_note'),
+        'enabled_id': 'task-racing-draw-enabled',
+        'overwrite_id': 'task-racing-draw-overwrite',
+        'interval_id': 'task-racing-draw-interval',
+        'unit_id': 'task-racing-draw-unit',
+        'unit_default': 'day',
+        'last_id': 'task-racing-draw-last',
+        'next_id': 'task-racing-draw-next',
+        'status_id': 'task-racing-draw-status',
+        'msg_id': 'task-racing-draw-msg'
       }
     ] %}
     {% include "partials/hppv_download_tasks.html" %}
@@ -679,10 +735,22 @@
       window.history.replaceState({}, "", url.pathname + url.search);
     } catch (_e) {}
     if (name === "history") ensureHistoryLoaded();
+    if (name === "standard_times" && typeof window.__hppvRacingStdEnsureLoaded === "function") {
+      window.__hppvRacingStdEnsureLoaded();
+    }
+    if (name === "draw_statistics" && typeof window.__hppvRacingDrawEnsureLoaded === "function") {
+      window.__hppvRacingDrawEnsureLoaded();
+    }
     if (name === "matches" && typeof window.__racingEnsureDailyLoaded === "function") {
       window.__racingEnsureDailyLoaded();
     }
     if (name !== "history") setLayoutMode(false);
+    if (name !== "standard_times" && typeof window.__hppvRacingStdSetLayoutMode === "function") {
+      window.__hppvRacingStdSetLayoutMode(false);
+    }
+    if (name !== "draw_statistics" && typeof window.__hppvRacingDrawSetLayoutMode === "function") {
+      window.__hppvRacingDrawSetLayoutMode(false);
+    }
     if (name !== "matches" && typeof window.__racingDailySetLayoutMode === "function") {
       window.__racingDailySetLayoutMode(false);
     }
@@ -1267,10 +1335,36 @@
       msgId: "task-racing-horses-msg",
       messages: taskMessages,
     });
+    shell.initTaskUi({
+      apiUrl: "/api/racing/tasks/update-standard-times",
+      enabledId: "task-racing-std-enabled",
+      overwriteId: "task-racing-std-overwrite",
+      intervalId: "task-racing-std-interval",
+      unitId: "task-racing-std-unit",
+      lastId: "task-racing-std-last",
+      nextId: "task-racing-std-next",
+      statusId: "task-racing-std-status",
+      msgId: "task-racing-std-msg",
+      messages: taskMessages,
+    });
+    shell.initTaskUi({
+      apiUrl: "/api/racing/tasks/update-draw-statistics",
+      enabledId: "task-racing-draw-enabled",
+      overwriteId: "task-racing-draw-overwrite",
+      intervalId: "task-racing-draw-interval",
+      unitId: "task-racing-draw-unit",
+      lastId: "task-racing-draw-last",
+      nextId: "task-racing-draw-next",
+      statusId: "task-racing-draw-status",
+      msgId: "task-racing-draw-msg",
+      messages: taskMessages,
+    });
   }
 
   activateTab(activeTabName);
 })();
 </script>
+{% include "partials/racing_standard_times_script.html" %}
+{% include "partials/racing_draw_statistics_script.html" %}
 {% include "partials/racing_daily_script.html" %}
 {% endblock %}

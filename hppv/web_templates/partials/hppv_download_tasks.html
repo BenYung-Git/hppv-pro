@@ -26,10 +26,12 @@
           <option value="{{ n }}"{% if n == 1 %} selected{% endif %}>{{ n }}</option>
           {% endfor %}
         </select>
+        {% set unit_default = task.unit_default if task.unit_default is defined else 'mins' %}
         <select id="{{ task.unit_id }}" aria-label="{{ task.label }}">
-          <option value="mins" selected>{{ t('soccer.daily.task.unit.mins') }}</option>
-          <option value="hour">{{ t('soccer.daily.task.unit.hour') }}</option>
-          <option value="day">{{ t('soccer.daily.task.unit.day') }}</option>
+          <option value="mins"{% if unit_default == 'mins' %} selected{% endif %}>{{ t('soccer.daily.task.unit.mins') }}</option>
+          <option value="hour"{% if unit_default == 'hour' %} selected{% endif %}>{{ t('soccer.daily.task.unit.hour') }}</option>
+          <option value="day"{% if unit_default == 'day' %} selected{% endif %}>{{ t('soccer.daily.task.unit.day') }}</option>
+          <option value="year"{% if unit_default == 'year' %} selected{% endif %}>{{ t('soccer.daily.task.unit.year') }}</option>
         </select>
         <span class="task-time-label">{{ t('soccer.daily.task.last_updated') }}</span>
         <span class="sync-badge" id="{{ task.last_id }}">{{ t('soccer.daily.updated_at_never') }}</span>

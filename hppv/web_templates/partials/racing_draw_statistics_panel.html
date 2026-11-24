@@ -1,0 +1,75 @@
+{% from "macros/layout_icons.html" import icon_history_layout %}
+{% from "macros/layout_settings_panel.html" import layout_settings_panel with context %}
+{% set layout_zebra_colors = layout_zebra_colors if layout_zebra_colors is defined else [] %}
+{% set racing_draw_layout_settings = racing_draw_layout_settings if racing_draw_layout_settings is defined else {'zebra_color_id': 'default', 'zebra_enabled': false, 'columns': []} %}
+{% set racing_draw_layout_catalog = racing_draw_layout_catalog if racing_draw_layout_catalog is defined else [] %}
+
+<div class="matches-list-mode history-list-mode" id="racing-draw-list-mode">
+  <p class="matches-layout-toast" id="racing-draw-layout-toast" role="status" aria-live="polite"></p>
+  <div class="matches-chrome history-chrome">
+    <div class="toolbar">
+      <div class="toolbar-row">
+        <div class="toolbar-main">
+          <div class="filter-wrap">
+            <label for="racing-draw-search">{{ t('racing.draw_statistics.search_label') }}</label>
+            <input id="racing-draw-search" type="search" placeholder="{{ t('racing.draw_statistics.search_placeholder') }}" autocomplete="off">
+            <label class="visually-hidden" for="racing-draw-search-op">{{ t('history.search_op.label') }}</label>
+            <select id="racing-draw-search-op" aria-label="{{ t('history.search_op.label') }}">
+              <option value="approx" selected>{{ t('history.search_op.approx') }}</option>
+              <option value="eq">{{ t('history.search_op.eq') }}</option>
+              <option value="ne">{{ t('history.search_op.ne') }}</option>
+              <option value="contains">{{ t('history.search_op.contains') }}</option>
+              <option value="not_contains">{{ t('history.search_op.not_contains') }}</option>
+              <option value="starts">{{ t('history.search_op.starts') }}</option>
+              <option value="ends">{{ t('history.search_op.ends') }}</option>
+            </select>
+          </div>
+        </div>
+        <div class="history-toolbar-actions">
+          <button type="button" class="icon-btn toolbar-layout-btn toolbar-icon-only" id="racing-draw-btn-open-layout"
+                  aria-controls="racing-draw-layout-mode"
+                  aria-expanded="false"
+                  title="{{ t('racing.draw_statistics.layout') }}"
+                  aria-label="{{ t('racing.draw_statistics.layout') }}">
+            {{ icon_history_layout() }}
+            <span class="btn-label">{{ t('racing.draw_statistics.layout') }}</span>
+          </button>
+        </div>
+      </div>
+      <nav class="pager" id="racing-draw-pager" aria-label="{{ t('racing.draw_statistics.pager.nav') }}">
+        <button type="button" class="icon-btn" id="racing-draw-pager-first" disabled title="{{ t('racing.draw_statistics.pager.first') }}">≪</button>
+        <button type="button" class="icon-btn" id="racing-draw-pager-prev" disabled title="{{ t('racing.draw_statistics.pager.prev') }}">‹</button>
+        <span class="pager-status" id="racing-draw-pager-status">—</span>
+        <button type="button" class="icon-btn" id="racing-draw-pager-next" disabled title="{{ t('racing.draw_statistics.pager.next') }}">›</button>
+        <button type="button" class="icon-btn" id="racing-draw-pager-last" disabled title="{{ t('racing.draw_statistics.pager.last') }}">≫</button>
+      </nav>
+    </div>
+  </div>
+  <div class="matches-list-scroll history-scroll" id="racing-draw-scroll">
+    <div class="state-box" id="racing-draw-state">{{ t('racing.draw_statistics.loading') }}</div>
+    <div class="table-wrap" id="racing-draw-table-wrap" hidden>
+      <table class="matches history-table" id="racing-draw-table">
+        <thead id="racing-draw-thead"></thead>
+        <tbody id="racing-draw-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{{ layout_settings_panel(
+  id_prefix='racing-draw',
+  mode_title=t('racing.draw_statistics.layout.mode_title'),
+  table_name_value=t('racing.draw_statistics.layout.table_name_value'),
+  zebra_colors=layout_zebra_colors,
+  zebra_color_id=racing_draw_layout_settings.zebra_color_id,
+  zebra_enabled=racing_draw_layout_settings.zebra_enabled,
+  open=false,
+  id_cancel='racing-draw-layout-cancel',
+  id_save='racing-draw-layout-save',
+  id_zebra_color='racing-draw-layout-zebra-color',
+  id_zebra_enable='racing-draw-layout-zebra-enable',
+  id_cols_table='racing-draw-layout-cols-table',
+  id_cols_body='racing-draw-layout-cols-body',
+  id_status='racing-draw-layout-status',
+  id_toolbar='racing-draw-layout-mode-toolbar'
+) }}

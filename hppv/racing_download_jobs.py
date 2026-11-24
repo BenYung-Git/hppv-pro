@@ -284,11 +284,15 @@ def _run_racing_download_for_job(
         run_odds_download_locked,
         run_racecard_download_locked,
         run_results_period_download_locked,
+        run_draw_statistics_download_locked,
+        run_standard_times_download_locked,
     )
     from hppv.racing_requests import (
         REQUEST_KEY_DAILY_RESULTS,
+        REQUEST_KEY_DRAW_STATISTICS,
         REQUEST_KEY_HORSES,
         REQUEST_KEY_RESULTS_PERIOD,
+        REQUEST_KEY_STANDARD_TIMES,
         REQUEST_KEY_UPDATE_ODDS,
         RacingRequestPresetError,
         assert_payload_matches_whitelist,
@@ -337,6 +341,19 @@ def _run_racing_download_for_job(
             )
         elif request_key == REQUEST_KEY_HORSES:
             result = run_horses_download_locked(
+                db_path,
+                progress_cb=progress_cb,
+                overwrite=bool(overwrite),
+            )
+        elif request_key == REQUEST_KEY_STANDARD_TIMES:
+            result = run_standard_times_download_locked(
+                db_path,
+                years=(variables or {}).get("years"),
+                progress_cb=progress_cb,
+                overwrite=bool(overwrite),
+            )
+        elif request_key == REQUEST_KEY_DRAW_STATISTICS:
+            result = run_draw_statistics_download_locked(
                 db_path,
                 progress_cb=progress_cb,
                 overwrite=bool(overwrite),

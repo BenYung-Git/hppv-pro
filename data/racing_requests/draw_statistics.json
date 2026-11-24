@@ -1,0 +1,7 @@
+{
+  "operationName": "drawStatisticsAdvSearch",
+  "query": "drawStatisticsAdvSearch",
+  "variables": {
+    "going": "ALL"
+  }
+}

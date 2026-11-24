@@ -1,0 +1,319 @@
+<script>
+(function () {
+  const root = document.getElementById("racing-info-root");
+  if (!root) return;
+  const panel = document.getElementById("racing-tab-panel-draw_statistics");
+  if (!panel) return;
+  if (!window.HppvRecordsShell || !window.HppvRecordsHeader || !window.HppvLayoutEditor) {
+    throw new Error("racing draw statistics requires records shell + layout editor");
+  }
+  const RH = window.HppvRecordsHeader;
+  const WIDTH_MIN = 60;
+  const WIDTH_MAX = 600;
+  const MSG = {
+    loading: {{ t('racing.draw_statistics.loading')|tojson }},
+    empty: {{ t('racing.draw_statistics.empty')|tojson }},
+    error: {{ t('racing.draw_statistics.error')|tojson }},
+    retry: {{ t('racing.draw_statistics.retry')|tojson }},
+    layoutSaved: {{ t('soccer.daily.layout.saved')|tojson }},
+    layoutSaveFailed: {{ t('soccer.daily.layout.save_failed')|tojson }},
+    layoutSortEmpty: {{ t('soccer.daily.layout.sort_empty')|tojson }},
+    layoutSortAsc: {{ t('soccer.daily.layout.sort_asc')|tojson }},
+    layoutSortDesc: {{ t('soccer.daily.layout.sort_desc')|tojson }},
+    sortUnsupported: {{ t('racing.history.layout.sort_unsupported')|tojson }},
+    layoutMoveUp: {{ t('soccer.daily.layout.move_up')|tojson }},
+    layoutMoveDown: {{ t('soccer.daily.layout.move_down')|tojson }},
+    layoutWidthInvalid: {{ t('soccer.daily.layout.width_invalid')|tojson }},
+  };
+  const COL_LABEL = {
+    venue_code: {{ t('racing.draw_statistics.col.venue_code')|tojson }},
+    track_type: {{ t('racing.draw_statistics.col.track_type')|tojson }},
+    rail_position: {{ t('racing.draw_statistics.col.rail_position')|tojson }},
+    distance_m: {{ t('racing.draw_statistics.col.distance_m')|tojson }},
+    draw_no: {{ t('racing.draw_statistics.col.draw_no')|tojson }},
+    starts: {{ t('racing.draw_statistics.col.starts')|tojson }},
+    wins: {{ t('racing.draw_statistics.col.wins')|tojson }},
+    seconds: {{ t('racing.draw_statistics.col.seconds')|tojson }},
+    thirds: {{ t('racing.draw_statistics.col.thirds')|tojson }},
+    fourths: {{ t('racing.draw_statistics.col.fourths')|tojson }},
+    win_pct: {{ t('racing.draw_statistics.col.win_pct')|tojson }},
+    quinella_pct: {{ t('racing.draw_statistics.col.quinella_pct')|tojson }},
+    place_pct: {{ t('racing.draw_statistics.col.place_pct')|tojson }},
+    top4_pct: {{ t('racing.draw_statistics.col.top4_pct')|tojson }},
+    win_count: {{ t('racing.draw_statistics.col.win_count')|tojson }},
+    in_place_count: {{ t('racing.draw_statistics.col.in_place_count')|tojson }},
+    lose_count: {{ t('racing.draw_statistics.col.lose_count')|tojson }},
+    source: {{ t('racing.draw_statistics.col.source')|tojson }},
+    source_url: {{ t('racing.draw_statistics.col.source_url')|tojson }},
+    fetched_at: {{ t('racing.draw_statistics.col.fetched_at')|tojson }},
+    updated_at: {{ t('racing.draw_statistics.col.updated_at')|tojson }},
+    id: {{ t('racing.draw_statistics.col.id')|tojson }},
+  };
+  const COL_DESC = {
+    venue_code: {{ t('racing.draw_statistics.col.desc.venue_code')|tojson }},
+    track_type: {{ t('racing.draw_statistics.col.desc.track_type')|tojson }},
+    rail_position: {{ t('racing.draw_statistics.col.desc.rail_position')|tojson }},
+    distance_m: {{ t('racing.draw_statistics.col.desc.distance_m')|tojson }},
+    draw_no: {{ t('racing.draw_statistics.col.desc.draw_no')|tojson }},
+    starts: {{ t('racing.draw_statistics.col.desc.starts')|tojson }},
+    wins: {{ t('racing.draw_statistics.col.desc.wins')|tojson }},
+    seconds: {{ t('racing.draw_statistics.col.desc.seconds')|tojson }},
+    thirds: {{ t('racing.draw_statistics.col.desc.thirds')|tojson }},
+    fourths: {{ t('racing.draw_statistics.col.desc.fourths')|tojson }},
+    win_pct: {{ t('racing.draw_statistics.col.desc.win_pct')|tojson }},
+    quinella_pct: {{ t('racing.draw_statistics.col.desc.quinella_pct')|tojson }},
+    place_pct: {{ t('racing.draw_statistics.col.desc.place_pct')|tojson }},
+    top4_pct: {{ t('racing.draw_statistics.col.desc.top4_pct')|tojson }},
+    win_count: {{ t('racing.draw_statistics.col.desc.win_count')|tojson }},
+    in_place_count: {{ t('racing.draw_statistics.col.desc.in_place_count')|tojson }},
+    lose_count: {{ t('racing.draw_statistics.col.desc.lose_count')|tojson }},
+    source: {{ t('racing.draw_statistics.col.desc.source')|tojson }},
+    source_url: {{ t('racing.draw_statistics.col.desc.source_url')|tojson }},
+    fetched_at: {{ t('racing.draw_statistics.col.desc.fetched_at')|tojson }},
+    updated_at: {{ t('racing.draw_statistics.col.desc.updated_at')|tojson }},
+    id: {{ t('racing.draw_statistics.col.desc.id')|tojson }},
+  };
+  const ZEBRA_COLORS = {{ layout_zebra_colors|tojson }};
+  let layoutSaved = {{ racing_draw_layout_settings|tojson }};
+  let layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+  let catalog = {{ (racing_draw_layout_catalog if racing_draw_layout_catalog is defined else [])|tojson }};
+  let listCtrl = null;
+  let layoutEditor = null;
+  let loaded = false;
+  const SORTABLE = {};
+
+  const stateBox = document.getElementById("racing-draw-state");
+  const tableWrap = document.getElementById("racing-draw-table-wrap");
+  const thead = document.getElementById("racing-draw-thead");
+  const tbody = document.getElementById("racing-draw-tbody");
+  const searchInput = document.getElementById("racing-draw-search");
+  const searchOp = document.getElementById("racing-draw-search-op");
+  const pagerStatus = document.getElementById("racing-draw-pager-status");
+
+  function rebuildSortable() {
+    Object.keys(SORTABLE).forEach(function (k) { delete SORTABLE[k]; });
+    ((layoutSaved && layoutSaved.columns) || []).forEach(function (c) {
+      SORTABLE[c.key] = true;
+    });
+    (catalog || []).forEach(function (c) {
+      SORTABLE[c.key] = !!c.sortable;
+    });
+  }
+
+  function applyZebraCss() {
+    const id = (layoutSaved && layoutSaved.zebra_color_id) || "default";
+    const hit = (ZEBRA_COLORS || []).find(function (z) { return z.id === id; });
+    root.style.setProperty("--racing-layout-zebra", (hit && hit.css) || "#f4f6f9");
+  }
+
+  function visibleColumns() {
+    return ((layoutSaved && layoutSaved.columns) || []).filter(function (c) {
+      return c && c.visible;
+    });
+  }
+
+  function renderTable(rows) {
+    if (!thead || !tbody) return;
+    thead.innerHTML = "";
+    tbody.innerHTML = "";
+    const cols = visibleColumns();
+    const hr = document.createElement("tr");
+    cols.forEach(function (c) {
+      const th = document.createElement("th");
+      th.dataset.key = c.key;
+      th.textContent = RH.headerLabel(c, COL_LABEL);
+      const w = c.width || 100;
+      th.style.minWidth = w + "px";
+      th.style.width = w + "px";
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+    RH.bindHeaderClicks({
+      root: thead,
+      onCycle: function (key) {
+        if (listCtrl) listCtrl.cycleHeaderSort(key);
+      },
+    });
+    RH.bindHeaderResize({
+      root: thead,
+      widthMin: WIDTH_MIN,
+      widthMax: WIDTH_MAX,
+      onCommit: function (key, width) {
+        if (listCtrl) listCtrl.setColumnWidth(key, width);
+      },
+    });
+    rows.forEach(function (row, idx) {
+      const tr = document.createElement("tr");
+      if (layoutSaved && layoutSaved.zebra_enabled && idx % 2 === 1) {
+        tr.style.background =
+          getComputedStyle(root).getPropertyValue("--racing-layout-zebra") || "#f4f6f9";
+      }
+      cols.forEach(function (c) {
+        const td = document.createElement("td");
+        td.textContent = row[c.key] != null && row[c.key] !== "" ? row[c.key] : "—";
+        const w = c.width || 100;
+        td.style.minWidth = w + "px";
+        td.style.width = w + "px";
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  rebuildSortable();
+  applyZebraCss();
+
+  listCtrl = window.HppvRecordsShell.createList({
+    recordsUrl: "/api/records/racing/racing_draw_statistics",
+    pagerMode: "page",
+    els: {
+      state: stateBox,
+      tableWrap: tableWrap,
+      searchInput: searchInput,
+      searchOp: searchOp,
+      pagerStatus: pagerStatus,
+      pagerFirst: document.getElementById("racing-draw-pager-first"),
+      pagerPrev: document.getElementById("racing-draw-pager-prev"),
+      pagerNext: document.getElementById("racing-draw-pager-next"),
+      pagerLast: document.getElementById("racing-draw-pager-last"),
+    },
+    messages: {
+      loading: MSG.loading,
+      empty: MSG.empty,
+      error: MSG.error,
+      retry: MSG.retry,
+    },
+    formatPagerStatus: function (api) {
+      const tp = api.totalPages > 0 ? api.totalPages : 0;
+      const n = tp > 0 ? api.pageN : 0;
+      return n + "頁 / " + tp + " · " + (api.totalCount || 0) + "筆";
+    },
+    getLayout: function () { return layoutSaved; },
+    getDraftLayout: function () { return layoutDraft; },
+    getSortableMap: function () { return SORTABLE; },
+    widthMin: WIDTH_MIN,
+    widthMax: WIDTH_MAX,
+    buildParams: function () {
+      return new URLSearchParams();
+    },
+    normalizeResponse: function (data) {
+      return {
+        n: data.n,
+        totalPages: data.total_pages,
+        totalCount: data.total_count,
+        q: data.q,
+        qOp: data.q_op,
+        sort: data.sort,
+      };
+    },
+    onSuccess: function (data) {
+      if (data.layout_settings) {
+        layoutSaved = data.layout_settings;
+        layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+      }
+      if (Array.isArray(data.catalog) && data.catalog.length) {
+        catalog = data.catalog;
+        rebuildSortable();
+      }
+    },
+    afterLayoutSync: function (data) {
+      if (layoutEditor) layoutEditor.replaceSettings(layoutSaved);
+      applyZebraCss();
+      if (data && data.rows && data.rows.length) renderTable(data.rows);
+    },
+    persistLayoutSort: async function (layout) {
+      const resp = await fetch("/api/layout/racing/racing_draw_statistics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ layout_settings: layout }),
+      });
+      const body = await resp.json();
+      if (!resp.ok || !body.ok) throw new Error((body && body.error) || "save_failed");
+      layoutSaved = body.layout_settings;
+      layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+      if (Array.isArray(body.catalog)) {
+        catalog = body.catalog;
+        rebuildSortable();
+      }
+      if (layoutEditor) layoutEditor.replaceSettings(layoutSaved);
+      return layoutSaved;
+    },
+  });
+
+  layoutEditor = window.HppvLayoutEditor.create({
+    ids: {
+      mode: "racing-draw-layout-mode",
+      openBtn: "racing-draw-btn-open-layout",
+      cancelBtn: "racing-draw-layout-cancel",
+      saveBtn: "racing-draw-layout-save",
+      colsBody: "racing-draw-layout-cols-body",
+      zebraColor: "racing-draw-layout-zebra-color",
+      zebraEnable: "racing-draw-layout-zebra-enable",
+      status: "racing-draw-layout-status",
+      toast: "racing-draw-layout-toast",
+      listMode: "racing-draw-list-mode",
+    },
+    messages: {
+      sortEmpty: MSG.layoutSortEmpty,
+      sortAsc: MSG.layoutSortAsc,
+      sortDesc: MSG.layoutSortDesc,
+      sortUnsupported: MSG.sortUnsupported,
+      moveUp: MSG.layoutMoveUp,
+      moveDown: MSG.layoutMoveDown,
+      widthInvalid: MSG.layoutWidthInvalid,
+      saveOk: MSG.layoutSaved,
+      saveFail: MSG.layoutSaveFailed,
+    },
+    colLabels: COL_LABEL,
+    colDescs: COL_DESC,
+    sortableMap: SORTABLE,
+    zebraColors: ZEBRA_COLORS,
+    widthMin: WIDTH_MIN,
+    widthMax: WIDTH_MAX,
+    locale: document.documentElement.lang || "zh-Hant",
+    initialSettings: layoutSaved,
+    autoBind: { open: true, cancel: true, save: true, zebra: true },
+    applyZebraCss: applyZebraCss,
+    onModeChange: function (on) {
+      root.classList.toggle("is-layout-mode", !!on);
+      panel.classList.toggle("matches-mode-layout", !!on);
+      panel.classList.toggle("matches-mode-list", !on);
+    },
+    save: async function (draft) {
+      const resp = await fetch("/api/layout/racing/racing_draw_statistics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ layout_settings: draft }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data || !data.ok) {
+        throw new Error((data && data.error) || "save_failed");
+      }
+      layoutSaved = data.layout_settings;
+      layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+      if (Array.isArray(data.catalog)) {
+        catalog = data.catalog;
+        rebuildSortable();
+      }
+      return layoutSaved;
+    },
+    onAfterSave: async function () {
+      await listCtrl.load({ resetPage: true, n: 1 });
+    },
+  });
+
+  async function ensureLoaded() {
+    if (!loaded) {
+      loaded = true;
+      await listCtrl.load({ n: 1 });
+    }
+  }
+
+  window.__hppvRacingDrawEnsureLoaded = ensureLoaded;
+  window.__hppvRacingDrawSetLayoutMode = function (on) {
+    if (layoutEditor && typeof layoutEditor.setMode === "function") {
+      layoutEditor.setMode(!!on);
+    }
+  };
+})();
+</script>

@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 TASK_KEY_UPDATE_MATCHES = "update_matches"
 TASK_KEY_UPDATE_ODDS = "update_odds"
 TASK_KEY_UPDATE_RESULTS = "update_results"
-INTERVAL_UNITS = frozenset({"mins", "hour", "day"})
+INTERVAL_UNITS = frozenset({"mins", "hour", "day", "year"})
 DEFAULT_INTERVAL_VALUE = 1
 DEFAULT_INTERVAL_UNIT = "mins"
 
@@ -208,6 +208,8 @@ def interval_to_timedelta(value: int, unit: str) -> timedelta:
         return timedelta(hours=n)
     if unit_n == "day":
         return timedelta(days=n)
+    if unit_n == "year":
+        return timedelta(days=365 * n)
     return timedelta(minutes=n)
 
 

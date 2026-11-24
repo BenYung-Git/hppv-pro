@@ -1,0 +1,85 @@
+{% from "macros/layout_icons.html" import icon_history_layout %}
+{% from "macros/layout_settings_panel.html" import layout_settings_panel with context %}
+{% set layout_zebra_colors = layout_zebra_colors if layout_zebra_colors is defined else [] %}
+{% set racing_std_layout_settings = racing_std_layout_settings if racing_std_layout_settings is defined else {'zebra_color_id': 'default', 'zebra_enabled': false, 'columns': []} %}
+{% set racing_std_layout_catalog = racing_std_layout_catalog if racing_std_layout_catalog is defined else [] %}
+
+<div class="matches-list-mode history-list-mode" id="racing-std-list-mode">
+  <p class="matches-layout-toast" id="racing-std-layout-toast" role="status" aria-live="polite"></p>
+  <div class="matches-chrome history-chrome">
+    <div class="toolbar">
+      <div class="toolbar-row">
+        <div class="toolbar-main">
+          <div class="date-nav">
+            <label class="all-matches-wrap" for="racing-std-all-records">
+              <input type="checkbox" id="racing-std-all-records" checked>
+              {{ t('racing.standard_times.filter.all_records') }}
+            </label>
+            <button type="button" class="icon-btn" id="racing-std-btn-prev-day" disabled>‹ {{ t('racing.standard_times.prev_day') }}</button>
+            <label for="racing-std-date">{{ t('racing.standard_times.date') }}</label>
+            <input id="racing-std-date" type="date" disabled>
+            <button type="button" class="icon-btn" id="racing-std-btn-next-day" disabled>{{ t('racing.standard_times.next_day') }} ›</button>
+          </div>
+          <div class="filter-wrap">
+            <label for="racing-std-search">{{ t('racing.standard_times.search_label') }}</label>
+            <input id="racing-std-search" type="search" placeholder="{{ t('racing.standard_times.search_placeholder') }}" autocomplete="off">
+            <label class="visually-hidden" for="racing-std-search-op">{{ t('history.search_op.label') }}</label>
+            <select id="racing-std-search-op" aria-label="{{ t('history.search_op.label') }}">
+              <option value="approx" selected>{{ t('history.search_op.approx') }}</option>
+              <option value="eq">{{ t('history.search_op.eq') }}</option>
+              <option value="ne">{{ t('history.search_op.ne') }}</option>
+              <option value="contains">{{ t('history.search_op.contains') }}</option>
+              <option value="not_contains">{{ t('history.search_op.not_contains') }}</option>
+              <option value="starts">{{ t('history.search_op.starts') }}</option>
+              <option value="ends">{{ t('history.search_op.ends') }}</option>
+            </select>
+          </div>
+        </div>
+        <div class="history-toolbar-actions">
+          <button type="button" class="icon-btn toolbar-layout-btn toolbar-icon-only" id="racing-std-btn-open-layout"
+                  aria-controls="racing-std-layout-mode"
+                  aria-expanded="false"
+                  title="{{ t('racing.standard_times.layout') }}"
+                  aria-label="{{ t('racing.standard_times.layout') }}">
+            {{ icon_history_layout() }}
+            <span class="btn-label">{{ t('racing.standard_times.layout') }}</span>
+          </button>
+        </div>
+      </div>
+      <nav class="pager" id="racing-std-pager" aria-label="{{ t('racing.standard_times.pager.nav') }}">
+        <button type="button" class="icon-btn" id="racing-std-pager-first" disabled title="{{ t('racing.standard_times.pager.first') }}">≪</button>
+        <button type="button" class="icon-btn" id="racing-std-pager-prev" disabled title="{{ t('racing.standard_times.pager.prev') }}">‹</button>
+        <span class="pager-status" id="racing-std-pager-status">—</span>
+        <button type="button" class="icon-btn" id="racing-std-pager-next" disabled title="{{ t('racing.standard_times.pager.next') }}">›</button>
+        <button type="button" class="icon-btn" id="racing-std-pager-last" disabled title="{{ t('racing.standard_times.pager.last') }}">≫</button>
+      </nav>
+    </div>
+  </div>
+  <div class="matches-list-scroll history-scroll" id="racing-std-scroll">
+    <div class="state-box" id="racing-std-state">{{ t('racing.standard_times.loading') }}</div>
+    <div class="table-wrap" id="racing-std-table-wrap" hidden>
+      <table class="matches history-table" id="racing-std-table">
+        <thead id="racing-std-thead"></thead>
+        <tbody id="racing-std-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{{ layout_settings_panel(
+  id_prefix='racing-std',
+  mode_title=t('racing.standard_times.layout.mode_title'),
+  table_name_value=t('racing.standard_times.layout.table_name_value'),
+  zebra_colors=layout_zebra_colors,
+  zebra_color_id=racing_std_layout_settings.zebra_color_id,
+  zebra_enabled=racing_std_layout_settings.zebra_enabled,
+  open=false,
+  id_cancel='racing-std-layout-cancel',
+  id_save='racing-std-layout-save',
+  id_zebra_color='racing-std-layout-zebra-color',
+  id_zebra_enable='racing-std-layout-zebra-enable',
+  id_cols_table='racing-std-layout-cols-table',
+  id_cols_body='racing-std-layout-cols-body',
+  id_status='racing-std-layout-status',
+  id_toolbar='racing-std-layout-mode-toolbar'
+) }}

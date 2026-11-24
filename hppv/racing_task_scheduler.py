@@ -11,10 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from hppv.config import HKJC_MCS_HORSES_CLAS_URL_EN
+from datetime import date
+
 from hppv.racing_requests import (
     REQUEST_KEY_DAILY_RESULTS,
+    REQUEST_KEY_DRAW_STATISTICS,
     REQUEST_KEY_HORSES,
     REQUEST_KEY_RACECARD,
+    REQUEST_KEY_STANDARD_TIMES,
     REQUEST_KEY_UPDATE_ODDS,
 )
 from hppv.soccer_task_scheduler import (
@@ -35,6 +39,8 @@ TASK_KEY_UPDATE_RACECARD = "racing_update_racecard"
 TASK_KEY_UPDATE_ODDS = "racing_update_odds"
 TASK_KEY_UPDATE_DAILY_RESULTS = "racing_update_daily_results"
 TASK_KEY_UPDATE_HORSES = "racing_update_horses"
+TASK_KEY_UPDATE_STANDARD_TIMES = "racing_update_standard_times"
+TASK_KEY_UPDATE_DRAW_STATISTICS = "racing_update_draw_statistics"
 
 UPDATE_RACECARD_SCOPE = {
     "operation": "raceMeetings",
@@ -87,6 +93,33 @@ UPDATE_HORSES_SCOPE = {
     "multi_worker_safe": False,
 }
 
+UPDATE_STANDARD_TIMES_SCOPE = {
+    "operation": "standardTimesPdf",
+    "endpoint": "res.hkjc.com",
+    "target": "racing_standard_times",
+    "write_mode": "insert_or_ignore",
+    "unit": "year",
+    "note": (
+        "Yearly HKJC standard-times PDF for the current calendar year → "
+        "racing_standard_times (published_on version + sectionals); "
+        "unknown year URL fails without inventing paths."
+    ),
+    "multi_worker_safe": False,
+}
+
+UPDATE_DRAW_STATISTICS_SCOPE = {
+    "operation": "drawStatisticsAdvSearch",
+    "endpoint": "racing.hkjc.com/zh-hk/local/information/drawadvsearch",
+    "target": "racing_draw_statistics",
+    "write_mode": "insert_or_fill_meta",
+    "unit": "record",
+    "note": (
+        "HKJC drawadvsearch Going=ALL for latest season (STT/STA/HVT) → "
+        "racing_draw_statistics; unique key venue/track/rail/distance/draw."
+    ),
+    "multi_worker_safe": False,
+}
+
 
 def scope_for_racing_task(task_key: str) -> dict[str, Any]:
     if task_key == TASK_KEY_UPDATE_ODDS:
@@ -95,6 +128,10 @@ def scope_for_racing_task(task_key: str) -> dict[str, Any]:
         return UPDATE_DAILY_RESULTS_SCOPE
     if task_key == TASK_KEY_UPDATE_HORSES:
         return UPDATE_HORSES_SCOPE
+    if task_key == TASK_KEY_UPDATE_STANDARD_TIMES:
+        return UPDATE_STANDARD_TIMES_SCOPE
+    if task_key == TASK_KEY_UPDATE_DRAW_STATISTICS:
+        return UPDATE_DRAW_STATISTICS_SCOPE
     return UPDATE_RACECARD_SCOPE
 
 
@@ -183,6 +220,39 @@ def run_update_horses_once(
     return _detail_from_send_body(body)
 
 
+def run_update_standard_times_once(
+    db_path: Path, requests_dir: Path, *, overwrite: bool = False
+) -> dict[str, Any]:
+    try:
+        body = execute_download_from_preset(
+            sport=SPORT_RACING,
+            db_path=db_path,
+            requests_dir=requests_dir,
+            request_key=REQUEST_KEY_STANDARD_TIMES,
+            variables_override={"years": [date.today().year]},
+            overwrite=overwrite,
+        )
+    except DownloadShellError as e:
+        raise SoccerTaskError(e.code, e.detail) from e
+    return _detail_from_send_body(body)
+
+
+def run_update_draw_statistics_once(
+    db_path: Path, requests_dir: Path, *, overwrite: bool = False
+) -> dict[str, Any]:
+    try:
+        body = execute_download_from_preset(
+            sport=SPORT_RACING,
+            db_path=db_path,
+            requests_dir=requests_dir,
+            request_key=REQUEST_KEY_DRAW_STATISTICS,
+            overwrite=overwrite,
+        )
+    except DownloadShellError as e:
+        raise SoccerTaskError(e.code, e.detail) from e
+    return _detail_from_send_body(body)
+
+
 class _RacingSchedulerBase(_TaskSchedulerBase):
     """Settings DB may differ from racing data DB; requests_dir holds whitelist presets."""
 
@@ -215,10 +285,22 @@ class UpdateHorsesScheduler(_RacingSchedulerBase):
     _run_once = staticmethod(run_update_horses_once)
 
 
+class UpdateStandardTimesScheduler(_RacingSchedulerBase):
+    task_key = TASK_KEY_UPDATE_STANDARD_TIMES
+    _run_once = staticmethod(run_update_standard_times_once)
+
+
+class UpdateDrawStatisticsScheduler(_RacingSchedulerBase):
+    task_key = TASK_KEY_UPDATE_DRAW_STATISTICS
+    _run_once = staticmethod(run_update_draw_statistics_once)
+
+
 _racing_racecard_scheduler: UpdateRacecardScheduler | None = None
 _racing_odds_scheduler: UpdateRacingOddsScheduler | None = None
 _racing_daily_results_scheduler: UpdateDailyResultsScheduler | None = None
 _racing_horses_scheduler: UpdateHorsesScheduler | None = None
+_racing_standard_times_scheduler: UpdateStandardTimesScheduler | None = None
+_racing_draw_statistics_scheduler: UpdateDrawStatisticsScheduler | None = None
 
 
 def get_update_racecard_scheduler(
@@ -263,6 +345,28 @@ def get_update_horses_scheduler(
             settings_db, racing_db, requests_dir
         )
     return _racing_horses_scheduler
+
+
+def get_update_standard_times_scheduler(
+    settings_db: Path, racing_db: Path, requests_dir: Path
+) -> UpdateStandardTimesScheduler:
+    global _racing_standard_times_scheduler
+    if _racing_standard_times_scheduler is None:
+        _racing_standard_times_scheduler = UpdateStandardTimesScheduler(
+            settings_db, racing_db, requests_dir
+        )
+    return _racing_standard_times_scheduler
+
+
+def get_update_draw_statistics_scheduler(
+    settings_db: Path, racing_db: Path, requests_dir: Path
+) -> UpdateDrawStatisticsScheduler:
+    global _racing_draw_statistics_scheduler
+    if _racing_draw_statistics_scheduler is None:
+        _racing_draw_statistics_scheduler = UpdateDrawStatisticsScheduler(
+            settings_db, racing_db, requests_dir
+        )
+    return _racing_draw_statistics_scheduler
 
 
 def get_racing_task_public_state(

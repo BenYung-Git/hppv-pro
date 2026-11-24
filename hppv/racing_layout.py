@@ -9,6 +9,8 @@ from hppv.config import default_config
 
 LAYOUT_KEY_RACING_HISTORY = "racing_history"
 LAYOUT_KEY_RACING_DAILY = "racing_daily"
+LAYOUT_KEY_RACING_STANDARD_TIMES = "racing_standard_times"
+LAYOUT_KEY_RACING_DRAW_STATISTICS = "racing_draw_statistics"
 
 COLUMN_WIDTH_DEFAULT = 100
 COLUMN_WIDTH_MIN = 60
@@ -85,9 +87,67 @@ RACING_DAILY_COLUMN_CATALOG: tuple[dict[str, Any], ...] = (
 RACING_DAILY_COLUMN_KEYS = frozenset(c["key"] for c in RACING_DAILY_COLUMN_CATALOG)
 RACING_DAILY_COLUMN_BY_KEY = {c["key"]: c for c in RACING_DAILY_COLUMN_CATALOG}
 
+RACING_STANDARD_TIMES_COLUMN_CATALOG: tuple[dict[str, Any], ...] = (
+    {"key": "published_on", "group": "meta", "default_visible": True, "default_width": 120, "default_sort": SORT_DESC, "sortable": True},
+    {"key": "source_year", "group": "meta", "default_visible": True, "default_width": 90, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "venue_code", "group": "course", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "track_type", "group": "course", "default_visible": True, "default_width": 90, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "distance_m", "group": "course", "default_visible": True, "default_width": 90, "default_sort": SORT_ASC, "sortable": True},
+    {"key": "class_band", "group": "course", "default_visible": True, "default_width": 100, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "standard_time", "group": "time", "default_visible": True, "default_width": 110, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "sec_1", "group": "sectional", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": False},
+    {"key": "sec_2", "group": "sectional", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": False},
+    {"key": "sec_3", "group": "sectional", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": False},
+    {"key": "sec_4", "group": "sectional", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": False},
+    {"key": "sec_5", "group": "sectional", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": False},
+    {"key": "sec_6", "group": "sectional", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": False},
+    {"key": "id", "group": "meta", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": True},
+)
+
+RACING_STANDARD_TIMES_COLUMN_KEYS = frozenset(
+    c["key"] for c in RACING_STANDARD_TIMES_COLUMN_CATALOG
+)
+RACING_STANDARD_TIMES_COLUMN_BY_KEY = {
+    c["key"]: c for c in RACING_STANDARD_TIMES_COLUMN_CATALOG
+}
+
+RACING_DRAW_STATISTICS_COLUMN_CATALOG: tuple[dict[str, Any], ...] = (
+    {"key": "venue_code", "group": "course", "default_visible": True, "default_width": 80, "default_sort": SORT_ASC, "sortable": True},
+    {"key": "track_type", "group": "course", "default_visible": True, "default_width": 90, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "rail_position", "group": "course", "default_visible": True, "default_width": 100, "default_sort": SORT_ASC, "sortable": True},
+    {"key": "distance_m", "group": "course", "default_visible": True, "default_width": 90, "default_sort": SORT_ASC, "sortable": True},
+    {"key": "draw_no", "group": "course", "default_visible": True, "default_width": 70, "default_sort": SORT_ASC, "sortable": True},
+    {"key": "starts", "group": "count", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "wins", "group": "count", "default_visible": True, "default_width": 70, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "seconds", "group": "count", "default_visible": True, "default_width": 70, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "thirds", "group": "count", "default_visible": True, "default_width": 70, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "fourths", "group": "count", "default_visible": True, "default_width": 70, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "win_pct", "group": "rate", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "quinella_pct", "group": "rate", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "place_pct", "group": "rate", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "top4_pct", "group": "rate", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "win_count", "group": "derived", "default_visible": True, "default_width": 90, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "in_place_count", "group": "derived", "default_visible": True, "default_width": 90, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "lose_count", "group": "derived", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "source", "group": "meta", "default_visible": False, "default_width": 140, "default_sort": SORT_EMPTY, "sortable": False},
+    {"key": "source_url", "group": "meta", "default_visible": False, "default_width": 200, "default_sort": SORT_EMPTY, "sortable": False},
+    {"key": "fetched_at", "group": "meta", "default_visible": False, "default_width": 160, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "updated_at", "group": "meta", "default_visible": False, "default_width": 160, "default_sort": SORT_EMPTY, "sortable": True},
+    {"key": "id", "group": "meta", "default_visible": True, "default_width": 80, "default_sort": SORT_EMPTY, "sortable": True},
+)
+
+RACING_DRAW_STATISTICS_COLUMN_KEYS = frozenset(
+    c["key"] for c in RACING_DRAW_STATISTICS_COLUMN_CATALOG
+)
+RACING_DRAW_STATISTICS_COLUMN_BY_KEY = {
+    c["key"]: c for c in RACING_DRAW_STATISTICS_COLUMN_CATALOG
+}
+
 _LAYOUT_CATALOGS: dict[str, tuple[dict[str, Any], ...]] = {
     LAYOUT_KEY_RACING_HISTORY: RACING_HISTORY_COLUMN_CATALOG,
     LAYOUT_KEY_RACING_DAILY: RACING_DAILY_COLUMN_CATALOG,
+    LAYOUT_KEY_RACING_STANDARD_TIMES: RACING_STANDARD_TIMES_COLUMN_CATALOG,
+    LAYOUT_KEY_RACING_DRAW_STATISTICS: RACING_DRAW_STATISTICS_COLUMN_CATALOG,
 }
 
 # Text-searchable display keys (stable IDs).
@@ -166,6 +226,63 @@ DEFAULT_RACING_DAILY_SEARCH_KEYS: tuple[str, ...] = (
     "trainer",
     "event_name",
     "racecourse_name",
+)
+
+RACING_STANDARD_TIMES_TEXT_SEARCH_WHITELIST: frozenset[str] = frozenset(
+    {
+        "published_on",
+        "source_year",
+        "venue_code",
+        "track_type",
+        "distance_m",
+        "class_band",
+        "standard_time",
+        "sec_1",
+        "sec_2",
+        "sec_3",
+        "sec_4",
+        "sec_5",
+        "sec_6",
+    }
+)
+
+DEFAULT_STANDARD_TIMES_SEARCH_KEYS: tuple[str, ...] = (
+    "venue_code",
+    "track_type",
+    "distance_m",
+    "class_band",
+    "standard_time",
+    "published_on",
+)
+
+RACING_DRAW_STATISTICS_TEXT_SEARCH_WHITELIST: frozenset[str] = frozenset(
+    {
+        "venue_code",
+        "track_type",
+        "rail_position",
+        "distance_m",
+        "draw_no",
+        "starts",
+        "wins",
+        "seconds",
+        "thirds",
+        "fourths",
+        "win_pct",
+        "quinella_pct",
+        "place_pct",
+        "top4_pct",
+        "win_count",
+        "in_place_count",
+        "lose_count",
+    }
+)
+
+DEFAULT_DRAW_STATISTICS_SEARCH_KEYS: tuple[str, ...] = (
+    "venue_code",
+    "track_type",
+    "rail_position",
+    "distance_m",
+    "draw_no",
 )
 
 
@@ -299,3 +416,75 @@ def racing_daily_sort_specs_from_layout(
 
 def racing_sort_param(specs: list[tuple[str, str]]) -> str:
     return ",".join(f"{k}:{d}" for k, d in specs)
+
+
+def racing_standard_times_search_keys_from_layout(
+    settings: dict[str, Any] | None,
+) -> list[str]:
+    if not isinstance(settings, dict):
+        raise ValueError("layout_settings required")
+    keys: list[str] = []
+    for col in settings.get("columns") or []:
+        if not isinstance(col, dict):
+            continue
+        key = str(col.get("key") or "")
+        if not col.get("visible"):
+            continue
+        if key in RACING_STANDARD_TIMES_TEXT_SEARCH_WHITELIST:
+            keys.append(key)
+    return keys
+
+
+def racing_standard_times_sort_specs_from_layout(
+    settings: dict[str, Any] | None,
+) -> list[tuple[str, str]]:
+    if not isinstance(settings, dict):
+        raise ValueError("layout_settings required")
+    specs: list[tuple[str, str]] = []
+    for col in settings.get("columns") or []:
+        if not isinstance(col, dict):
+            continue
+        key = str(col.get("key") or "")
+        sort = str(col.get("sort") or SORT_EMPTY)
+        meta = RACING_STANDARD_TIMES_COLUMN_BY_KEY.get(key)
+        if not meta or not meta.get("sortable"):
+            continue
+        if sort in (SORT_ASC, SORT_DESC):
+            specs.append((key, sort))
+    return specs
+
+
+def racing_draw_statistics_search_keys_from_layout(
+    settings: dict[str, Any] | None,
+) -> list[str]:
+    if not isinstance(settings, dict):
+        raise ValueError("layout_settings required")
+    keys: list[str] = []
+    for col in settings.get("columns") or []:
+        if not isinstance(col, dict):
+            continue
+        key = str(col.get("key") or "")
+        if not col.get("visible"):
+            continue
+        if key in RACING_DRAW_STATISTICS_TEXT_SEARCH_WHITELIST:
+            keys.append(key)
+    return keys
+
+
+def racing_draw_statistics_sort_specs_from_layout(
+    settings: dict[str, Any] | None,
+) -> list[tuple[str, str]]:
+    if not isinstance(settings, dict):
+        raise ValueError("layout_settings required")
+    specs: list[tuple[str, str]] = []
+    for col in settings.get("columns") or []:
+        if not isinstance(col, dict):
+            continue
+        key = str(col.get("key") or "")
+        sort = str(col.get("sort") or SORT_EMPTY)
+        meta = RACING_DRAW_STATISTICS_COLUMN_BY_KEY.get(key)
+        if not meta or not meta.get("sortable"):
+            continue
+        if sort in (SORT_ASC, SORT_DESC):
+            specs.append((key, sort))
+    return specs
