@@ -95,6 +95,11 @@ from hppv.soccer_match_form import (
     normalize_match_form_limit,
     normalize_venue_filter,
 )
+from hppv.racing_horse_form import (
+    HorseFormError,
+    HorseFormValidationError,
+    fetch_horse_form,
+)
 from hppv.soccer_daily_export import (
     build_daily_export,
     parse_daily_export_request,
@@ -1418,6 +1423,9 @@ def _api_download_send_response(sport: str) -> Any:
         request_key, payload_text = parse_request_key_and_payload(
             data, raw, sport=sport
         )
+        from hppv.web_download_shell import parse_overwrite_flag
+
+        overwrite = parse_overwrite_flag(data)
         db_path = SOCCER_DB_PATH if sport == SPORT_SOCCER else DB_PATH
         # Racing Web send is async so Status can poll live progress.
         if sport == _SPORT_RACING:
@@ -1431,6 +1439,7 @@ def _api_download_send_response(sport: str) -> Any:
                     db_path=db_path,
                     request_key=request_key,
                     raw_payload=payload_text,
+                    overwrite=overwrite,
                 )
             except RacingDownloadJobError as e:
                 return (
@@ -1446,6 +1455,7 @@ def _api_download_send_response(sport: str) -> Any:
             db_path=db_path,
             request_key=request_key,
             raw_payload=payload_text,
+            overwrite=overwrite,
         )
     except DownloadShellError as e:
         return jsonify({"ok": False, "error": e.code, "detail": e.detail}), e.http_status
@@ -1704,6 +1714,7 @@ def api_racing_task_update_racecard_put() -> Any:
             enabled=bool(data.get("enabled")),
             interval_value=data.get("interval_value"),
             interval_unit=data.get("interval_unit"),
+            overwrite=bool(data.get("overwrite")),
         )
         pub = state.to_public_dict()
         pub["scope"] = get_racing_task_public_state(
@@ -1741,6 +1752,7 @@ def api_racing_task_update_odds_put() -> Any:
             enabled=bool(data.get("enabled")),
             interval_value=data.get("interval_value"),
             interval_unit=data.get("interval_unit"),
+            overwrite=bool(data.get("overwrite")),
         )
         pub = state.to_public_dict()
         pub["scope"] = get_racing_task_public_state(
@@ -1780,6 +1792,7 @@ def api_racing_task_update_daily_results_put() -> Any:
             enabled=bool(data.get("enabled")),
             interval_value=data.get("interval_value"),
             interval_unit=data.get("interval_unit"),
+            overwrite=bool(data.get("overwrite")),
         )
         pub = state.to_public_dict()
         pub["scope"] = get_racing_task_public_state(
@@ -1821,6 +1834,7 @@ def api_racing_task_update_horses_put() -> Any:
             enabled=bool(data.get("enabled")),
             interval_value=data.get("interval_value"),
             interval_unit=data.get("interval_unit"),
+            overwrite=bool(data.get("overwrite")),
         )
         pub = state.to_public_dict()
         pub["scope"] = get_racing_task_public_state(
@@ -1911,6 +1925,7 @@ def api_soccer_task_update_matches_put() -> Any:
             enabled=enabled,
             interval_value=data.get("interval_value"),
             interval_unit=data.get("interval_unit"),
+            overwrite=bool(data.get("overwrite")),
         )
     except SoccerTaskError as e:
         return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
@@ -1945,6 +1960,7 @@ def api_soccer_task_update_odds_put() -> Any:
             enabled=enabled,
             interval_value=data.get("interval_value"),
             interval_unit=data.get("interval_unit"),
+            overwrite=bool(data.get("overwrite")),
         )
     except SoccerTaskError as e:
         return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
@@ -1979,6 +1995,7 @@ def api_soccer_task_update_results_put() -> Any:
             enabled=enabled,
             interval_value=data.get("interval_value"),
             interval_unit=data.get("interval_unit"),
+            overwrite=bool(data.get("overwrite")),
         )
     except SoccerTaskError as e:
         return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
@@ -2123,6 +2140,32 @@ def api_soccer_match_form() -> Any:
     return jsonify({"ok": True, "data": payload})
 
 
+@app.get("/api/racing/horse-form")
+def api_racing_horse_form() -> Any:
+    """Same-distance + recent form + place summary for one horse (read-only)."""
+    try:
+        payload = fetch_horse_form(
+            DB_PATH,
+            horse_id=request.args.get("horse_id"),
+            race_date=request.args.get("race_date") or request.args.get("date"),
+            venue=request.args.get("venue"),
+            distance=request.args.get("distance"),
+            race_no=request.args.get("race_no"),
+            horse_name=request.args.get("horse_name"),
+            limit=request.args.get("limit"),
+            recent_filter=request.args.get("recent_filter"),
+        )
+    except HorseFormValidationError as e:
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
+    except HorseFormError as e:
+        logging.getLogger(__name__).exception("racing horse-form api failed: %s", e)
+        return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 500
+    except Exception as e:
+        logging.getLogger(__name__).exception("racing horse-form api failed: %s", e)
+        return jsonify({"ok": False, "error": "read_error", "detail": str(e)}), 500
+    return jsonify({"ok": True, "data": payload})
+
+
 def _records_soccer_daily_matches() -> Any:
     """Soccer daily list. Adapter for shared /api/records."""
     all_matches = resolve_all_matches_arg(request.args)
@@ -2240,15 +2283,20 @@ def api_layout(sport: str, layout_key: str) -> Any:
                 "max": COLUMN_WIDTH_MAX,
             },
         }
+        lang = normalize_lang(session.get("lang"))
+        try:
+            text_map = load_active_text_map(SOCCER_DB_PATH, lang)
+        except Exception:
+            text_map = {}
+        catalog_keys = [str(c["key"]) for c in catalog]
         if sport_n == SPORT_SOCCER and key == LAYOUT_KEY_MATCH_HISTORY:
-            lang = normalize_lang(session.get("lang"))
-            try:
-                text_map = load_active_text_map(SOCCER_DB_PATH, lang)
-            except Exception:
-                text_map = {}
-            labels, descs = history_column_i18n_maps(
-                text_map, [str(c["key"]) for c in catalog]
-            )
+            labels, descs = history_column_i18n_maps(text_map, catalog_keys)
+            payload["col_labels"] = labels
+            payload["col_descs"] = descs
+        elif sport_n == SPORT_RACING and key == LAYOUT_KEY_RACING_HISTORY:
+            from hppv.racing_history_export import racing_history_layout_i18n_maps
+
+            labels, descs = racing_history_layout_i18n_maps(text_map, catalog_keys)
             payload["col_labels"] = labels
             payload["col_descs"] = descs
         return jsonify(payload)

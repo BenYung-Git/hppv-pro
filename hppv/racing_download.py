@@ -516,8 +516,9 @@ def run_daily_results_download(
     race_date: str | None = None,
     venue_code: str | None = None,
     progress_cb: ProgressCb | None = None,
+    overwrite: bool = False,
 ) -> RacingDownloadResult:
-    """Write finished raceMeetings runners into race_records (INSERT OR IGNORE)."""
+    """Write finished raceMeetings runners into race_records (ignore or overwrite)."""
     ensure_racecard_db(db_path)
     prog = RacingDownloadProgress(phase="fetching_total", message="正在取得總數")
     _emit(progress_cb, prog)
@@ -545,7 +546,10 @@ def run_daily_results_download(
     horses_filled = 0
     for hrow in horse_rows:
         try:
-            if insert_or_fill_horse(db_path, hrow) in ("inserted", "filled"):
+            if insert_or_fill_horse(db_path, hrow, overwrite=overwrite) in (
+                "inserted",
+                "filled",
+            ):
                 horses_filled += 1
         except Exception:
             logger.exception(
@@ -561,7 +565,7 @@ def run_daily_results_download(
     # Insert one-by-one so updated/skipped counts stay honest under OR IGNORE.
     for rec in records:
         try:
-            n = upsert_race_records(db_path, [rec])
+            n = upsert_race_records(db_path, [rec], overwrite=overwrite)
             if n:
                 prog.updated += 1
             else:
@@ -582,8 +586,11 @@ def run_daily_results_download(
         "operation": "raceMeetings",
         "endpoint": GRAPHQL_URL,
         "target": "race_records",
-        "write_mode": "insert_or_ignore",
-        "horses_write_mode": "insert_or_fill_blanks",
+        "write_mode": "overwrite" if overwrite else "insert_or_ignore",
+        "overwrite": bool(overwrite),
+        "horses_write_mode": (
+            "overwrite" if overwrite else "insert_or_fill_blanks"
+        ),
         "horses_filled": horses_filled,
         "variables": {
             "date": meeting_meta.date_iso,
@@ -624,6 +631,7 @@ def run_results_period_download(
     *,
     variables: dict[str, Any] | None = None,
     progress_cb: ProgressCb | None = None,
+    overwrite: bool = False,
 ) -> RacingDownloadResult:
     """Write localresults HTML runners for a date window into race_records."""
     ensure_racecard_db(db_path)
@@ -702,7 +710,10 @@ def run_results_period_download(
     horses_filled = 0
     for hrow in horse_rows:
         try:
-            if insert_or_fill_horse(db_path, hrow) in ("inserted", "filled"):
+            if insert_or_fill_horse(db_path, hrow, overwrite=overwrite) in (
+                "inserted",
+                "filled",
+            ):
                 horses_filled += 1
         except Exception:
             logger.exception(
@@ -721,7 +732,7 @@ def run_results_period_download(
 
     for rec in records:
         try:
-            n = upsert_race_records(db_path, [rec])
+            n = upsert_race_records(db_path, [rec], overwrite=overwrite)
             if n:
                 prog.updated += 1
             else:
@@ -745,8 +756,11 @@ def run_results_period_download(
         "operation": "localResultsPeriod",
         "endpoint": LOCAL_RESULTS_URL,
         "target": "race_records",
-        "write_mode": "insert_or_ignore",
-        "horses_write_mode": "insert_or_fill_blanks",
+        "write_mode": "overwrite" if overwrite else "insert_or_ignore",
+        "overwrite": bool(overwrite),
+        "horses_write_mode": (
+            "overwrite" if overwrite else "insert_or_fill_blanks"
+        ),
         "horses_filled": horses_filled,
         "variables": {
             "startDate": start.isoformat(),
@@ -778,6 +792,7 @@ def run_horses_download(
     db_path: Path,
     *,
     progress_cb: ProgressCb | None = None,
+    overwrite: bool = False,
 ) -> RacingDownloadResult:
     """Fetch HKJC horse rating list; insert new or fill blank/placeholder names."""
     ensure_racecard_db(db_path)
@@ -813,7 +828,7 @@ def run_horses_download(
     filled = 0
     for row in rows:
         try:
-            action = insert_or_fill_horse(db_path, row)
+            action = insert_or_fill_horse(db_path, row, overwrite=overwrite)
             if action == "inserted":
                 inserted += 1
                 prog.updated += 1
@@ -839,7 +854,8 @@ def run_horses_download(
         "query": HORSES_QUERY,
         "endpoint": HKJC_MCS_HORSES_CLAS_URL_EN,
         "target": "horses",
-        "write_mode": "insert_or_fill_blanks",
+        "write_mode": "overwrite" if overwrite else "insert_or_fill_blanks",
+        "overwrite": bool(overwrite),
         "variables": {},
         "ingest_status": "success",
         "processed": prog.processed,

@@ -31,7 +31,6 @@ RESULTS_PERIOD_QUERY = "localResultsPeriod"
 RESULTS_PERIOD_OPERATION = "localResultsPeriod"
 
 DEFAULT_VENUE_CODES: tuple[str, ...] = ("ST", "HV")
-MAX_PERIOD_DAYS = 366
 
 _VENUE_ZH: dict[str, str] = {
     "ST": "沙田",
@@ -106,11 +105,6 @@ def iter_dates_inclusive(start: date, end: date) -> list[date]:
             "invalid_date_window", "endDate must be on or after startDate"
         )
     days = (end - start).days + 1
-    if days > MAX_PERIOD_DAYS:
-        raise RacingLocalResultsError(
-            "date_window_too_large",
-            f"date window exceeds {MAX_PERIOD_DAYS} days",
-        )
     return [start + timedelta(days=i) for i in range(days)]
 
 
@@ -341,6 +335,7 @@ def parse_localresults_race_html(
         i_jockey = col("騎師")
         i_trainer = col("練馬師")
         i_draw = col("檔位")
+        i_handicap = col("實際負磅", "負磅")
         i_running = col("沿途")
         i_time = col("完成時間", "時間")
         i_odds = col("獨贏")
@@ -381,6 +376,7 @@ def parse_localresults_race_html(
                 class_band=meta.class_band,
                 draw=get(i_draw),
                 rating="",
+                handicap=get(i_handicap),
                 jockey=get(i_jockey),
                 trainer=get(i_trainer),
                 finish_pos=finish,
@@ -400,6 +396,7 @@ def parse_localresults_race_html(
                 rec.class_band,
                 rec.draw,
                 rec.rating,
+                rec.handicap,
                 rec.jockey,
                 rec.trainer,
                 rec.finish_pos,

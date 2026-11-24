@@ -367,6 +367,61 @@ def layout_settings_from_catalog(
     }
 
 
+def _append_missing_catalog_columns(
+    raw: dict[str, Any],
+    *,
+    sport: str,
+    layout_key: str,
+    soccer_db_path: Path | None = None,
+) -> tuple[dict[str, Any], bool]:
+    """Insert catalog keys absent from stored columns (catalog growth). Returns (raw, changed)."""
+    cols_raw = raw.get("columns")
+    if not isinstance(cols_raw, list):
+        return raw, False
+    catalog = catalog_for(sport, layout_key, soccer_db_path=soccer_db_path)
+    cat_keys = [str(c["key"]) for c in catalog]
+    cols: list[Any] = list(cols_raw)
+    changed = False
+
+    def _index_map() -> dict[str, int]:
+        return {
+            str(item.get("key")): i
+            for i, item in enumerate(cols)
+            if isinstance(item, dict) and item.get("key") is not None
+        }
+
+    by_key = _index_map()
+    for c in catalog:
+        key = str(c["key"])
+        if key in by_key:
+            continue
+        new_col = {
+            "key": key,
+            "visible": bool(c.get("default_visible", True)),
+            "width": int(c.get("default_width") or 100),
+            "sort": str(c.get("default_sort") or SORT_EMPTY),
+        }
+        insert_at = len(cols)
+        idx = cat_keys.index(key)
+        for prev in reversed(cat_keys[:idx]):
+            if prev in by_key:
+                insert_at = by_key[prev] + 1
+                break
+        else:
+            for nxt in cat_keys[idx + 1 :]:
+                if nxt in by_key:
+                    insert_at = by_key[nxt]
+                    break
+        cols.insert(insert_at, new_col)
+        by_key = _index_map()
+        changed = True
+    if not changed:
+        return raw, False
+    out = dict(raw)
+    out["columns"] = cols
+    return out, True
+
+
 def require_layout_settings(
     sport: str,
     layout_key: str,
@@ -377,6 +432,7 @@ def require_layout_settings(
     Shared layout read.
 
     If stored settings are missing, seed from catalog and persist, then return.
+    If catalog gained columns, append missing keys and persist.
     Corrupt / invalid stored settings still raise SharedLayoutError.
     """
     sport_n = normalize_sport(sport)
@@ -390,9 +446,17 @@ def require_layout_settings(
             raw = _load_soccer_raw(db_path, key)
         else:
             raw = _load_racing_raw(key)
-        return normalize_layout_settings(
+        patched, changed = _append_missing_catalog_columns(
             raw, sport=sport_n, layout_key=key, soccer_db_path=db_path
         )
+        normalized = normalize_layout_settings(
+            patched, sport=sport_n, layout_key=key, soccer_db_path=db_path
+        )
+        if changed:
+            return save_layout_settings(
+                sport_n, key, normalized, soccer_db_path=db_path
+            )
+        return normalized
     except SharedLayoutError as e:
         if e.code != "layout_missing":
             raise

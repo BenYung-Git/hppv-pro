@@ -99,13 +99,85 @@
   .racing-info .racing-daily-summary .sum-value { font-weight: 700; color: #16324f; }
   .racing-info .racing-daily-horse-icon {
     display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center;
-    cursor: default; user-select: none; pointer-events: auto;
+    cursor: pointer; user-select: none; pointer-events: auto;
+    border: none; background: transparent; padding: 0; color: #1a4f8c;
+    border-radius: 999px;
+  }
+  .racing-info .racing-daily-horse-icon:hover,
+  .racing-info .racing-daily-horse-icon.is-open {
+    background: #d4e5f7; color: #0f3a6b;
   }
   .racing-info .racing-daily-horse-icon svg { width: 26px; height: 26px; display: block; }
   .racing-info table.history-table th.racing-daily-icon-col,
   .racing-info table.history-table td.racing-daily-icon-col {
     width: 40px; min-width: 40px; text-align: center; cursor: default; padding: 4px;
   }
+  /* Horse form panel (mirrors soccer match-form chrome) */
+  .racing-info {
+    --horse-form-blue: #1a4f8c;
+    --horse-form-blue-deep: #0f3a6b;
+    --horse-form-blue-bg: #d4e5f7;
+  }
+  .racing-info tr.horse-form-expand > td {
+    background: #f7fafc; border-top: none; padding: 0;
+  }
+  .racing-info .horse-form-panel {
+    margin: 0; padding: 12px 14px 16px; border-top: 1px solid #dbe3ef;
+    text-align: left;
+  }
+  .racing-info .horse-form-panel .hf-head {
+    display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline;
+    margin-bottom: 10px;
+  }
+  .racing-info .horse-form-panel .hf-title {
+    margin: 0; font-size: 15px; font-weight: 800; color: var(--horse-form-blue);
+  }
+  .racing-info .horse-form-panel .hf-cutoff { font-size: 12px; color: #5a6878; }
+  .racing-info .horse-form-panel .hf-section { margin-top: 14px; }
+  .racing-info .horse-form-panel .hf-section-title {
+    margin: 0 0 8px; font-size: 14px; font-weight: 700; color: #16324f;
+  }
+  .racing-info .horse-form-panel .hf-toolbar {
+    display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 8px;
+  }
+  .racing-info .horse-form-panel .hf-toolbar label {
+    display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: #5a6878;
+  }
+  .racing-info .horse-form-panel .hf-toolbar select {
+    min-width: 4.5rem; padding: 4px 8px; border: 1px solid #dbe3ef; border-radius: 6px;
+  }
+  .racing-info .horse-form-panel table.hf-table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  .racing-info .horse-form-panel .hf-table-scroll { overflow-x: auto; }
+  .racing-info .horse-form-panel table.hf-table th,
+  .racing-info .horse-form-panel table.hf-table td {
+    border-bottom: 1px solid #e6edf5; padding: 6px 8px; text-align: left; white-space: nowrap;
+  }
+  .racing-info .horse-form-panel table.hf-table th {
+    background: #eef3f8; color: #16324f; font-weight: 700;
+  }
+  .racing-info .horse-form-panel .hf-summary {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;
+  }
+  .racing-info .horse-form-panel .hf-summary-card {
+    border: 1px solid #dbe3ef; border-radius: 8px; background: #fff; padding: 10px 12px;
+  }
+  .racing-info .horse-form-panel .hf-summary-card h5 { margin: 0 0 8px; font-size: 13px; color: #16324f; }
+  .racing-info .horse-form-panel .hf-summary-card p { margin: 4px 0; font-size: 13px; color: #3a4a5c; }
+  .racing-info .horse-form-panel .hf-stat-chips {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;
+  }
+  .racing-info .horse-form-panel .hf-stat-chip {
+    display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 8px;
+    font-size: 12px; font-weight: 700; background: #eef3f8; color: #16324f;
+  }
+  .racing-info .horse-form-panel .hf-stat-chip.is-first { background: #e7f6ec; color: #1b7a3d; }
+  .racing-info .horse-form-panel .hf-stat-chip.is-second { background: #eef3fb; color: #1a4f8c; }
+  .racing-info .horse-form-panel .hf-stat-chip.is-third { background: #f7f3ea; color: #8a6a1a; }
+  .racing-info .horse-form-panel .hf-stat-chip.is-withdrawn { background: #f4f4f4; color: #6a7380; }
+  .racing-info .horse-form-panel .hf-state { padding: 10px 0; color: #5a6878; font-size: 13px; }
+  .racing-info .horse-form-panel .hf-state.error { color: #b42318; }
   .racing-info .date-nav, .racing-info .filter-wrap { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .racing-info .pager { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
   .racing-info .pager-status { font-size: 13px; color: #5a6878; }
@@ -348,6 +420,7 @@
       'request': 'racing-request',
       'status': 'racing-status',
       'send_btn': 'btn-racing-send-request',
+      'overwrite': 'racing-dl-overwrite',
       'sync_badge': 'racing-sync-badge',
       'sync_badge_label': 'racing-sync-badge-label',
       'sync_badge_value': 'racing-sync-badge-value',
@@ -373,6 +446,7 @@
         'label': t('racing.task.update_racecard'),
         'note': t('racing.task.racecard_scope_note'),
         'enabled_id': 'task-racing-racecard-enabled',
+        'overwrite_id': 'task-racing-racecard-overwrite',
         'interval_id': 'task-racing-racecard-interval',
         'unit_id': 'task-racing-racecard-unit',
         'last_id': 'task-racing-racecard-last',
@@ -385,6 +459,7 @@
         'label': t('racing.task.update_odds'),
         'note': t('racing.task.odds_scope_note'),
         'enabled_id': 'task-racing-odds-enabled',
+        'overwrite_id': 'task-racing-odds-overwrite',
         'interval_id': 'task-racing-odds-interval',
         'unit_id': 'task-racing-odds-unit',
         'last_id': 'task-racing-odds-last',
@@ -397,6 +472,7 @@
         'label': t('racing.task.update_daily_results'),
         'note': t('racing.task.daily_results_scope_note'),
         'enabled_id': 'task-racing-daily-results-enabled',
+        'overwrite_id': 'task-racing-daily-results-overwrite',
         'interval_id': 'task-racing-daily-results-interval',
         'unit_id': 'task-racing-daily-results-unit',
         'last_id': 'task-racing-daily-results-last',
@@ -409,6 +485,7 @@
         'label': t('racing.task.update_horses'),
         'note': t('racing.task.horses_scope_note'),
         'enabled_id': 'task-racing-horses-enabled',
+        'overwrite_id': 'task-racing-horses-overwrite',
         'interval_id': 'task-racing-horses-interval',
         'unit_id': 'task-racing-horses-unit',
         'last_id': 'task-racing-horses-last',
@@ -525,6 +602,7 @@
     class_band: {{ t('racing.history.col.class_band')|tojson }},
     draw: {{ t('racing.history.col.draw')|tojson }},
     rating: {{ t('racing.history.col.rating')|tojson }},
+    handicap: {{ t('racing.history.col.handicap')|tojson }},
     jockey: {{ t('racing.history.col.jockey')|tojson }},
     trainer: {{ t('racing.history.col.trainer')|tojson }},
     finish_pos: {{ t('racing.history.col.finish_pos')|tojson }},
@@ -548,6 +626,7 @@
     class_band: {{ t('racing.history.col.desc.class_band')|tojson }},
     draw: {{ t('racing.history.col.desc.draw')|tojson }},
     rating: {{ t('racing.history.col.desc.rating')|tojson }},
+    handicap: {{ t('racing.history.col.desc.handicap')|tojson }},
     jockey: {{ t('racing.history.col.desc.jockey')|tojson }},
     trainer: {{ t('racing.history.col.desc.trainer')|tojson }},
     finish_pos: {{ t('racing.history.col.desc.finish_pos')|tojson }},
@@ -730,6 +809,11 @@
       error: MSG.error,
       retry: MSG.retry,
     },
+    formatPagerStatus: function (api) {
+      const tp = api.totalPages > 0 ? api.totalPages : 0;
+      const n = tp > 0 ? api.pageN : 0;
+      return n + "頁 / " + tp + " · " + (api.totalCount || 0) + "筆";
+    },
     getLayout: function () { return layoutSaved; },
     getDraftLayout: function () { return layoutDraft; },
     getSortableMap: function () { return SORTABLE; },
@@ -855,7 +939,7 @@
     widthMax: WIDTH_MAX,
     locale: UI_LOCALE,
     initialSettings: layoutSaved,
-    autoBind: { open: true, cancel: true, save: true, zebra: true },
+    autoBind: { open: false, cancel: true, save: true, zebra: true },
     applyZebraCss: applyZebraCss,
     onModeChange: function (on) {
       layoutModeOpen = !!on;
@@ -886,6 +970,44 @@
     onAfterSave: async function () {
       await listCtrl.load({ resetPage: true, n: 1 });
     },
+  });
+
+  async function refreshHistoryLayoutFromApi() {
+    const resp = await fetch("/api/layout/racing/racing_history", {
+      headers: { "Accept": "application/json" },
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data || !data.ok) {
+      throw new Error((data && data.error) || "layout_load_failed");
+    }
+    layoutSaved = data.layout_settings;
+    layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
+    if (Array.isArray(data.catalog) && data.catalog.length) {
+      catalog = data.catalog;
+      rebuildSortable();
+    }
+    if (data.col_labels && typeof data.col_labels === "object") {
+      Object.keys(COL_LABEL).forEach((k) => { delete COL_LABEL[k]; });
+      Object.assign(COL_LABEL, data.col_labels);
+    }
+    if (data.col_descs && typeof data.col_descs === "object") {
+      Object.keys(COL_DESC).forEach((k) => { delete COL_DESC[k]; });
+      Object.assign(COL_DESC, data.col_descs);
+    }
+    historyLayoutEditor.colLabels = COL_LABEL;
+    historyLayoutEditor.colDescs = COL_DESC;
+    historyLayoutEditor.sortableMap = SORTABLE;
+    historyLayoutEditor.replaceSettings(layoutSaved);
+    return layoutSaved;
+  }
+
+  document.getElementById("racing-btn-open-layout").addEventListener("click", async () => {
+    try {
+      await refreshHistoryLayoutFromApi();
+    } catch (err) {
+      // Fall back to in-page settings if refresh fails.
+    }
+    historyLayoutEditor.setMode(true);
   });
 
   function setLayoutMode(on) {
@@ -978,6 +1100,7 @@
       requestBoxId: "racing-request",
       statusBoxId: "racing-status",
       sendBtnId: "btn-racing-send-request",
+      overwriteId: "racing-dl-overwrite",
       defaultPresetId: "racecard",
       autoLoad: false,
       presetUrl: function (presetId) {
@@ -1099,6 +1222,7 @@
     shell.initTaskUi({
       apiUrl: "/api/racing/tasks/update-racecard",
       enabledId: "task-racing-racecard-enabled",
+      overwriteId: "task-racing-racecard-overwrite",
       intervalId: "task-racing-racecard-interval",
       unitId: "task-racing-racecard-unit",
       lastId: "task-racing-racecard-last",
@@ -1110,6 +1234,7 @@
     shell.initTaskUi({
       apiUrl: "/api/racing/tasks/update-odds",
       enabledId: "task-racing-odds-enabled",
+      overwriteId: "task-racing-odds-overwrite",
       intervalId: "task-racing-odds-interval",
       unitId: "task-racing-odds-unit",
       lastId: "task-racing-odds-last",
@@ -1121,6 +1246,7 @@
     shell.initTaskUi({
       apiUrl: "/api/racing/tasks/update-daily-results",
       enabledId: "task-racing-daily-results-enabled",
+      overwriteId: "task-racing-daily-results-overwrite",
       intervalId: "task-racing-daily-results-interval",
       unitId: "task-racing-daily-results-unit",
       lastId: "task-racing-daily-results-last",
@@ -1132,6 +1258,7 @@
     shell.initTaskUi({
       apiUrl: "/api/racing/tasks/update-horses",
       enabledId: "task-racing-horses-enabled",
+      overwriteId: "task-racing-horses-overwrite",
       intervalId: "task-racing-horses-interval",
       unitId: "task-racing-horses-unit",
       lastId: "task-racing-horses-last",

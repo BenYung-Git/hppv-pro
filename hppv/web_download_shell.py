@@ -152,12 +152,27 @@ def _raw_payload_from_preset(
     return json.dumps(obj, ensure_ascii=False)
 
 
+def parse_overwrite_flag(data: Any) -> bool:
+    """Top-level body ``overwrite`` (not GraphQL variables). Default false."""
+    if not isinstance(data, dict):
+        return False
+    raw = data.get("overwrite")
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    if isinstance(raw, str):
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
 def send_racing_download(
     *,
     db_path: Path,
     request_key: str,
     raw_payload: str,
     progress_cb: Any | None = None,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """Shared racing download entry: whitelist payload → locked download/write."""
     if request_key not in RACING_REQUEST_PRESETS:
@@ -173,6 +188,7 @@ def send_racing_download(
     venue = variables.get("venueCode")
     race_date = race_date.strip() if isinstance(race_date, str) and race_date.strip() else None
     venue = venue.strip() if isinstance(venue, str) and venue.strip() else None
+    overwrite_n = bool(overwrite)
 
     t0 = time.perf_counter()
     try:
@@ -189,14 +205,18 @@ def send_racing_download(
                 race_date=race_date,
                 venue_code=venue,
                 progress_cb=progress_cb,
+                overwrite=overwrite_n,
             )
         elif request_key == RACING_REQUEST_KEY_RESULTS_PERIOD:
             result = run_results_period_download_locked(
-                db_path, variables=variables, progress_cb=progress_cb
+                db_path,
+                variables=variables,
+                progress_cb=progress_cb,
+                overwrite=overwrite_n,
             )
         elif request_key == RACING_REQUEST_KEY_HORSES:
             result = run_horses_download_locked(
-                db_path, progress_cb=progress_cb
+                db_path, progress_cb=progress_cb, overwrite=overwrite_n
             )
         else:
             result = run_racecard_download_locked(
@@ -259,6 +279,7 @@ def execute_racing_download_from_preset(
     requests_dir: Path,
     request_key: str,
     variables_override: dict[str, Any] | None = None,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """
     Racing non-UI entry (scheduler / Desktop / CLI):
@@ -268,7 +289,10 @@ def execute_racing_download_from_preset(
         requests_dir, request_key, variables_override=variables_override
     )
     return send_racing_download(
-        db_path=db_path, request_key=request_key, raw_payload=raw
+        db_path=db_path,
+        request_key=request_key,
+        raw_payload=raw,
+        overwrite=overwrite,
     )
 
 
@@ -572,6 +596,7 @@ def send_soccer_download(
     request_key: str,
     raw_payload: str,
     wait_for_rate_limit: bool = False,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """Shared soccer GraphQL send + ingest (matches/odds paths)."""
     if request_key not in SOCCER_REQUEST_PRESETS:
@@ -615,7 +640,10 @@ def send_soccer_download(
                 )
             else:
                 ing = ingest_matches_and_odds(
-                    db_path, response_obj, request_key=request_key
+                    db_path,
+                    response_obj,
+                    request_key=request_key,
+                    overwrite=bool(overwrite),
                 )
             _soccer_apply_ingest_result(ingest, ing, db_path, request_key)
         except SoccerIngestError as e:
@@ -649,12 +677,16 @@ def execute_download(
     request_key: str,
     raw_payload: str,
     wait_for_rate_limit: bool = False,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """Shared download entry: all sports / bypasses dispatch here."""
     sport_n = normalize_sport(sport)
     if sport_n == SPORT_RACING:
         return send_racing_download(
-            db_path=db_path, request_key=request_key, raw_payload=raw_payload
+            db_path=db_path,
+            request_key=request_key,
+            raw_payload=raw_payload,
+            overwrite=overwrite,
         )
     if request_key == REQUEST_KEY_FOOTYLOGIC_CLI_RUN:
         return execute_footylogic_cli_run(db_path=db_path, raw_payload=raw_payload)
@@ -663,6 +695,7 @@ def execute_download(
         request_key=request_key,
         raw_payload=raw_payload,
         wait_for_rate_limit=wait_for_rate_limit,
+        overwrite=overwrite,
     )
 
 
@@ -674,6 +707,7 @@ def execute_download_from_preset(
     request_key: str,
     variables_override: dict[str, Any] | None = None,
     wait_for_rate_limit: bool = False,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """
     Shared non-UI entry (scheduler / Desktop / CLI):
@@ -686,6 +720,7 @@ def execute_download_from_preset(
             requests_dir=requests_dir,
             request_key=request_key,
             variables_override=variables_override,
+            overwrite=overwrite,
         )
     _payload, display = load_soccer_request_preset(requests_dir, request_key)
     raw = display
@@ -704,6 +739,7 @@ def execute_download_from_preset(
         request_key=request_key,
         raw_payload=raw,
         wait_for_rate_limit=wait_for_rate_limit,
+        overwrite=overwrite,
     )
 
 

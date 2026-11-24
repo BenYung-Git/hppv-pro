@@ -108,3 +108,42 @@ def test_layout_settings_from_catalog_matches_racing_defaults() -> None:
     seeded = layout_settings_from_catalog(SPORT_RACING, LAYOUT_KEY_RACING_HISTORY)
     assert len(seeded["columns"]) == len(rl.RACING_HISTORY_COLUMN_CATALOG)
     assert seeded["zebra_enabled"] is True
+    assert any(c["key"] == "handicap" for c in seeded["columns"])
+
+
+def test_racing_require_appends_new_catalog_column(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Existing JSON without a new catalog key is patched and persisted."""
+    import json
+
+    path = tmp_path / "racing_layout_settings.json"
+    monkeypatch.setattr(rl, "layout_settings_path", lambda: path)
+    seeded = layout_settings_from_catalog(SPORT_RACING, LAYOUT_KEY_RACING_HISTORY)
+    cols = [c for c in seeded["columns"] if c["key"] != "handicap"]
+    assert len(cols) == len(seeded["columns"]) - 1
+    path.write_text(
+        json.dumps(
+            {
+                LAYOUT_KEY_RACING_HISTORY: {
+                    "zebra_enabled": seeded["zebra_enabled"],
+                    "zebra_color_id": seeded["zebra_color_id"],
+                    "columns": cols,
+                },
+                LAYOUT_KEY_RACING_DAILY: layout_settings_from_catalog(
+                    SPORT_RACING, LAYOUT_KEY_RACING_DAILY
+                ),
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    hist = require_layout_settings(SPORT_RACING, LAYOUT_KEY_RACING_HISTORY)
+    keys = [c["key"] for c in hist["columns"]]
+    assert "handicap" in keys
+    assert keys.index("handicap") == keys.index("rating") + 1
+    assert len(hist["columns"]) == len(rl.RACING_HISTORY_COLUMN_CATALOG)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert any(
+        c["key"] == "handicap" for c in saved[LAYOUT_KEY_RACING_HISTORY]["columns"]
+    )

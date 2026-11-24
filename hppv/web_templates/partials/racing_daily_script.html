@@ -30,7 +30,42 @@
     exportNoRace: {{ t('racing.daily.export.no_race')|tojson }},
     exportNoRows: {{ t('racing.daily.export.no_rows')|tojson }},
     raceCardLabel: {{ t('racing.daily.race_card.label')|tojson }},
-    horseTip: {{ t('racing.daily.horse_history.tip')|tojson }},
+    horseTip: {{ t('racing.horse_form.tooltip')|tojson }},
+    horseFormTitle: {{ t('racing.horse_form.title')|tojson }},
+    horseFormCutoff: {{ t('racing.horse_form.cutoff')|tojson }},
+    horseFormSameDistance: {{ t('racing.horse_form.same_distance')|tojson }},
+    horseFormRecent: {{ t('racing.horse_form.recent')|tojson }},
+    horseFormSummary: {{ t('racing.horse_form.summary')|tojson }},
+    horseFormLimit: {{ t('racing.horse_form.limit')|tojson }},
+    horseFormFilterAll: {{ t('racing.horse_form.filter_all')|tojson }},
+    horseFormFilterVenue: {{ t('racing.horse_form.filter_same_venue')|tojson }},
+    horseFormFilterDistance: {{ t('racing.horse_form.filter_same_distance')|tojson }},
+    horseFormColDate: {{ t('racing.horse_form.col.date')|tojson }},
+    horseFormColVenue: {{ t('racing.horse_form.col.venue')|tojson }},
+    horseFormColDistance: {{ t('racing.horse_form.col.distance')|tojson }},
+    horseFormColClass: {{ t('racing.horse_form.col.class')|tojson }},
+    horseFormColDraw: {{ t('racing.horse_form.col.draw')|tojson }},
+    horseFormColHandicap: {{ t('racing.horse_form.col.handicap')|tojson }},
+    horseFormColJockey: {{ t('racing.horse_form.col.jockey')|tojson }},
+    horseFormColFinish: {{ t('racing.horse_form.col.finish')|tojson }},
+    horseFormColRunning: {{ t('racing.horse_form.col.running')|tojson }},
+    horseFormColTime: {{ t('racing.horse_form.col.time')|tojson }},
+    horseFormColOdds: {{ t('racing.horse_form.col.odds')|tojson }},
+    horseFormStatFirst: {{ t('racing.horse_form.stat.first')|tojson }},
+    horseFormStatSecond: {{ t('racing.horse_form.stat.second')|tojson }},
+    horseFormStatThird: {{ t('racing.horse_form.stat.third')|tojson }},
+    horseFormStatOther: {{ t('racing.horse_form.stat.other')|tojson }},
+    horseFormStatWithdrawn: {{ t('racing.horse_form.stat.withdrawn')|tojson }},
+    horseFormStatUnknown: {{ t('racing.horse_form.stat.unknown')|tojson }},
+    horseFormStatWinRate: {{ t('racing.horse_form.stat.win_rate')|tojson }},
+    horseFormStatPlaceRate: {{ t('racing.horse_form.stat.place_rate')|tojson }},
+    horseFormStatValid: {{ t('racing.horse_form.stat.valid')|tojson }},
+    horseFormStatNoValid: {{ t('racing.horse_form.stat.no_valid')|tojson }},
+    horseFormPlayedOf: {{ t('racing.horse_form.played_of')|tojson }},
+    horseFormLoading: {{ t('racing.horse_form.loading')|tojson }},
+    horseFormEmpty: {{ t('racing.horse_form.empty')|tojson }},
+    horseFormError: {{ t('racing.horse_form.error')|tojson }},
+    horseFormRetry: {{ t('racing.horse_form.retry')|tojson }},
   };
   const SUM_LABEL = {
     race_no: {{ t('racing.daily.summary.race_no')|tojson }},
@@ -117,6 +152,7 @@
   let meeting = null;
   let races = [];
   let selectedRaceNo = null;
+  let lastRaceSummary = null;
   let listCtrl = null;
   let dailyLayoutEditor = null;
   let loaded = false;
@@ -216,6 +252,7 @@
   function renderSummary(summary) {
     if (!summaryEl) return;
     summaryEl.innerHTML = "";
+    lastRaceSummary = summary || null;
     if (!summary) return;
     const raceNoTxt = summary.race_no != null ? raceLabel(summary.race_no) : "—";
     appendSummaryPart(SUM_LABEL.race_no, raceNoTxt);
@@ -234,13 +271,259 @@
 
   function horseIconNode() {
     if (horseIconTpl && horseIconTpl.content) {
-      return horseIconTpl.content.firstElementChild.cloneNode(true);
+      const node = horseIconTpl.content.firstElementChild.cloneNode(true);
+      if (node && node.classList) node.classList.add("racing-daily-horse-icon");
+      return node;
     }
     throw new Error("racing daily horse icon template missing");
   }
 
+  // ---- Horse form accordion (mirrors soccer match-form) ----
+  let horseFormOpenKey = null;
+  let horseFormFetchSeq = 0;
+  const horseFormCache = Object.create(null);
+  const horseFormFilters = { limit: 10, recent_filter: "all" };
+
+  function hfEsc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function horseFormRowKey(row) {
+    return [
+      row.horse_id || "",
+      meeting && (meeting.race_date_iso || meeting.race_date) || "",
+      meeting && meeting.racecourse || "",
+      selectedRaceNo != null ? String(selectedRaceNo) : "",
+      row.horse_no || "",
+    ].join("|");
+  }
+
+  function closeHorseFormPanels() {
+    horseFormOpenKey = null;
+    document.querySelectorAll("tr.horse-form-expand").forEach((el) => el.remove());
+    document.querySelectorAll(".racing-daily-horse-icon.is-open").forEach((btn) => {
+      btn.classList.remove("is-open");
+      btn.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  function hfSelectHtml(key, value, options) {
+    let html = '<label>' + hfEsc(MSG.horseFormLimit) +
+      ' <select data-hf-key="' + hfEsc(key) + '">';
+    options.forEach((opt) => {
+      html += '<option value="' + hfEsc(opt.value) + '"' +
+        (String(opt.value) === String(value) ? " selected" : "") + ">" +
+        hfEsc(opt.label) + "</option>";
+    });
+    return html + "</select></label>";
+  }
+
+  function hfFilterSelectHtml(value) {
+    const opts = [
+      { value: "all", label: MSG.horseFormFilterAll },
+      { value: "same_venue", label: MSG.horseFormFilterVenue },
+      { value: "same_distance", label: MSG.horseFormFilterDistance },
+    ];
+    let html = '<label><select data-hf-key="recent_filter">';
+    opts.forEach((opt) => {
+      html += '<option value="' + hfEsc(opt.value) + '"' +
+        (opt.value === value ? " selected" : "") + ">" + hfEsc(opt.label) + "</option>";
+    });
+    return html + "</select></label>";
+  }
+
+  function hfFormTableHtml(rows) {
+    const list = rows || [];
+    const heads = [
+      MSG.horseFormColDate, MSG.horseFormColVenue, MSG.horseFormColDistance,
+      MSG.horseFormColClass, MSG.horseFormColDraw, MSG.horseFormColHandicap,
+      MSG.horseFormColJockey, MSG.horseFormColFinish,
+      MSG.horseFormColRunning, MSG.horseFormColTime, MSG.horseFormColOdds,
+    ];
+    let html = '<div class="hf-table-scroll"><table class="hf-table"><thead><tr>';
+    heads.forEach((h) => { html += "<th>" + hfEsc(h) + "</th>"; });
+    html += "</tr></thead><tbody>";
+    if (!list.length) {
+      html += '<tr><td colspan="11"><div class="hf-state">' + hfEsc(MSG.horseFormEmpty) +
+        "</div></td></tr>";
+    } else {
+      list.forEach((r) => {
+        html += "<tr>" +
+          "<td>" + hfEsc(r.race_date) + "</td>" +
+          "<td>" + hfEsc(r.venue) + "</td>" +
+          "<td>" + hfEsc(r.distance) + "</td>" +
+          "<td>" + hfEsc(r.class_band) + "</td>" +
+          "<td>" + hfEsc(r.draw) + "</td>" +
+          "<td>" + hfEsc(r.handicap) + "</td>" +
+          "<td>" + hfEsc(r.jockey) + "</td>" +
+          "<td>" + hfEsc(r.finish_pos) + "</td>" +
+          "<td>" + hfEsc(r.running_pos) + "</td>" +
+          "<td>" + hfEsc(r.time) + "</td>" +
+          "<td>" + hfEsc(r.win_odds) + "</td>" +
+          "</tr>";
+      });
+    }
+    html += "</tbody></table></div>";
+    return html;
+  }
+
+  function hfRateText(rate) {
+    if (rate == null || rate === "" || rate === "—") return "—";
+    const n = Number(rate);
+    if (!Number.isFinite(n)) return "—";
+    return (n * 100).toFixed(1) + "%";
+  }
+
+  function hfStatChip(text, cls) {
+    return '<span class="hf-stat-chip' + (cls ? " " + cls : "") + '">' + hfEsc(text) + "</span>";
+  }
+
+  function hfSummaryCardHtml(summary, limit) {
+    const s = summary || {};
+    const playedOf = String(MSG.horseFormPlayedOf || "").replace("{total}", String(limit || s.played || 0));
+    const noValid = !(s.valid_played > 0);
+    return '<div class="hf-summary-card"><h5>' + hfEsc(MSG.horseFormSummary) + "</h5>" +
+      '<div class="hf-stat-chips">' +
+      hfStatChip(MSG.horseFormStatFirst + " " + (s.first || 0), "is-first") +
+      hfStatChip(MSG.horseFormStatSecond + " " + (s.second || 0), "is-second") +
+      hfStatChip(MSG.horseFormStatThird + " " + (s.third || 0), "is-third") +
+      hfStatChip(MSG.horseFormStatOther + " " + (s.other || 0), "") +
+      hfStatChip(MSG.horseFormStatWithdrawn + " " + (s.withdrawn || 0), "is-withdrawn") +
+      (s.unknown ? hfStatChip(MSG.horseFormStatUnknown + " " + s.unknown, "") : "") +
+      "</div>" +
+      "<p>" + hfEsc(MSG.horseFormStatWinRate) + " " + hfEsc(hfRateText(s.win_rate)) +
+      " ｜ " + hfEsc(MSG.horseFormStatPlaceRate) + " " + hfEsc(hfRateText(s.place_rate)) + "</p>" +
+      "<p>" + hfEsc(MSG.horseFormStatValid) + " " + hfEsc(s.valid_played || 0) +
+      hfEsc(playedOf) +
+      (noValid ? " · " + hfEsc(MSG.horseFormStatNoValid) : "") +
+      "</p></div>";
+  }
+
+  function renderHorseFormPanelContent(host, state) {
+    if (!host) return;
+    if (state === "loading") {
+      host.innerHTML = '<div class="horse-form-panel"><div class="hf-state">' +
+        hfEsc(MSG.horseFormLoading) + "</div></div>";
+      return;
+    }
+    if (state && state.error) {
+      host.innerHTML = '<div class="horse-form-panel"><div class="hf-state error">' +
+        hfEsc(MSG.horseFormError) +
+        ' <button type="button" class="date-nav-btn" data-hf-retry="1">' +
+        hfEsc(MSG.horseFormRetry) + "</button></div></div>";
+      const btn = host.querySelector("[data-hf-retry]");
+      if (btn) btn.addEventListener("click", () => loadHorseForm(host, true));
+      return;
+    }
+    const data = state && state.data ? state.data : {};
+    const f = Object.assign({}, horseFormFilters, (data.filters || {}));
+    if (data.limit) f.limit = data.limit;
+    const name = (data.horse && data.horse.horse_name) || "";
+    host.innerHTML =
+      '<div class="horse-form-panel" data-horse-id="' + hfEsc((data.horse && data.horse.horse_id) || "") + '">' +
+      '<div class="hf-head"><h4 class="hf-title">' + hfEsc(MSG.horseFormTitle) +
+      (name ? " — " + hfEsc(name) : "") + "</h4>" +
+      '<span class="hf-cutoff">' + hfEsc(MSG.horseFormCutoff) + "</span>" +
+      hfSelectHtml("limit", f.limit, [{ value: 5, label: "5" }, { value: 10, label: "10" }]) +
+      "</div>" +
+      '<div class="hf-section"><h5 class="hf-section-title">1. ' + hfEsc(MSG.horseFormSameDistance) + "</h5>" +
+      hfFormTableHtml(data.same_distance) + "</div>" +
+      '<div class="hf-section"><h5 class="hf-section-title">2. ' + hfEsc(MSG.horseFormRecent) + "</h5>" +
+      '<div class="hf-toolbar">' + hfFilterSelectHtml(f.recent_filter || "all") + "</div>" +
+      hfFormTableHtml(data.recent) + "</div>" +
+      '<div class="hf-section"><h5 class="hf-section-title">3. ' + hfEsc(MSG.horseFormSummary) + "</h5>" +
+      '<div class="hf-summary">' + hfSummaryCardHtml(data.summary, f.limit) + "</div></div>" +
+      "</div>";
+    host.querySelectorAll("[data-hf-key]").forEach((el) => {
+      el.addEventListener("change", () => {
+        const key = el.getAttribute("data-hf-key");
+        if (key === "limit") horseFormFilters.limit = Number(el.value) || 10;
+        else if (key === "recent_filter") horseFormFilters.recent_filter = el.value || "all";
+        loadHorseForm(host, true);
+      });
+    });
+  }
+
+  async function loadHorseForm(host, force) {
+    if (!host) return;
+    const anchor = host._hfAnchor;
+    if (!anchor || !anchor.horse_id) return;
+    const cacheKey = JSON.stringify({ a: anchor, f: horseFormFilters });
+    if (!force && horseFormCache[cacheKey]) {
+      renderHorseFormPanelContent(host, { data: horseFormCache[cacheKey] });
+      return;
+    }
+    const seq = ++horseFormFetchSeq;
+    renderHorseFormPanelContent(host, "loading");
+    const params = new URLSearchParams();
+    params.set("horse_id", anchor.horse_id);
+    params.set("race_date", anchor.race_date);
+    params.set("venue", anchor.venue || "");
+    params.set("distance", anchor.distance || "");
+    if (anchor.race_no) params.set("race_no", String(anchor.race_no));
+    if (anchor.horse_name) params.set("horse_name", anchor.horse_name);
+    params.set("limit", String(horseFormFilters.limit));
+    params.set("recent_filter", horseFormFilters.recent_filter);
+    try {
+      const resp = await fetch("/api/racing/horse-form?" + params.toString(), {
+        headers: { Accept: "application/json" },
+      });
+      const body = await resp.json();
+      if (seq !== horseFormFetchSeq) return;
+      if (!resp.ok || !body || !body.ok) {
+        renderHorseFormPanelContent(host, { error: true });
+        return;
+      }
+      horseFormCache[cacheKey] = body.data;
+      renderHorseFormPanelContent(host, { data: body.data });
+    } catch (_e) {
+      if (seq !== horseFormFetchSeq) return;
+      renderHorseFormPanelContent(host, { error: true });
+    }
+  }
+
+  function toggleHorseForm(tr, row, btn) {
+    const key = horseFormRowKey(row);
+    const existing = tr.nextElementSibling;
+    if (existing && existing.classList.contains("horse-form-expand") && horseFormOpenKey === key) {
+      closeHorseFormPanels();
+      return;
+    }
+    closeHorseFormPanels();
+    horseFormOpenKey = key;
+    btn.classList.add("is-open");
+    btn.setAttribute("aria-expanded", "true");
+    const expand = document.createElement("tr");
+    expand.className = "horse-form-expand";
+    const td = document.createElement("td");
+    td.colSpan = tr.children.length;
+    const host = document.createElement("div");
+    host.className = "horse-form-panel-host";
+    const venue = row.racecourse_name || row.meeting_venue ||
+      (lastRaceSummary && (lastRaceSummary.racecourse_name || lastRaceSummary.meeting_venue)) ||
+      (meeting && meeting.racecourse_name) || "";
+    const distance = row.distance || (lastRaceSummary && lastRaceSummary.distance) || "";
+    host._hfAnchor = {
+      horse_id: row.horse_id || "",
+      race_date: (meeting && (meeting.race_date_iso || meeting.race_date)) || row.race_date || "",
+      venue: venue,
+      distance: distance,
+      race_no: selectedRaceNo != null ? String(selectedRaceNo) : (row.race_no || ""),
+      horse_name: row.horse_name || "",
+    };
+    td.appendChild(host);
+    expand.appendChild(td);
+    tr.after(expand);
+    loadHorseForm(host, false);
+  }
+
   function renderTable(rows) {
     applyZebraCss(layoutSaved);
+    closeHorseFormPanels();
     const cols = visibleColumns();
     thead.innerHTML = "";
     tbody.innerHTML = "";
@@ -283,7 +566,26 @@
       }
       const tdIcon = document.createElement("td");
       tdIcon.className = "racing-daily-icon-col";
-      tdIcon.appendChild(horseIconNode());
+      const icon = horseIconNode();
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "racing-daily-horse-icon";
+      btn.title = MSG.horseTip;
+      btn.setAttribute("aria-label", MSG.horseTip);
+      btn.setAttribute("aria-expanded", "false");
+      if (icon && icon.tagName === "SVG") {
+        btn.appendChild(icon);
+      } else if (icon) {
+        const svg = icon.querySelector ? icon.querySelector("svg") : null;
+        if (svg) btn.appendChild(svg.cloneNode(true));
+        else btn.appendChild(icon);
+      }
+      btn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        toggleHorseForm(tr, row, btn);
+      });
+      tdIcon.appendChild(btn);
       tr.appendChild(tdIcon);
       cols.forEach((c) => {
         const td = document.createElement("td");

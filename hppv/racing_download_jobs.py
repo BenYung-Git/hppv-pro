@@ -136,6 +136,7 @@ def start_racing_download_job(
     db_path: Path,
     request_key: str,
     raw_payload: str,
+    overwrite: bool = False,
 ) -> RacingDownloadJob:
     """Validate payload quickly, then run send_racing_download in a daemon thread."""
     from hppv.racing_requests import (
@@ -209,6 +210,7 @@ def start_racing_download_job(
                 request_key=request_key,
                 raw_payload=raw_payload,
                 progress_cb=progress_cb,
+                overwrite=bool(overwrite),
             )
             with _JOBS_LOCK:
                 job.status = "success" if result.get("ok") else "failed"
@@ -272,6 +274,7 @@ def _run_racing_download_for_job(
     request_key: str,
     raw_payload: str,
     progress_cb: Any,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """Dispatch racing runners with progress (no soccer/web_download_shell import)."""
     from hppv.racing_download import (
@@ -323,14 +326,20 @@ def _run_racing_download_for_job(
                 race_date=race_date,
                 venue_code=venue,
                 progress_cb=progress_cb,
+                overwrite=bool(overwrite),
             )
         elif request_key == REQUEST_KEY_RESULTS_PERIOD:
             result = run_results_period_download_locked(
-                db_path, variables=variables, progress_cb=progress_cb
+                db_path,
+                variables=variables,
+                progress_cb=progress_cb,
+                overwrite=bool(overwrite),
             )
         elif request_key == REQUEST_KEY_HORSES:
             result = run_horses_download_locked(
-                db_path, progress_cb=progress_cb
+                db_path,
+                progress_cb=progress_cb,
+                overwrite=bool(overwrite),
             )
         else:
             result = run_racecard_download_locked(

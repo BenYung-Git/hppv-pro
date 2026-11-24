@@ -30,6 +30,10 @@
   <div class="field-block" id="{{ ids.graphql_block }}">
     <div class="field-head">
       <span>{{ t('soccer.daily.request_label') }}</span>
+      <label class="dl-overwrite" for="{{ ids.overwrite }}">
+        <input type="checkbox" id="{{ ids.overwrite }}">
+        <span>{{ t('download.option.overwrite') }}</span>
+      </label>
       <button type="button" class="icon-btn" id="{{ ids.send_btn }}"
               title="{{ t('soccer.daily.send') }}"
               aria-label="{{ t('soccer.daily.send') }}">

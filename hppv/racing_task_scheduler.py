@@ -118,52 +118,64 @@ def _detail_from_send_body(body: dict[str, Any]) -> dict[str, Any]:
     return detail
 
 
-def run_update_racecard_once(db_path: Path, requests_dir: Path) -> dict[str, Any]:
+def run_update_racecard_once(
+    db_path: Path, requests_dir: Path, *, overwrite: bool = False
+) -> dict[str, Any]:
     try:
         body = execute_download_from_preset(
             sport=SPORT_RACING,
             db_path=db_path,
             requests_dir=requests_dir,
             request_key=REQUEST_KEY_RACECARD,
+            overwrite=overwrite,
         )
     except DownloadShellError as e:
         raise SoccerTaskError(e.code, e.detail) from e
     return _detail_from_send_body(body)
 
 
-def run_update_racing_odds_once(db_path: Path, requests_dir: Path) -> dict[str, Any]:
+def run_update_racing_odds_once(
+    db_path: Path, requests_dir: Path, *, overwrite: bool = False
+) -> dict[str, Any]:
     try:
         body = execute_download_from_preset(
             sport=SPORT_RACING,
             db_path=db_path,
             requests_dir=requests_dir,
             request_key=REQUEST_KEY_UPDATE_ODDS,
+            overwrite=overwrite,
         )
     except DownloadShellError as e:
         raise SoccerTaskError(e.code, e.detail) from e
     return _detail_from_send_body(body)
 
 
-def run_update_daily_results_once(db_path: Path, requests_dir: Path) -> dict[str, Any]:
+def run_update_daily_results_once(
+    db_path: Path, requests_dir: Path, *, overwrite: bool = False
+) -> dict[str, Any]:
     try:
         body = execute_download_from_preset(
             sport=SPORT_RACING,
             db_path=db_path,
             requests_dir=requests_dir,
             request_key=REQUEST_KEY_DAILY_RESULTS,
+            overwrite=overwrite,
         )
     except DownloadShellError as e:
         raise SoccerTaskError(e.code, e.detail) from e
     return _detail_from_send_body(body)
 
 
-def run_update_horses_once(db_path: Path, requests_dir: Path) -> dict[str, Any]:
+def run_update_horses_once(
+    db_path: Path, requests_dir: Path, *, overwrite: bool = False
+) -> dict[str, Any]:
     try:
         body = execute_download_from_preset(
             sport=SPORT_RACING,
             db_path=db_path,
             requests_dir=requests_dir,
             request_key=REQUEST_KEY_HORSES,
+            overwrite=overwrite,
         )
     except DownloadShellError as e:
         raise SoccerTaskError(e.code, e.detail) from e

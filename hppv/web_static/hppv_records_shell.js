@@ -41,6 +41,7 @@
    *   },
    *   messages: { loading, empty, error, retry },
    *   pagerMode: "page" | "cursor" | "none",
+   *   cursorStep?: number,  // cursor mode only; ‹› jump size (default 1 = per record)
    *   searchDebounceMs?: number,
    *   initial?: { n?, q?, qOp?, sort? },
    *   getLayout: () => layoutSaved,
@@ -71,6 +72,10 @@
     const MSG = cfg.messages || {};
     const els = cfg.els || {};
     const pagerMode = cfg.pagerMode || "page";
+    const cursorStep = Math.max(
+      1,
+      Math.floor(Number(cfg.cursorStep) || 1) || 1
+    );
     const debounceMs =
       typeof cfg.searchDebounceMs === "number" ? cfg.searchDebounceMs : 300;
     const initial = cfg.initial || {};
@@ -178,8 +183,18 @@
         st.textContent = cfg.formatPagerStatus(api());
       } else if (pagerMode === "cursor") {
         const total = totalCount > 0 ? totalCount : 0;
-        const n = total > 0 ? pageN : 0;
-        if (st) st.textContent = n + " / " + total;
+        if (cursorStep > 1) {
+          const pages = total > 0 ? Math.max(1, Math.ceil(total / cursorStep)) : 0;
+          const page = total > 0 ? Math.ceil(pageN / cursorStep) : 0;
+          if (st) {
+            st.textContent = pages
+              ? page + " / " + pages + " · " + total
+              : "0 / 0 · 0";
+          }
+        } else {
+          const n = total > 0 ? pageN : 0;
+          if (st) st.textContent = n + " / " + total;
+        }
       } else if (st) {
         st.textContent = totalPages
           ? pageN + " / " + totalPages + " · " + totalCount
@@ -187,6 +202,18 @@
       }
       if (pagerMode === "cursor") {
         const total = totalCount > 0 ? totalCount : 0;
+        if (cursorStep > 1) {
+          const pages = total > 0 ? Math.max(1, Math.ceil(total / cursorStep)) : 0;
+          const page = total > 0 ? Math.ceil(pageN / cursorStep) : 0;
+          const disableAll = pages <= 1;
+          const atFirst = disableAll || page <= 1;
+          const atLast = disableAll || page >= pages;
+          if (els.pagerFirst) els.pagerFirst.disabled = atFirst;
+          if (els.pagerPrev) els.pagerPrev.disabled = atFirst;
+          if (els.pagerNext) els.pagerNext.disabled = atLast;
+          if (els.pagerLast) els.pagerLast.disabled = atLast;
+          return;
+        }
         const disableAll = total <= 1;
         const atFirst = disableAll || pageN <= 1;
         const atLast = disableAll || pageN >= total;
@@ -484,7 +511,12 @@
         if (els.pagerPrev) {
           els.pagerPrev.addEventListener("click", function () {
             if (!els.pagerPrev.disabled) {
-              pageN = Math.max(1, pageN - 1);
+              if (cursorStep > 1) {
+                const page = Math.max(1, Math.ceil(pageN / cursorStep) - 1);
+                pageN = (page - 1) * cursorStep + 1;
+              } else {
+                pageN = Math.max(1, pageN - 1);
+              }
               updatePager();
               if (typeof cfg.onCursorMove === "function") cfg.onCursorMove(api());
             }
@@ -493,7 +525,16 @@
         if (els.pagerNext) {
           els.pagerNext.addEventListener("click", function () {
             if (!els.pagerNext.disabled) {
-              pageN = Math.min(totalCount, pageN + 1);
+              if (cursorStep > 1) {
+                const pages = Math.max(1, Math.ceil(totalCount / cursorStep));
+                const page = Math.min(
+                  pages,
+                  Math.ceil(pageN / cursorStep) + 1
+                );
+                pageN = Math.min(totalCount, (page - 1) * cursorStep + 1);
+              } else {
+                pageN = Math.min(totalCount, pageN + 1);
+              }
               updatePager();
               if (typeof cfg.onCursorMove === "function") cfg.onCursorMove(api());
             }

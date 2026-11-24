@@ -128,6 +128,23 @@
   border-radius: 10px;
 }
 
+.hppv-download-shell .dl-overwrite,
+.hppv-download-shell .task-overwrite {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #3a4a5c;
+  font-weight: 600;
+  margin-left: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.hppv-download-shell .dl-overwrite input[type="checkbox"],
+.hppv-download-shell .task-overwrite input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+}
 .hppv-download-shell .task-enable {
   display: inline-flex;
   align-items: center;

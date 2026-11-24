@@ -23,9 +23,12 @@ def test_db_roundtrip(tmp_path: Path) -> None:
                 class_band="Class 3",
                 draw="1",
                 rating="50",
+                handicap="126",
                 jockey="J",
                 trainer="T",
                 finish_pos="1",
+                running_pos="1 1 1",
+                win_odds="3.5",
                 time="1:09.99",
                 prize="1000",
             )
@@ -35,4 +38,8 @@ def test_db_roundtrip(tmp_path: Path) -> None:
     rows = fetch_race_records(db_path, "H1")
     assert len(rows) == 1
     assert rows[0].horse_id == "H1"
+    assert rows[0].handicap == "126"
+    assert rows[0].running_pos == "1 1 1"
+    assert rows[0].win_odds == "3.5"
+    assert rows[0].time == "1:09.99"
 

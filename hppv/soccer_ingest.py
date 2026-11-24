@@ -326,9 +326,12 @@ def ingest_matches_and_odds(
     *,
     request_key: str = REQUEST_KEY_MATCHES_AND_ODDS,
     now_utc: str | None = None,
+    overwrite: bool = False,
 ) -> IngestResult:
     """
     Parse and upsert matches in one transaction with sync_state update.
+
+    overwrite=True: re-insert even if match_id is tombstoned in soccer_daily_removed.
     """
     if not db_path.is_file():
         raise SoccerIngestError("db_missing", f"database missing: {db_path}")
@@ -373,7 +376,7 @@ def ingest_matches_and_odds(
                 ).fetchone()
 
                 if existing is None:
-                    if tombstone_ready:
+                    if tombstone_ready and not overwrite:
                         removed = conn.execute(
                             f"SELECT 1 FROM {SOCCER_DAILY_REMOVED_TABLE} "
                             "WHERE match_id = ? LIMIT 1;",
@@ -382,6 +385,12 @@ def ingest_matches_and_odds(
                         if removed is not None:
                             skipped_tombstone += 1
                             continue
+                    if tombstone_ready and overwrite:
+                        conn.execute(
+                            f"DELETE FROM {SOCCER_DAILY_REMOVED_TABLE} "
+                            "WHERE match_id = ?;",
+                            (m.match_id,),
+                        )
                     odds_fetched = stamp if m.has_complete_had else None
                     conn.execute(
                         """

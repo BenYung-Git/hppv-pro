@@ -108,6 +108,7 @@ def parse_past_performance_from_html(horse_id: str, html: str, source_url: str) 
     idx_class = idx_of("班", "Class")
     idx_draw = idx_of("檔", "Draw")
     idx_rating = idx_of("評分", "Rating")
+    idx_handicap = idx_of("負磅", "Actual Wt", "Handicap", "Wt.")
     idx_jockey = idx_of("騎師", "Jockey")
     idx_trainer = idx_of("練馬師", "Trainer")
     idx_pos = idx_of("名次", "Pos", "Finish")
@@ -163,6 +164,7 @@ def parse_past_performance_from_html(horse_id: str, html: str, source_url: str) 
             class_band=get(idx_class),
             draw=get(idx_draw),
             rating=get(idx_rating),
+            handicap=get(idx_handicap),
             jockey=get(idx_jockey),
             trainer=get(idx_trainer),
             finish_pos=get(idx_pos),
@@ -183,6 +185,7 @@ def parse_past_performance_from_html(horse_id: str, html: str, source_url: str) 
             rec.class_band.strip(),
             rec.draw.strip(),
             rec.rating.strip(),
+            rec.handicap.strip(),
             rec.jockey.strip(),
             rec.trainer.strip(),
             rec.finish_pos.strip(),

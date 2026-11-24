@@ -41,6 +41,7 @@ def _seed_minimal_racing_db(db: Path) -> None:
 
 def test_all_catalog_columns_default_visible() -> None:
     assert RACING_HISTORY_COLUMN_CATALOG
+    assert any(c["key"] == "handicap" for c in RACING_HISTORY_COLUMN_CATALOG)
     assert all(bool(c.get("default_visible")) for c in RACING_HISTORY_COLUMN_CATALOG)
     settings = default_layout_settings()
     assert all(c["visible"] for c in settings["columns"])

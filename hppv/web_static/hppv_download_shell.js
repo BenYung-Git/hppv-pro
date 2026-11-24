@@ -541,11 +541,16 @@
         : function () {
             return true;
           };
+    const overwriteEl = opts.overwriteId ? $(opts.overwriteId) : null;
     const buildSendBody =
       typeof opts.buildSendBody === "function"
         ? opts.buildSendBody
         : function (presetId, payloadText) {
-            return { request_key: presetId, payload: payloadText };
+            return {
+              request_key: presetId,
+              payload: payloadText,
+              overwrite: !!(overwriteEl && overwriteEl.checked),
+            };
           };
 
     let loadingPreset = false;
@@ -761,6 +766,7 @@
 
   function initTaskUi(opts) {
     const enabledEl = $(opts.enabledId);
+    const overwriteEl = opts.overwriteId ? $(opts.overwriteId) : null;
     const intervalEl = $(opts.intervalId);
     const unitEl = $(opts.unitId);
     const lastEl = $(opts.lastId);
@@ -790,6 +796,7 @@
       if (!task) return;
       applyingRemote = true;
       enabledEl.checked = !!task.enabled;
+      if (overwriteEl) overwriteEl.checked = !!task.overwrite;
       if (task.interval_value) intervalEl.value = String(task.interval_value);
       if (task.interval_unit) unitEl.value = String(task.interval_unit);
       if (lastEl) lastEl.textContent = task.last_run_at_hkt || MSG.taskNever || "—";
@@ -812,12 +819,14 @@
         const data = await resp.json();
         if (!resp.ok || !data || !data.ok) {
           enabledEl.checked = false;
+          if (overwriteEl) overwriteEl.checked = false;
           if (msgEl) msgEl.textContent = MSG.taskSaveFailed || "";
           return;
         }
         applyTaskToUi(data.task);
       } catch (_e) {
         enabledEl.checked = false;
+        if (overwriteEl) overwriteEl.checked = false;
         if (msgEl) msgEl.textContent = MSG.taskSaveFailed || "";
       }
     }
@@ -826,6 +835,7 @@
       if (applyingRemote) return;
       const payload = {
         enabled: !!enabledEl.checked,
+        overwrite: !!(overwriteEl && overwriteEl.checked),
         interval_value: Number(intervalEl.value || 1),
         interval_unit: unitEl.value || "mins",
       };
@@ -859,6 +869,7 @@
     }
 
     enabledEl.addEventListener("change", scheduleSave);
+    if (overwriteEl) overwriteEl.addEventListener("change", scheduleSave);
     intervalEl.addEventListener("change", scheduleSave);
     unitEl.addEventListener("change", scheduleSave);
     loadTask();

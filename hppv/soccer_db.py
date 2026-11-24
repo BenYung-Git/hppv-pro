@@ -143,9 +143,25 @@ def report_layout_settings_schema_diff(conn: sqlite3.Connection) -> str | None:
     return "\n".join(parts)
 
 
+def ensure_soccer_task_settings_columns(conn: sqlite3.Connection) -> list[str]:
+    """Add missing soccer_task_settings columns (catalog growth). Returns added names."""
+    if not table_exists(conn, SOCCER_TASK_SETTINGS_TABLE):
+        return []
+    actual = _read_table_columns(conn, SOCCER_TASK_SETTINGS_TABLE)
+    added: list[str] = []
+    if "overwrite" not in actual:
+        conn.execute(
+            "ALTER TABLE soccer_task_settings "
+            "ADD COLUMN overwrite INTEGER NOT NULL DEFAULT 0;"
+        )
+        added.append("overwrite")
+    return added
+
+
 def report_task_settings_schema_diff(conn: sqlite3.Connection) -> str | None:
     if not table_exists(conn, SOCCER_TASK_SETTINGS_TABLE):
         return None
+    ensure_soccer_task_settings_columns(conn)
     expected = soccer_task_settings_expected_columns()
     actual = _read_table_columns(conn, SOCCER_TASK_SETTINGS_TABLE)
     missing = sorted(expected - actual)

@@ -92,6 +92,8 @@ def init_db(db_path: Path) -> None:
             conn.execute("ALTER TABLE race_records ADD COLUMN running_pos TEXT NOT NULL DEFAULT '';")
         if "win_odds" not in rr_names:
             conn.execute("ALTER TABLE race_records ADD COLUMN win_odds TEXT NOT NULL DEFAULT '';")
+        if "handicap" not in rr_names:
+            conn.execute("ALTER TABLE race_records ADD COLUMN handicap TEXT NOT NULL DEFAULT '';")
 
         # Migration: add brand_no for existing DBs (before creating index on it).
         cols = conn.execute("PRAGMA table_info(horses);").fetchall()
@@ -106,8 +108,21 @@ def init_db(db_path: Path) -> None:
         conn.execute("UPDATE horses SET brand_no = horse_id WHERE brand_no IS NULL OR brand_no = '';")
 
 
-def upsert_race_records(db_path: Path, records: Iterable[RaceRecord]) -> int:
-    """Insert records; ignore duplicates. Returns inserted row count."""
+def upsert_race_records(
+    db_path: Path,
+    records: Iterable[RaceRecord],
+    *,
+    overwrite: bool = False,
+) -> int:
+    """Insert race_records. Default ignores duplicates; overwrite replaces by logical key.
+
+    Logical key for overwrite: (horse_id, race_date, venue, race_no).
+    Returns inserted/replaced row count.
+    """
+
+    rec_list = list(records)
+    if not rec_list:
+        return 0
 
     rows = [
         (
@@ -121,6 +136,7 @@ def upsert_race_records(db_path: Path, records: Iterable[RaceRecord]) -> int:
             r.class_band,
             r.draw,
             r.rating,
+            r.handicap,
             r.jockey,
             r.trainer,
             r.finish_pos,
@@ -129,20 +145,39 @@ def upsert_race_records(db_path: Path, records: Iterable[RaceRecord]) -> int:
             r.time,
             r.prize,
         )
-        for r in records
+        for r in rec_list
     ]
-    if not rows:
-        return 0
 
     with get_connection(db_path) as conn:
+        if overwrite:
+            conn.executemany(
+                """
+                DELETE FROM race_records
+                WHERE horse_id = ? AND race_date = ? AND venue = ? AND race_no = ?;
+                """,
+                [(r.horse_id, r.race_date, r.venue, r.race_no) for r in rec_list],
+            )
+            cur = conn.executemany(
+                """
+                INSERT INTO race_records (
+                  horse_id, race_date, venue, race_no, course, distance, going, class_band, draw,
+                  rating, handicap, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
+                ) VALUES (
+                  ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                  ?, ?, ?, ?, ?, ?, ?, ?, ?
+                );
+                """,
+                rows,
+            )
+            return cur.rowcount
         cur = conn.executemany(
             """
             INSERT OR IGNORE INTO race_records (
               horse_id, race_date, venue, race_no, course, distance, going, class_band, draw,
-              rating, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
+              rating, handicap, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
             ) VALUES (
               ?, ?, ?, ?, ?, ?, ?, ?, ?,
-              ?, ?, ?, ?, ?, ?, ?, ?
+              ?, ?, ?, ?, ?, ?, ?, ?, ?
             );
             """,
             rows,
@@ -158,7 +193,7 @@ def fetch_race_records(db_path: Path, horse_id: str) -> list[RaceRecord]:
             """
             SELECT
               horse_id, race_date, venue, race_no, course, distance, going, class_band,
-              draw, rating, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
+              draw, rating, handicap, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
             FROM race_records
             WHERE horse_id = ?
             ORDER BY race_date DESC, id DESC;
@@ -177,6 +212,7 @@ def fetch_race_records(db_path: Path, horse_id: str) -> list[RaceRecord]:
                 class_band=row["class_band"],
                 draw=row["draw"],
                 rating=row["rating"],
+                handicap=row["handicap"] if "handicap" in row.keys() else "",
                 jockey=row["jockey"],
                 trainer=row["trainer"],
                 finish_pos=row["finish_pos"],
@@ -216,6 +252,7 @@ def get_recent_form_for_horse(
         "class_band": "rr.class_band",
         "draw": "rr.draw",
         "rating": "rr.rating",
+        "handicap": "rr.handicap",
         "jockey": "rr.jockey",
         "trainer": "rr.trainer",
         "finish_pos": "rr.finish_pos",
@@ -257,6 +294,7 @@ def get_recent_form_for_horse(
               rr.draw,
               rr.finish_pos,
               rr.rating,
+              rr.handicap,
               rr.time,
               rr.jockey,
               rr.trainer,
@@ -400,11 +438,15 @@ def _horse_name_en_is_placeholder(
 
 
 def insert_or_fill_horse(
-    db_path: Path, horse: Mapping[str, str | None]
+    db_path: Path,
+    horse: Mapping[str, str | None],
+    *,
+    overwrite: bool = False,
 ) -> str:
     """Insert a new horse, or fill blank/placeholder fields on an existing row.
 
-    Does not overwrite non-empty real names. Returns one of:
+    Default does not overwrite non-empty real names. With overwrite=True, non-empty
+    incoming fields replace existing values. Returns one of:
     ``inserted`` | ``filled`` | ``skipped``.
     """
 
@@ -442,26 +484,28 @@ def insert_or_fill_horse(
 
         sets: list[str] = []
         params: list[str | None] = []
-        if not _horse_text(existing["brand_no"]) and brand_no:
+        if brand_no and (overwrite or not _horse_text(existing["brand_no"])):
             sets.append("brand_no = ?")
             params.append(brand_no)
-        if not _horse_text(existing["name_zh"]) and name_zh:
+        if name_zh and (overwrite or not _horse_text(existing["name_zh"])):
             sets.append("name_zh = ?")
             params.append(name_zh)
-        if (
-            _horse_name_en_is_placeholder(
-                existing["name_en"],
-                brand_no=existing["brand_no"] or brand_no,
-                horse_id=horse_id,
-            )
-            and name_en
-            and not _horse_name_en_is_placeholder(
-                name_en, brand_no=brand_no, horse_id=horse_id
+        if name_en and (
+            overwrite
+            or (
+                _horse_name_en_is_placeholder(
+                    existing["name_en"],
+                    brand_no=existing["brand_no"] or brand_no,
+                    horse_id=horse_id,
+                )
+                and not _horse_name_en_is_placeholder(
+                    name_en, brand_no=brand_no, horse_id=horse_id
+                )
             )
         ):
             sets.append("name_en = ?")
             params.append(name_en)
-        if not _horse_text(existing["status"]) and status:
+        if status and (overwrite or not _horse_text(existing["status"])):
             sets.append("status = ?")
             params.append(status)
 
@@ -477,7 +521,10 @@ def insert_or_fill_horse(
 
 
 def insert_horses_ignore(
-    db_path: Path, horses: Iterable[Mapping[str, str | None]]
+    db_path: Path,
+    horses: Iterable[Mapping[str, str | None]],
+    *,
+    overwrite: bool = False,
 ) -> int:
     """Compatibility wrapper: insert/fill horses; return changed row count.
 
@@ -486,7 +533,10 @@ def insert_horses_ignore(
 
     changed = 0
     for h in horses:
-        if insert_or_fill_horse(db_path, h) in ("inserted", "filled"):
+        if insert_or_fill_horse(db_path, h, overwrite=overwrite) in (
+            "inserted",
+            "filled",
+        ):
             changed += 1
     return changed
 
@@ -659,14 +709,14 @@ def search_race_records_by_keyword(
     query = """
         SELECT
           horse_id, race_date, venue, race_no, course, distance, going, class_band,
-              draw, rating, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
+          draw, rating, handicap, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
         FROM race_records
         WHERE horse_id = ?
           AND (
             venue LIKE ? OR race_no LIKE ? OR course LIKE ? OR distance LIKE ?
             OR going LIKE ? OR class_band LIKE ? OR draw LIKE ? OR rating LIKE ?
-            OR jockey LIKE ? OR trainer LIKE ? OR finish_pos LIKE ? OR time LIKE ?
-                OR running_pos LIKE ? OR win_odds LIKE ? OR prize LIKE ?
+            OR handicap LIKE ? OR jockey LIKE ? OR trainer LIKE ? OR finish_pos LIKE ?
+            OR time LIKE ? OR running_pos LIKE ? OR win_odds LIKE ? OR prize LIKE ?
           )
         ORDER BY race_date DESC, id DESC
     """
@@ -675,8 +725,9 @@ def search_race_records_by_keyword(
         like,
         like,
         like,
-                like,
-                like,
+        like,
+        like,
+        like,
         like,
         like,
         like,

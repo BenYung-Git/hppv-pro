@@ -118,6 +118,19 @@ def racing_column_i18n_maps(text_map: Mapping[str, str], keys: Sequence[str]) ->
     return out
 
 
+def racing_history_layout_i18n_maps(
+    text_map: Mapping[str, str], keys: Sequence[str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Labels + descriptions for racing history layout editor / API."""
+    labels: dict[str, str] = {}
+    descs: dict[str, str] = {}
+    for key in keys:
+        raw_label = (text_map.get(f"racing.history.col.{key}") or "").strip()
+        labels[key] = raw_label if raw_label else key
+        descs[key] = (text_map.get(f"racing.history.col.desc.{key}") or "").strip()
+    return labels, descs
+
+
 def parse_racing_export_request(payload: Mapping[str, Any]) -> RacingExportRequest:
     file_type = str(payload.get("file_type") or "").strip().lower()
     if file_type not in EXPORT_FILE_TYPES:

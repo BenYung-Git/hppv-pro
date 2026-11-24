@@ -139,6 +139,7 @@ class SoccerTaskState:
     last_detail: dict[str, Any]
     updated_at: str
     running: bool = False
+    overwrite: bool = False
 
     def to_public_dict(self) -> dict[str, Any]:
         next_hkt = None
@@ -158,6 +159,7 @@ class SoccerTaskState:
             "enabled": self.enabled,
             "interval_value": self.interval_value,
             "interval_unit": self.interval_unit,
+            "overwrite": bool(self.overwrite),
             "next_run_at": self.next_run_at,
             "next_run_at_hkt": next_hkt,
             "last_run_at": self.last_run_at,
@@ -236,6 +238,10 @@ def _row_to_state(row: Any, *, running: bool) -> SoccerTaskState:
                 detail = parsed
         except json.JSONDecodeError:
             detail = {"raw": str(detail_raw)}
+    keys = row.keys() if hasattr(row, "keys") else ()
+    overwrite = False
+    if "overwrite" in keys:
+        overwrite = bool(int(row["overwrite"] or 0))
     return SoccerTaskState(
         task_key=str(row["task_key"]),
         enabled=bool(int(row["enabled"] or 0)),
@@ -248,6 +254,7 @@ def _row_to_state(row: Any, *, running: bool) -> SoccerTaskState:
         last_detail=detail,
         updated_at=str(row["updated_at"] or ""),
         running=running,
+        overwrite=overwrite,
     )
 
 
@@ -279,6 +286,7 @@ def get_task_state(
                 last_detail={},
                 updated_at=stamp,
                 running=running,
+                overwrite=False,
             )
         return _row_to_state(row, running=running)
 
@@ -308,21 +316,26 @@ def _upsert_state(
     last_error: str | None,
     last_detail: dict[str, Any] | None,
     updated_at: str,
+    overwrite: bool = False,
 ) -> SoccerTaskState:
     ensure_task_settings_table(db_path)
     detail_json = json.dumps(last_detail or {}, ensure_ascii=False)
     with get_connection(db_path) as conn:
+        from hppv.soccer_db import ensure_soccer_task_settings_columns
+
+        ensure_soccer_task_settings_columns(conn)
         conn.execute(
             f"""
             INSERT INTO {SOCCER_TASK_SETTINGS_TABLE} (
-              task_key, enabled, interval_value, interval_unit,
+              task_key, enabled, interval_value, interval_unit, overwrite,
               next_run_at, last_run_at, last_status, last_error,
               last_detail_json, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(task_key) DO UPDATE SET
               enabled = excluded.enabled,
               interval_value = excluded.interval_value,
               interval_unit = excluded.interval_unit,
+              overwrite = excluded.overwrite,
               next_run_at = excluded.next_run_at,
               last_run_at = excluded.last_run_at,
               last_status = excluded.last_status,
@@ -335,6 +348,7 @@ def _upsert_state(
                 1 if enabled else 0,
                 interval_value,
                 interval_unit,
+                1 if overwrite else 0,
                 next_run_at,
                 last_run_at,
                 last_status,
@@ -354,6 +368,7 @@ def save_task_settings(
     enabled: bool,
     interval_value: Any,
     interval_unit: Any,
+    overwrite: bool = False,
 ) -> SoccerTaskState:
     """Persist settings. On enable (or interval change while enabled), next_run = now + interval."""
     value, unit = normalize_interval(interval_value, interval_unit)
@@ -376,6 +391,7 @@ def save_task_settings(
         last_error=prev.last_error,
         last_detail=prev.last_detail,
         updated_at=stamp,
+        overwrite=bool(overwrite),
     )
 
 
@@ -385,6 +401,7 @@ def save_update_matches_settings(
     enabled: bool,
     interval_value: Any,
     interval_unit: Any,
+    overwrite: bool = False,
 ) -> SoccerTaskState:
     return save_task_settings(
         db_path,
@@ -392,6 +409,7 @@ def save_update_matches_settings(
         enabled=enabled,
         interval_value=interval_value,
         interval_unit=interval_unit,
+        overwrite=overwrite,
     )
 
 
@@ -401,6 +419,7 @@ def save_update_odds_settings(
     enabled: bool,
     interval_value: Any,
     interval_unit: Any,
+    overwrite: bool = False,
 ) -> SoccerTaskState:
     return save_task_settings(
         db_path,
@@ -408,6 +427,7 @@ def save_update_odds_settings(
         enabled=enabled,
         interval_value=interval_value,
         interval_unit=interval_unit,
+        overwrite=overwrite,
     )
 
 
@@ -417,6 +437,7 @@ def save_update_results_settings(
     enabled: bool,
     interval_value: Any,
     interval_unit: Any,
+    overwrite: bool = False,
 ) -> SoccerTaskState:
     return save_task_settings(
         db_path,
@@ -424,6 +445,7 @@ def save_update_results_settings(
         enabled=enabled,
         interval_value=interval_value,
         interval_unit=interval_unit,
+        overwrite=overwrite,
     )
 
 
@@ -452,6 +474,7 @@ def restore_task_on_startup(db_path: Path, task_key: str) -> SoccerTaskState:
             last_error=state.last_error,
             last_detail=state.last_detail,
             updated_at=now.isoformat(),
+            overwrite=state.overwrite,
         )
         logger.info(
             "%s next_run restored to %s (was missing/expired)",
@@ -473,13 +496,16 @@ def restore_update_results_on_startup(db_path: Path) -> SoccerTaskState:
     return restore_task_on_startup(db_path, TASK_KEY_UPDATE_RESULTS)
 
 
-def run_update_matches_once(db_path: Path, requests_dir: Path) -> dict[str, Any]:
+def run_update_matches_once(
+    db_path: Path, requests_dir: Path, *, overwrite: bool = False
+) -> dict[str, Any]:
     """Execute one matches_and_odds download + ingest (manual chain reuse)."""
     started = utc_now_iso()
     detail: dict[str, Any] = {
         "started_at": started,
         "request_key": REQUEST_KEY_MATCHES_AND_ODDS,
         "scope": UPDATE_MATCHES_SCOPE,
+        "overwrite": bool(overwrite),
     }
     try:
         payload, _display = load_soccer_request_preset(
@@ -516,7 +542,10 @@ def run_update_matches_once(db_path: Path, requests_dir: Path) -> dict[str, Any]
 
     try:
         ing = ingest_matches_and_odds(
-            db_path, response_obj, request_key=REQUEST_KEY_MATCHES_AND_ODDS
+            db_path,
+            response_obj,
+            request_key=REQUEST_KEY_MATCHES_AND_ODDS,
+            overwrite=bool(overwrite),
         )
     except SoccerIngestError as e:
         raise SoccerTaskError(e.code, e.detail) from e
@@ -542,7 +571,9 @@ def run_update_matches_once(db_path: Path, requests_dir: Path) -> dict[str, Any]
     return detail
 
 
-def run_update_odds_once(db_path: Path, requests_dir: Path) -> dict[str, Any]:
+def run_update_odds_once(
+    db_path: Path, requests_dir: Path, *, overwrite: bool = False
+) -> dict[str, Any]:
     """Execute one odds-only download + update_odds_for_existing_matches."""
     started = utc_now_iso()
     detail: dict[str, Any] = {
@@ -741,7 +772,9 @@ def download_match_results_complete(
     return response_obj, variables, meta
 
 
-def run_update_results_once(db_path: Path, requests_dir: Path) -> dict[str, Any]:
+def run_update_results_once(
+    db_path: Path, requests_dir: Path, *, overwrite: bool = False
+) -> dict[str, Any]:
     """
     Official results → footylogic_matches; delete daily after confirmed FT.
 
@@ -834,7 +867,7 @@ class _TaskSchedulerBase:
     """Shared timer / anti-overlap / shared-job-lock machinery."""
 
     task_key: str
-    _run_once: Callable[[Path, Path], dict[str, Any]]
+    _run_once: Callable[..., dict[str, Any]]
 
     def __init__(
         self,
@@ -891,6 +924,7 @@ class _TaskSchedulerBase:
         enabled: bool,
         interval_value: Any,
         interval_unit: Any,
+        overwrite: bool = False,
     ) -> SoccerTaskState:
         with self._lock:
             state = save_task_settings(
@@ -899,6 +933,7 @@ class _TaskSchedulerBase:
                 enabled=enabled,
                 interval_value=interval_value,
                 interval_unit=interval_unit,
+                overwrite=bool(overwrite),
             )
             self._arm_timer_locked(state)
             return self.get_state()
@@ -930,6 +965,7 @@ class _TaskSchedulerBase:
             logger.exception("%s timer callback crashed", self.task_key)
 
     def _execute_due_job(self) -> None:
+        overwrite = False
         with self._lock:
             if self._running:
                 logger.warning("%s skipped: previous run still in progress", self.task_key)
@@ -943,6 +979,7 @@ class _TaskSchedulerBase:
                 self._arm_timer_locked(state)
                 return
             self._running = True
+            overwrite = bool(state.overwrite)
             _upsert_state(
                 self.settings_db,
                 task_key=self.task_key,
@@ -955,6 +992,7 @@ class _TaskSchedulerBase:
                 last_error=None,
                 last_detail=state.last_detail,
                 updated_at=now.isoformat(),
+                overwrite=overwrite,
             )
 
         detail: dict[str, Any] = {}
@@ -963,7 +1001,9 @@ class _TaskSchedulerBase:
         try:
             # Cross-task serialization: wait for the other task's GraphQL+ingest.
             with _SHARED_JOB_LOCK:
-                detail = self._run_once(self.db_path, self.requests_dir)
+                detail = self._run_once(
+                    self.db_path, self.requests_dir, overwrite=overwrite
+                )
             status = (
                 STATUS_SUCCESS
                 if detail.get("ingest_status") == "success"
@@ -1011,6 +1051,7 @@ class _TaskSchedulerBase:
                 last_error=error or None,
                 last_detail=detail,
                 updated_at=finished.isoformat(),
+                overwrite=cur.overwrite,
             )
             self._arm_timer_locked(state)
 

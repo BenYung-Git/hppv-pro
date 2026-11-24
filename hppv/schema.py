@@ -48,6 +48,7 @@ def core_schema_sql() -> str:
           class_band TEXT NOT NULL,
           draw TEXT NOT NULL,
           rating TEXT NOT NULL,
+          handicap TEXT NOT NULL DEFAULT '',
           jockey TEXT NOT NULL,
           trainer TEXT NOT NULL,
           finish_pos TEXT NOT NULL,
@@ -57,7 +58,7 @@ def core_schema_sql() -> str:
           prize TEXT NOT NULL,
           UNIQUE(
             horse_id, race_date, venue, race_no, course, distance, going, class_band, draw,
-            rating, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
+            rating, handicap, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
           )
         );
         CREATE INDEX IF NOT EXISTS idx_race_records_horse_id
@@ -354,6 +355,7 @@ SOCCER_TASK_SETTINGS_COLUMNS: tuple[str, ...] = (
     "enabled",
     "interval_value",
     "interval_unit",
+    "overwrite",
     "next_run_at",
     "last_run_at",
     "last_status",
@@ -372,6 +374,7 @@ def soccer_task_settings_schema_sql() -> str:
             enabled INTEGER NOT NULL DEFAULT 0,
             interval_value INTEGER NOT NULL DEFAULT 1,
             interval_unit TEXT NOT NULL DEFAULT 'mins',
+            overwrite INTEGER NOT NULL DEFAULT 0,
             next_run_at TEXT,
             last_run_at TEXT,
             last_status TEXT,

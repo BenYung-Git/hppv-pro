@@ -3,7 +3,7 @@
   Required:
     dl_tasks: list of {
       key, label, note (optional),
-      enabled_id, interval_id, unit_id,
+      enabled_id, overwrite_id, interval_id, unit_id,
       last_id, next_id, status_id, msg_id
     }
     dl_task_notes_extra: optional list of note strings (page-level notes)
@@ -15,6 +15,10 @@
       <label class="task-enable" for="{{ task.enabled_id }}">
         <input type="checkbox" id="{{ task.enabled_id }}">
         <span>{{ task.label }}</span>
+      </label>
+      <label class="task-overwrite" for="{{ task.overwrite_id }}">
+        <input type="checkbox" id="{{ task.overwrite_id }}">
+        <span>{{ t('download.option.overwrite') }}</span>
       </label>
       <div class="task-controls">
         <select id="{{ task.interval_id }}" aria-label="{{ task.label }}">

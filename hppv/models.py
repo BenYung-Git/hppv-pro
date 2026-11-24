@@ -17,6 +17,7 @@ class RaceRecord:
     class_band: str
     draw: str
     rating: str
+    handicap: str
     jockey: str
     trainer: str
     finish_pos: str

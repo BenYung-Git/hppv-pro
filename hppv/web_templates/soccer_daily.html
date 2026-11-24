@@ -890,6 +890,25 @@
     accent-color: var(--soccer-green);
     cursor: pointer;
   }
+  .soccer-daily .task-overwrite,
+  .soccer-daily .dl-overwrite {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #3a4a5c;
+    margin-left: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .soccer-daily .task-overwrite input[type="checkbox"],
+  .soccer-daily .dl-overwrite input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--soccer-green);
+    cursor: pointer;
+  }
   .soccer-daily .task-controls {
     display: flex;
     flex-wrap: wrap;
@@ -1615,23 +1634,23 @@
           <nav class="pager" id="history-pager" role="navigation"
                aria-label="{{ t('soccer.history.pager.nav') }}">
             <button type="button" class="icon-btn" id="history-pager-first"
-                    title="{{ t('soccer.daily.pager.first') }}"
-                    aria-label="{{ t('soccer.daily.pager.first') }}"
+                    title="{{ t('soccer.history.pager.first') }}"
+                    aria-label="{{ t('soccer.history.pager.first') }}"
                     {% if _h_at_first %}disabled{% endif %}>≪</button>
             <button type="button" class="icon-btn" id="history-pager-prev"
-                    title="{{ t('soccer.daily.pager.prev') }}"
-                    aria-label="{{ t('soccer.daily.pager.prev') }}"
+                    title="{{ t('soccer.history.pager.prev') }}"
+                    aria-label="{{ t('soccer.history.pager.prev') }}"
                     {% if _h_at_first %}disabled{% endif %}>‹</button>
             <span class="pager-status" id="history-pager-status"
                   title="{{ t('soccer.history.pager.status') }}"
                   aria-live="polite">{{ _hn }} / {{ _htotal_pages }} {{ t('soccer.history.pager.records').replace('{n}', _htotal_records|string) }}</span>
             <button type="button" class="icon-btn" id="history-pager-next"
-                    title="{{ t('soccer.daily.pager.next') }}"
-                    aria-label="{{ t('soccer.daily.pager.next') }}"
+                    title="{{ t('soccer.history.pager.next') }}"
+                    aria-label="{{ t('soccer.history.pager.next') }}"
                     {% if _h_at_last %}disabled{% endif %}>›</button>
             <button type="button" class="icon-btn" id="history-pager-last"
-                    title="{{ t('soccer.daily.pager.last') }}"
-                    aria-label="{{ t('soccer.daily.pager.last') }}"
+                    title="{{ t('soccer.history.pager.last') }}"
+                    aria-label="{{ t('soccer.history.pager.last') }}"
                     {% if _h_at_last %}disabled{% endif %}>≫</button>
           </nav>
         </div>
@@ -1716,6 +1735,7 @@
       'request': 'soccer-request',
       'status': 'soccer-status',
       'send_btn': 'btn-send-request',
+      'overwrite': 'soccer-dl-overwrite',
       'sync_badge': 'sync-badge',
       'sync_badge_label': 'sync-badge-label',
       'sync_badge_value': 'sync-badge-value',
@@ -1743,6 +1763,10 @@
           <input type="checkbox" id="task-odds-enabled">
           <span>{{ t('soccer.daily.task.update_odds') }}</span>
         </label>
+        <label class="task-overwrite" for="task-odds-overwrite">
+          <input type="checkbox" id="task-odds-overwrite">
+          <span>{{ t('download.option.overwrite') }}</span>
+        </label>
         <div class="task-controls">
           <select id="task-odds-interval" aria-label="{{ t('soccer.daily.task.update_odds') }}">
             {% for n in range(1, 11) %}
@@ -1768,6 +1792,10 @@
           <input type="checkbox" id="task-matches-enabled">
           <span>{{ t('soccer.daily.task.update_matches') }}</span>
         </label>
+        <label class="task-overwrite" for="task-matches-overwrite">
+          <input type="checkbox" id="task-matches-overwrite">
+          <span>{{ t('download.option.overwrite') }}</span>
+        </label>
         <div class="task-controls">
           <select id="task-matches-interval" aria-label="{{ t('soccer.daily.task.update_matches') }}">
             {% for n in range(1, 11) %}
@@ -1792,6 +1820,10 @@
         <label class="task-enable" for="task-results-enabled">
           <input type="checkbox" id="task-results-enabled">
           <span>{{ t('soccer.daily.task.update_results') }}</span>
+        </label>
+        <label class="task-overwrite" for="task-results-overwrite">
+          <input type="checkbox" id="task-results-overwrite">
+          <span>{{ t('download.option.overwrite') }}</span>
         </label>
         <div class="task-controls">
           <select id="task-results-interval" aria-label="{{ t('soccer.daily.task.update_results') }}">
@@ -3271,6 +3303,8 @@
   dailyListCtrl = window.HppvRecordsShell.createList({
     recordsUrl: "/api/records/soccer/daily_matches",
     pagerMode: "cursor",
+    // Keep full-day rows on screen; ‹› jump one viewport page of highlights (not ±1 match).
+    cursorStep: 50,
     searchDebounceMs: 200,
     initial: {
       n: listN,
@@ -3662,6 +3696,10 @@
         body: JSON.stringify({
           payload: raw,
           request_key: requestType.value || "matches_and_odds",
+          overwrite: !!(function () {
+            var el = document.getElementById("soccer-dl-overwrite");
+            return el && el.checked;
+          })(),
         }),
       });
       let data = null;
@@ -3875,10 +3913,15 @@
       return map[code] || MSG.taskStatusIdle;
     }
 
+    const overwriteEl = opts.overwriteId
+      ? document.getElementById(opts.overwriteId)
+      : null;
+
     function applyTaskToUi(task) {
       if (!task) return;
       applyingRemote = true;
       enabledEl.checked = !!task.enabled;
+      if (overwriteEl) overwriteEl.checked = !!task.overwrite;
       if (task.interval_value) intervalEl.value = String(task.interval_value);
       if (task.interval_unit) unitEl.value = String(task.interval_unit);
       if (lastEl) {
@@ -3904,12 +3947,14 @@
         const data = await resp.json();
         if (!resp.ok || !data || !data.ok) {
           enabledEl.checked = false;
+          if (overwriteEl) overwriteEl.checked = false;
           if (msgEl) msgEl.textContent = MSG.taskSaveFailed || "";
           return;
         }
         applyTaskToUi(data.task);
       } catch (_e) {
         enabledEl.checked = false;
+        if (overwriteEl) overwriteEl.checked = false;
         if (msgEl) msgEl.textContent = MSG.taskSaveFailed || "";
       }
     }
@@ -3918,6 +3963,7 @@
       if (applyingRemote) return;
       const payload = {
         enabled: !!enabledEl.checked,
+        overwrite: !!(overwriteEl && overwriteEl.checked),
         interval_value: Number(intervalEl.value || 1),
         interval_unit: unitEl.value || "mins",
       };
@@ -3951,6 +3997,7 @@
     }
 
     enabledEl.addEventListener("change", scheduleSave);
+    if (overwriteEl) overwriteEl.addEventListener("change", scheduleSave);
     intervalEl.addEventListener("change", scheduleSave);
     unitEl.addEventListener("change", scheduleSave);
 
@@ -3964,6 +4011,7 @@
   initSoccerTaskUi({
     apiUrl: "/api/soccer/tasks/update-odds",
     enabledId: "task-odds-enabled",
+    overwriteId: "task-odds-overwrite",
     intervalId: "task-odds-interval",
     unitId: "task-odds-unit",
     lastId: "task-odds-last",
@@ -3974,6 +4022,7 @@
   initSoccerTaskUi({
     apiUrl: "/api/soccer/tasks/update-matches",
     enabledId: "task-matches-enabled",
+    overwriteId: "task-matches-overwrite",
     intervalId: "task-matches-interval",
     unitId: "task-matches-unit",
     lastId: "task-matches-last",
@@ -3984,6 +4033,7 @@
   initSoccerTaskUi({
     apiUrl: "/api/soccer/tasks/update-results",
     enabledId: "task-results-enabled",
+    overwriteId: "task-results-overwrite",
     intervalId: "task-results-interval",
     unitId: "task-results-unit",
     lastId: "task-results-last",
@@ -4358,7 +4408,7 @@
     formatPagerStatus: function (api) {
       const totalPages = api.totalPages > 0 ? api.totalPages : 0;
       const n = totalPages > 0 ? api.pageN : 0;
-      return n + " / " + totalPages + " " + historyPagerRecordsLabel(api.totalCount);
+      return n + "頁 / " + totalPages + " " + historyPagerRecordsLabel(api.totalCount);
     },
     buildParams: function () {
       const params = new URLSearchParams();
@@ -4683,12 +4733,42 @@
     return historyExportHktYmd();
   }
 
+  function syncHistoryExportCriteriaFromUi() {
+    // Shell search commits update listCtrl.q; keep historyQ in sync for stem/payload.
+    if (historyListCtrl) {
+      if (typeof historyListCtrl.q === "string") historyQ = historyListCtrl.q;
+      if (historyListCtrl.qOp != null) {
+        historyQOp = String(historyListCtrl.qOp || "approx");
+      }
+    }
+    if (historySearchInput && !historySearchInput.disabled) {
+      historyQ = (historySearchInput.value || "").trim();
+    }
+    if (historySearchOp && !historySearchOp.disabled) {
+      historyQOp = (historySearchOp.value || "approx").toString().trim() || "approx";
+    }
+    if (historyAllCheckbox) historyAllMatches = !!historyAllCheckbox.checked;
+  }
+
+  function syncDailyExportCriteriaFromUi() {
+    if (dailyListCtrl && typeof dailyListCtrl.q === "string") {
+      committedQ = dailyListCtrl.q;
+    }
+    if (searchInput) committedQ = (searchInput.value || "").trim();
+    if (allMatchesCheckbox) committedAllMatches = !!allMatchesCheckbox.checked;
+    if (typeof committedStatus !== "string" || !committedStatus) {
+      committedStatus = "prematch";
+    }
+  }
+
   function historyExportDefaultStem() {
     if (exportSource === "daily") {
+      syncDailyExportCriteriaFromUi();
       const q = (committedQ || "").trim();
       const datePart = dailyExportSelectedYmd();
       return q ? (q + "-DailyMatches-" + datePart) : ("DailyMatches-" + datePart);
     }
+    syncHistoryExportCriteriaFromUi();
     const q = (historyQ || "").trim();
     return (q || "All") + "-" + historyExportHktYmd();
   }
@@ -4791,6 +4871,8 @@
   function openHistoryExportDialog(source) {
     if (!historyExportOverlay) return;
     exportSource = source === "daily" ? "daily" : "history";
+    if (exportSource === "daily") syncDailyExportCriteriaFromUi();
+    else syncHistoryExportCriteriaFromUi();
     historyExportFileHandle = null;
     historyExportStemTouched = false;
     historyExportSyncingName = false;
@@ -4892,6 +4974,8 @@
     setHistoryExportBusy(true);
     setHistoryExportStatus(MSG.historyExportBusy, "");
     try {
+      if (exportSource === "daily") syncDailyExportCriteriaFromUi();
+      else syncHistoryExportCriteriaFromUi();
       const payload = exportSource === "daily"
         ? {
             file_type: fileType,

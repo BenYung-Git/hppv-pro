@@ -91,6 +91,10 @@ def test_parse_localresults_race_html() -> None:
     by_id = {h["horse_id"]: h for h in horses}
     assert by_id["HK_2024_K902"]["name_zh"] == "風耀奪標"
     assert by_id["HK_2024_K902"]["brand_no"] == "K902"
+    assert rows[0].handicap == "117"
+    assert rows[0].running_pos == "4 4 1"
+    assert rows[0].time == "1:09.68"
+    assert rows[0].win_odds == "8.1"
     assert discover_race_nos(_SAMPLE_HTML) == [1, 2]
 
 
