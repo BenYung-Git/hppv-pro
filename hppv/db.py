@@ -43,6 +43,28 @@ _RACE_RECORD_DATE_ORDER_EXPR = (
     "ELSE rr.race_date END"
 )
 
+# Same CASE without table alias (single-table DELETE / lookup).
+_RACE_RECORD_DATE_ISO_SQL = _RACE_RECORD_DATE_ORDER_EXPR.replace("rr.", "")
+
+
+def normalize_race_record_date_iso(race_date: str | None) -> str | None:
+    """Normalize stored race_date variants to YYYY-MM-DD, or None if unknown."""
+    s = str(race_date or "").strip()
+    if re.fullmatch(r"\d{2}/\d{2}/\d{2}", s):
+        return f"20{s[6:8]}-{s[3:5]}-{s[0:2]}"
+    if re.fullmatch(r"\d{2}/\d{2}/\d{4}", s):
+        return f"{s[6:10]}-{s[3:5]}-{s[0:2]}"
+    if re.fullmatch(r"\d{4}/\d{2}/\d{2}", s):
+        return f"{s[0:4]}-{s[5:7]}-{s[8:10]}"
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return s
+    return None
+
+
+def race_record_result_is_complete(*, time: str | None) -> bool:
+    """Complete localresults rows always have finish time; GraphQL daily does not."""
+    return bool(str(time or "").strip())
+
 
 def is_acceptable_horse_id(horse_id: str) -> bool:
     """可寫入 horses.horse_id 的值：HK_ 形式或烙號 H123；排除表頭誤判字樣。"""
@@ -114,9 +136,16 @@ def upsert_race_records(
     *,
     overwrite: bool = False,
 ) -> int:
-    """Insert race_records. Default ignores duplicates; overwrite replaces by logical key.
+    """Insert race_records with complete-row preference across date/race_no formats.
 
-    Logical key for overwrite: (horse_id, race_date, venue, race_no).
+    Daily GraphQL (sparse, meeting race_no, historically YYYY/MM/DD) and period
+    localresults (complete, season race_no, DD/MM/YY) share one calendar day.
+    Rules:
+      - Incomplete siblings (empty time) for same horse+venue+day are removed.
+      - A complete sibling blocks sparse inserts unless overwrite.
+      - A complete sibling with a different race_date/race_no blocks another
+        complete insert (avoid duplicates); overwrite replaces the exact key.
+    Exact-key overwrite: (horse_id, race_date, venue, race_no).
     Returns inserted/replaced row count.
     """
 
@@ -124,8 +153,27 @@ def upsert_race_records(
     if not rec_list:
         return 0
 
-    rows = [
-        (
+    insert_sql = """
+        INSERT INTO race_records (
+          horse_id, race_date, venue, race_no, course, distance, going, class_band, draw,
+          rating, handicap, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?, ?, ?, ?
+        );
+        """
+    insert_ignore_sql = """
+        INSERT OR IGNORE INTO race_records (
+          horse_id, race_date, venue, race_no, course, distance, going, class_band, draw,
+          rating, handicap, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?, ?, ?, ?
+        );
+        """
+
+    def _row_tuple(r: RaceRecord) -> tuple[str, ...]:
+        return (
             r.horse_id,
             r.race_date,
             r.venue,
@@ -145,44 +193,84 @@ def upsert_race_records(
             r.time,
             r.prize,
         )
-        for r in rec_list
-    ]
 
+    inserted = 0
     with get_connection(db_path) as conn:
-        if overwrite:
-            conn.executemany(
-                """
-                DELETE FROM race_records
-                WHERE horse_id = ? AND race_date = ? AND venue = ? AND race_no = ?;
-                """,
-                [(r.horse_id, r.race_date, r.venue, r.race_no) for r in rec_list],
+        for r in rec_list:
+            date_iso = normalize_race_record_date_iso(r.race_date)
+            incoming_complete = race_record_result_is_complete(time=r.time)
+            siblings: list[sqlite3.Row] = []
+            if date_iso:
+                siblings = list(
+                    conn.execute(
+                        f"""
+                        SELECT id, race_date, race_no, time
+                        FROM race_records
+                        WHERE horse_id = ? AND venue = ?
+                          AND ({_RACE_RECORD_DATE_ISO_SQL}) = ?
+                        """,
+                        (r.horse_id, r.venue, date_iso),
+                    ).fetchall()
+                )
+            complete_siblings = [
+                s for s in siblings if race_record_result_is_complete(time=s["time"])
+            ]
+            incomplete_siblings = [
+                s
+                for s in siblings
+                if not race_record_result_is_complete(time=s["time"])
+            ]
+            same_complete_key = any(
+                str(s["race_date"]) == str(r.race_date)
+                and str(s["race_no"]) == str(r.race_no)
+                for s in complete_siblings
             )
-            cur = conn.executemany(
-                """
-                INSERT INTO race_records (
-                  horse_id, race_date, venue, race_no, course, distance, going, class_band, draw,
-                  rating, handicap, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
-                ) VALUES (
-                  ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                  ?, ?, ?, ?, ?, ?, ?, ?, ?
-                );
-                """,
-                rows,
-            )
-            return cur.rowcount
-        cur = conn.executemany(
-            """
-            INSERT OR IGNORE INTO race_records (
-              horse_id, race_date, venue, race_no, course, distance, going, class_band, draw,
-              rating, handicap, jockey, trainer, finish_pos, running_pos, win_odds, time, prize
-            ) VALUES (
-              ?, ?, ?, ?, ?, ?, ?, ?, ?,
-              ?, ?, ?, ?, ?, ?, ?, ?, ?
-            );
-            """,
-            rows,
-        )
-        return cur.rowcount
+
+            # Complete localresults rows win over sparse GraphQL daily snapshots.
+            if complete_siblings and not incoming_complete:
+                continue
+            if complete_siblings and incoming_complete and not same_complete_key:
+                if not overwrite:
+                    continue
+
+            if incomplete_siblings:
+                for s in incomplete_siblings:
+                    same_key = (
+                        str(s["race_date"]) == str(r.race_date)
+                        and str(s["race_no"]) == str(r.race_no)
+                    )
+                    if incoming_complete:
+                        # Complete period row replaces any sparse daily twin.
+                        conn.execute(
+                            "DELETE FROM race_records WHERE id = ?;",
+                            (int(s["id"]),),
+                        )
+                    elif same_key and not overwrite:
+                        # Keep exact sparse key for INSERT OR IGNORE on re-run.
+                        continue
+                    else:
+                        # Drop alt-key sparse twin (e.g. YYYY/MM/DD vs DD/MM/YY).
+                        conn.execute(
+                            "DELETE FROM race_records WHERE id = ?;",
+                            (int(s["id"]),),
+                        )
+
+            row = _row_tuple(r)
+            if overwrite:
+                conn.execute(
+                    """
+                    DELETE FROM race_records
+                    WHERE horse_id = ? AND race_date = ? AND venue = ? AND race_no = ?;
+                    """,
+                    (r.horse_id, r.race_date, r.venue, r.race_no),
+                )
+                cur = conn.execute(insert_sql, row)
+                inserted += int(cur.rowcount or 0)
+            else:
+                cur = conn.execute(insert_ignore_sql, row)
+                inserted += int(cur.rowcount or 0)
+        conn.commit()
+    return inserted
 
 
 def fetch_race_records(db_path: Path, horse_id: str) -> list[RaceRecord]:

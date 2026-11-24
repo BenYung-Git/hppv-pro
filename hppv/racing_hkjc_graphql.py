@@ -140,10 +140,21 @@ def to_graphql_date(race_date: str) -> str:
 
 
 def to_db_date(date_iso: str) -> str:
-    """Convert GraphQL YYYY-MM-DD to DB YYYY/MM/DD."""
+    """Convert GraphQL YYYY-MM-DD to racecard DB YYYY/MM/DD."""
     s = to_graphql_date(date_iso)
     y, m, d = s.split("-")
     return f"{y}/{m}/{d}"
+
+
+def to_race_records_date(date_iso: str) -> str:
+    """Convert GraphQL YYYY-MM-DD to race_records date (DD/MM/YY).
+
+    Aligns same-day GraphQL results with localresults / horse-page history keys
+    so calendar-day filters and complete-row preference can de-dupe.
+    """
+    s = to_graphql_date(date_iso)
+    y, m, d = s.split("-")
+    return f"{int(d):02d}/{int(m):02d}/{y[2:]}"
 
 
 def _default_headers() -> dict[str, str]:
@@ -465,7 +476,7 @@ def race_record_from_graphql_runner(
     trainer = runner.get("trainer") or {}
     return RaceRecord(
         horse_id=horse_id,
-        race_date=to_db_date(date_iso),
+        race_date=to_race_records_date(date_iso),
         venue=venue_zh or venue_code,
         race_no=str(int(race_no)) if str(race_no).isdigit() else str(race_no),
         course=_course_for_race_record(meeting, race),

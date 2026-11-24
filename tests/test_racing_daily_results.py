@@ -92,7 +92,7 @@ def test_race_records_from_meeting_only_finished() -> None:
     assert len(rows) == 2
     by_id = {r.horse_id: r for r in rows}
     r = by_id["HK_2024_T001"]
-    assert r.race_date == "2026/11/16"
+    assert r.race_date == "16/11/26"
     assert r.venue == "沙田"
     assert r.race_no == "1"
     assert r.course == '沙田草地"C"'
@@ -170,6 +170,141 @@ def test_daily_results_insert_then_ignore_duplicate(
     assert second.progress.skipped == 2
     assert second.detail.get("horses_filled") == 0
     assert len(fetch_race_records(db, "HK_2024_T001")) == 1
+
+
+def test_daily_results_skips_when_complete_period_row_exists(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Sparse GraphQL daily must not twin a complete localresults row for the day."""
+    from hppv.db import upsert_race_records
+    from hppv.models import RaceRecord
+
+    db = tmp_path / "hppv.sqlite3"
+    init_db(db)
+    upsert_race_records(
+        db,
+        [
+            RaceRecord(
+                horse_id="HK_2024_T001",
+                race_date="16/11/26",
+                venue="沙田",
+                race_no="200",
+                course='沙田草地"C"',
+                distance="1200",
+                going="好",
+                class_band="第四班",
+                draw="5",
+                rating="062",
+                handicap="126",
+                jockey="騎師甲",
+                trainer="練馬師甲",
+                finish_pos="01",
+                running_pos="1 1 1",
+                win_odds="3.5",
+                time="1:09.88",
+                prize="1000000",
+            )
+        ],
+    )
+
+    meeting = _finished_meeting()
+
+    def fake_fetch(date: str, venue: str, **kwargs):
+        return {"raceMeetings": [meeting]}
+
+    monkeypatch.setattr("hppv.racing_download.fetch_race_meetings", fake_fetch)
+    monkeypatch.setattr(
+        "hppv.racing_download.resolve_meeting_for_download",
+        lambda **kwargs: type(
+            "M",
+            (),
+            {
+                "date_iso": "2026-11-16",
+                "venue_code": "ST",
+                "status": "RESULT",
+                "total_number_of_race": 1,
+            },
+        )(),
+    )
+
+    result = run_daily_results_download(db)
+    assert result.code == "success"
+    # T001 already complete → skip; T004 WV sparse still inserts.
+    assert result.progress.updated == 1
+    assert result.progress.skipped == 1
+    rows = fetch_race_records(db, "HK_2024_T001")
+    assert len(rows) == 1
+    assert rows[0].race_no == "200"
+    assert rows[0].time == "1:09.88"
+
+
+def test_period_replaces_sparse_daily_duplicate(tmp_path: Path) -> None:
+    from hppv.db import get_connection, upsert_race_records
+    from hppv.models import RaceRecord
+
+    db = tmp_path / "hppv.sqlite3"
+    init_db(db)
+    # Legacy GraphQL-style sparse row (old YYYY/MM/DD + meeting race_no).
+    upsert_race_records(
+        db,
+        [
+            RaceRecord(
+                horse_id="HK_2024_T001",
+                race_date="2026/11/16",
+                venue="沙田",
+                race_no="1",
+                course='沙田草地"C"',
+                distance="1200",
+                going="好",
+                class_band="第四班",
+                draw="5",
+                rating="062",
+                handicap="",
+                jockey="騎師甲",
+                trainer="練馬師甲",
+                finish_pos="01",
+                running_pos="",
+                win_odds="3.5",
+                time="",
+                prize="",
+            )
+        ],
+    )
+    n = upsert_race_records(
+        db,
+        [
+            RaceRecord(
+                horse_id="HK_2024_T001",
+                race_date="16/11/26",
+                venue="沙田",
+                race_no="200",
+                course='沙田草地"C"',
+                distance="1200",
+                going="好",
+                class_band="第四班",
+                draw="5",
+                rating="062",
+                handicap="126",
+                jockey="騎師甲",
+                trainer="練馬師甲",
+                finish_pos="01",
+                running_pos="1 1 1",
+                win_odds="3.5",
+                time="1:09.88",
+                prize="1000000",
+            )
+        ],
+    )
+    assert n == 1
+    with get_connection(db) as conn:
+        rows = conn.execute(
+            "SELECT race_date, race_no, time FROM race_records WHERE horse_id=?",
+            ("HK_2024_T001",),
+        ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["race_date"] == "16/11/26"
+    assert rows[0]["race_no"] == "200"
+    assert rows[0]["time"] == "1:09.88"
 
 
 def test_daily_results_preset_whitelist(tmp_path: Path) -> None:

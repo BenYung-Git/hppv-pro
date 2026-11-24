@@ -66,8 +66,9 @@ UPDATE_DAILY_RESULTS_SCOPE = {
     "write_mode": "insert_or_ignore",
     "unit": "record",
     "note": (
-        "Same-day results via whitelist raceMeetings finalPosition → race_records; "
-        "duplicates skipped (INSERT OR IGNORE); does not rewrite racecard."
+        "Same-day results via whitelist raceMeetings finalPosition → race_records "
+        "(DD/MM/YY); skips when a complete localresults row exists for that horse/day; "
+        "does not rewrite racecard."
     ),
     "multi_worker_safe": False,
 }
