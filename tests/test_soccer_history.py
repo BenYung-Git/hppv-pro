@@ -370,12 +370,11 @@ def test_history_never_reads_quarantine(tmp_path: Path) -> None:
     assert result.total_count == 0
 
 
-def test_history_api_and_tab_ui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _seed_soccer_web_db(tmp_path: Path) -> Path:
     from hppv.soccer_db import init_soccer_db
 
     db = tmp_path / "soccer.sqlite3"
     init_soccer_db(db)
-    # Seed footylogic rows into the full soccer DB used by the web app.
     seed_dir = tmp_path / "seed"
     seed_dir.mkdir()
     seed = _init_history_db(seed_dir)
@@ -393,6 +392,11 @@ def test_history_api_and_tab_ui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     dst.commit()
     src.close()
     dst.close()
+    return db
+
+
+def test_history_api_and_tab_ui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _seed_soccer_web_db(tmp_path)
 
     import hppv.web_app as web_app
 
@@ -411,7 +415,9 @@ def test_history_api_and_tab_ui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert 'id="btn-open-layout"' not in hist_slice
     assert "主隊甲" in hist_slice or "英超" in hist_slice
 
-    api = client.get("/api/soccer/history-matches?all_matches=1&n=1").get_json()
+    api = client.get(
+        "/api/records/soccer/match_history?all_matches=1&n=1"
+    ).get_json()
     assert api["ok"] is True
     assert api["source"] == "footylogic_matches"
     assert api["all_matches"] is True
@@ -419,7 +425,7 @@ def test_history_api_and_tab_ui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert api["page_size"] == HISTORY_PAGE_SIZE
 
     dated = client.get(
-        "/api/soccer/history-matches?all_matches=0&date=2026-11-05&n=1"
+        "/api/records/soccer/match_history?all_matches=0&date=2026-11-05&n=1"
     ).get_json()
     assert dated["ok"] is True
     assert dated["all_matches"] is False
@@ -430,6 +436,48 @@ def test_history_api_and_tab_ui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert 'id="btn-open-layout"' in daily_html
     assert 'id="match-status-filter"' not in daily_html
     assert "status-mapping-note" not in daily_html
+
+
+def test_records_match_history_shell_q_op_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Shell q/q_op must win over history_* (racing-aligned records contract)."""
+    db = _seed_soccer_web_db(tmp_path)
+    import hppv.web_app as web_app
+
+    monkeypatch.setattr(web_app, "SOCCER_DB_PATH", db)
+    client = web_app.app.test_client()
+
+    shell = client.get(
+        "/api/records/soccer/match_history"
+        "?all_matches=1&n=1&q=%E4%B8%BB%E9%9A%8A%E7%94%B2&q_op=eq"
+    ).get_json()
+    assert shell["ok"] is True
+    assert shell["q_op"] == HISTORY_SEARCH_OP_EQ
+    assert shell["q"] == "主隊甲"
+    assert shell["total_count"] == 1
+
+    # Conflicting history_q_op must not override shell q_op.
+    mixed = client.get(
+        "/api/records/soccer/match_history"
+        "?all_matches=1&n=1&q=%E4%B8%BB%E9%9A%8A%E7%94%B2&q_op=eq"
+        "&history_q_op=approx&history_q=wrong"
+    ).get_json()
+    assert mixed["ok"] is True
+    assert mixed["q_op"] == HISTORY_SEARCH_OP_EQ
+    assert mixed["q"] == "主隊甲"
+    assert mixed["total_count"] == 1
+
+    # history_* alone still works as fallback.
+    legacy = client.get(
+        "/api/records/soccer/match_history"
+        "?all_matches=1&history_n=1&history_q=%E4%B8%BB%E9%9A%8A%E7%94%B2"
+        "&history_q_op=eq"
+    ).get_json()
+    assert legacy["ok"] is True
+    assert legacy["q_op"] == HISTORY_SEARCH_OP_EQ
+    assert legacy["q"] == "主隊甲"
+    assert legacy["total_count"] == 1
 
 
 def test_history_sort_param_default() -> None:

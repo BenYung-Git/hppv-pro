@@ -4465,7 +4465,7 @@
       historyQ = historyListCtrl.q;
       historyQOp = historyListCtrl.qOp;
       historySort = historyListCtrl.sortParam || historySort;
-      if (historySearchOp) historySearchOp.value = historyQOp;
+      // Do not force the condition select from API echo (racing history style).
       if (typeof data.all_matches === "boolean") {
         historyAllMatches = data.all_matches;
         applyHistoryAllMatchesControls(historyAllMatches);

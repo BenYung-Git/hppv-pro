@@ -861,7 +861,11 @@ def _resolve_soccer_tab_scopes(
 
 
 def _history_list_query_state(layout_settings: dict[str, Any]) -> dict[str, Any]:
-    """History list args — prefixed history_* with legacy fallback when absent."""
+    """Page URL isolation for soccer daily+history tabs (history_* vs legacy).
+
+    Records list API must not use this — use `_records_shell_list_query_state`
+    so HppvRecordsShell's q/q_op/n/sort match racing history.
+    """
     args = request.args
     has_prefix = any(_args_has(args, k) for k in _HISTORY_URL_KEYS)
     if has_prefix:
@@ -877,6 +881,49 @@ def _history_list_query_state(layout_settings: dict[str, Any]) -> dict[str, Any]
         q = (args.get("q") or "").strip()
         q_op = normalize_history_search_op(args.get("q_op"))
         parsed_sort = parse_history_sort_param(args.get("sort"))
+    sort_specs = (
+        parsed_sort
+        if parsed_sort is not None
+        else history_sort_specs_from_layout(layout_settings)
+    )
+    return {
+        "n_raw": n_raw,
+        "q": q,
+        "q_op": q_op,
+        "sort_specs": sort_specs,
+        "sort": history_sort_param(sort_specs),
+    }
+
+
+def _records_shell_list_query_state(layout_settings: dict[str, Any]) -> dict[str, Any]:
+    """Records-list args aligned with racing: shell q/q_op/n/sort win.
+
+    history_* is fallback only (older callers). When both are present, unprefixed
+    shell keys take precedence so tab URL isolation cannot override the list op.
+    """
+    args = request.args
+    if _args_has(args, "n") and str(args.get("n") or "").strip() != "":
+        n_raw = args.get("n")
+    elif _args_has(args, "history_n") and str(args.get("history_n") or "").strip() != "":
+        n_raw = args.get("history_n")
+    else:
+        n_raw = args.get("page") or "1"
+
+    if _args_has(args, "q"):
+        q = (args.get("q") or "").strip()
+    else:
+        q = (args.get("history_q") or "").strip()
+
+    if _args_has(args, "q_op"):
+        q_op = normalize_history_search_op(args.get("q_op"))
+    else:
+        q_op = normalize_history_search_op(args.get("history_q_op"))
+
+    if _args_has(args, "sort"):
+        parsed_sort = parse_history_sort_param(args.get("sort"))
+    else:
+        parsed_sort = parse_history_sort_param(args.get("history_sort"))
+
     sort_specs = (
         parsed_sort
         if parsed_sort is not None
@@ -2033,7 +2080,8 @@ def _records_soccer_match_history() -> Any:
         )
     except SharedLayoutError as e:
         return jsonify({"ok": False, "error": e.code, "detail": e.detail}), 400
-    hist_state = _history_list_query_state(hist_layout)
+    # Same shell contract as racing history (q/q_op/n/sort); history_* fallback only.
+    hist_state = _records_shell_list_query_state(hist_layout)
     hist_search_keys = history_search_keys_from_layout(hist_layout)
     hist_catalog = shared_catalog_public(
         SPORT_SOCCER, LAYOUT_KEY_MATCH_HISTORY, soccer_db_path=SOCCER_DB_PATH
