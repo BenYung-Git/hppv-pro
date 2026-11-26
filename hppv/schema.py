@@ -25,6 +25,23 @@ RACECARD_STARTERS_DEFAULT_DISPLAY_FIELDS: tuple[str, ...] = (
     "馬匹體重",
     "配備",
 )
+RACECARD_PREDICTED_ODDS_COLUMN = "預測賠率"
+RACECARD_IMMEDIATE_ODDS_COLUMN = "即時賠率"
+RACECARD_ODDS_DIFF_COLUMN = "賠率差異"
+RACECARD_WEIGHTED_WIN_RATE_COLUMN = "加權總勝出率"
+RACECARD_SAME_DISTANCE_WIN_RATE_COLUMN = "同程勝率"
+RACECARD_DRAW_WIN_RATE_COLUMN = "檔位勝出率"
+RACECARD_DRAW_PLACE_RATE_COLUMN = "檔位上名率"
+RACECARD_FINISH_POS_COLUMN = "名次"
+# Per-starter derived: odds diff / HV same-distance / draw stats / finish from results.
+RACECARD_STARTERS_DERIVED_COLUMNS: tuple[str, ...] = (
+    RACECARD_WEIGHTED_WIN_RATE_COLUMN,
+    RACECARD_SAME_DISTANCE_WIN_RATE_COLUMN,
+    RACECARD_DRAW_WIN_RATE_COLUMN,
+    RACECARD_DRAW_PLACE_RATE_COLUMN,
+    RACECARD_ODDS_DIFF_COLUMN,
+    RACECARD_FINISH_POS_COLUMN,
+)
 
 
 def qident(identifier: str) -> str:
@@ -117,13 +134,16 @@ def racecard_base_schema_sql(race_info_table: str = RACECARD_RACE_INFO_TABLE) ->
 
 def racecard_starters_schema_sql(
     starters_table: str = RACECARD_STARTERS_TABLE,
-    predicted_odds_col: str = "預測賠率",
-    immediate_odds_col: str = "即時賠率",
+    predicted_odds_col: str = RACECARD_PREDICTED_ODDS_COLUMN,
+    immediate_odds_col: str = RACECARD_IMMEDIATE_ODDS_COLUMN,
 ) -> str:
     """DDL for racecard starters table/index."""
     starters = qident(starters_table)
     predicted = qident(predicted_odds_col)
     immediate = qident(immediate_odds_col)
+    derived = ",\n            ".join(
+        f"{qident(col)} TEXT" for col in RACECARD_STARTERS_DERIVED_COLUMNS
+    )
     return dedent(
         f"""
         CREATE TABLE IF NOT EXISTS {starters} (
@@ -143,7 +163,8 @@ def racecard_starters_schema_sql(
             "馬匹體重" TEXT,
             "配備" TEXT,
             {predicted} TEXT,
-            {immediate} TEXT
+            {immediate} TEXT,
+            {derived}
         );
         CREATE INDEX IF NOT EXISTS idx_racecard_starters_meeting
           ON {starters}(race_date, racecourse, race_no);
@@ -153,8 +174,8 @@ def racecard_starters_schema_sql(
 
 def racecard_starters_expected_columns(
     display_fields: list[str] | tuple[str, ...] = RACECARD_STARTERS_DEFAULT_DISPLAY_FIELDS,
-    predicted_odds_col: str = "預測賠率",
-    immediate_odds_col: str = "即時賠率",
+    predicted_odds_col: str = RACECARD_PREDICTED_ODDS_COLUMN,
+    immediate_odds_col: str = RACECARD_IMMEDIATE_ODDS_COLUMN,
 ) -> set[str]:
     """Return canonical racecard_starters columns expected by app."""
     return {
@@ -162,6 +183,7 @@ def racecard_starters_expected_columns(
         *display_fields,
         predicted_odds_col,
         immediate_odds_col,
+        *RACECARD_STARTERS_DERIVED_COLUMNS,
     }
 
 
@@ -430,8 +452,8 @@ def ensure_racecard_starters_columns(
     conn: sqlite3.Connection,
     starters_table: str = RACECARD_STARTERS_TABLE,
     display_fields: list[str] | tuple[str, ...] = RACECARD_STARTERS_DEFAULT_DISPLAY_FIELDS,
-    predicted_odds_col: str = "預測賠率",
-    immediate_odds_col: str = "即時賠率",
+    predicted_odds_col: str = RACECARD_PREDICTED_ODDS_COLUMN,
+    immediate_odds_col: str = RACECARD_IMMEDIATE_ODDS_COLUMN,
 ) -> None:
     """
     Ensure racecard_starters structure is compatible with current app.

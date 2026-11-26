@@ -9,6 +9,9 @@
     <div class="toolbar racing-daily-toolbar">
       <div class="toolbar-row racing-daily-toolbar-row">
         <div class="toolbar-main racing-daily-actions">
+          <label class="racing-daily-meeting-label" for="racing-daily-meeting-select">{{ t('racing.daily.date') }}</label>
+          <select id="racing-daily-meeting-select" class="racing-daily-meeting-select"
+                  aria-label="{{ t('racing.daily.date') }}"></select>
           <button type="button" class="icon-btn" id="racing-daily-open-layout"
                   aria-controls="racing-daily-layout-mode" aria-expanded="false">{{ t('racing.daily.layout') }}</button>
           <button type="button" class="icon-btn" id="racing-daily-btn-open-export">{{ t('racing.daily.export.tip') }}</button>

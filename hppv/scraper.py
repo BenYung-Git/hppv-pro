@@ -48,6 +48,48 @@ def _clean_cell_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _header_index_exact(headers: list[str], *labels: str) -> int | None:
+    """Return first header index whose text equals one of ``labels`` (after clean)."""
+    wanted = {str(x) for x in labels}
+    for i, h in enumerate(headers):
+        if h in wanted:
+            return i
+    return None
+
+
+def _header_index_contains(
+    headers: list[str], *needles: str, exclude_substrings: tuple[str, ...] = ()
+) -> int | None:
+    """Return first header index containing any needle; skip excluded substrings."""
+    for needle in needles:
+        for i, h in enumerate(headers):
+            if needle not in h:
+                continue
+            if any(ex in h for ex in exclude_substrings):
+                continue
+            return i
+    return None
+
+
+def header_index_venue(headers: list[str]) -> int | None:
+    """馬場 column only — must not match 場地狀況 / Going."""
+    exact = _header_index_exact(headers, "場地", "Venue")
+    if exact is not None:
+        return exact
+    # English compound headers e.g. "Venue / Course" (still not Going).
+    return _header_index_contains(
+        headers, "Venue", exclude_substrings=("Going",)
+    )
+
+
+def header_index_going(headers: list[str]) -> int | None:
+    """場地狀況 column only."""
+    exact = _header_index_exact(headers, "場地狀況", "Going")
+    if exact is not None:
+        return exact
+    return _header_index_contains(headers, "場地狀況", "Going")
+
+
 def parse_past_performance_from_html(horse_id: str, html: str, source_url: str) -> ScrapeResult:
     """Parse past performance table into normalized rows.
 
@@ -100,11 +142,12 @@ def parse_past_performance_from_html(horse_id: str, html: str, source_url: str) 
         return None
 
     idx_date = idx_of("日期", "Date")
-    idx_venue = idx_of("場地", "Venue")
+    # Venue vs going: exact/safe headers only (「場地」must not hit「場地狀況」).
+    idx_venue = header_index_venue(headers)
     idx_race_no = idx_of("場次", "Race")
     idx_course = idx_of("跑道", "Course", "途程", "Track")
     idx_dist = idx_of("途程", "Distance", "米")
-    idx_going = idx_of("場地狀況", "Going")
+    idx_going = header_index_going(headers)
     idx_class = idx_of("班", "Class")
     idx_draw = idx_of("檔", "Draw")
     idx_rating = idx_of("評分", "Rating")

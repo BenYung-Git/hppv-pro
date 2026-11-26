@@ -208,6 +208,175 @@ def _parse_pct(raw: str, *, field: str) -> str:
     return text
 
 
+# race_course_area (racecard) → racing_draw_statistics.track_type
+_RACE_COURSE_AREA_TO_TRACK_TYPE: dict[str, str] = {
+    "草地": "TURF",
+    "全天候": "AWT",
+    "TURF": "TURF",
+    "AWT": "AWT",
+}
+
+
+def track_type_from_race_course_area(area: Any) -> str | None:
+    """Map racecard race_course_area to draw-stats track_type. Unknown → None."""
+    text = str(area or "").strip()
+    if not text:
+        return None
+    return _RACE_COURSE_AREA_TO_TRACK_TYPE.get(text)
+
+
+def rail_position_for_draw_lookup(*, track_type: str, track_name: Any) -> str | None:
+    """AWT stats use empty rail; TURF uses racecard track_name (A/B/C+3…)."""
+    tt = str(track_type or "").strip().upper()
+    if tt == "AWT":
+        return ""
+    if tt != "TURF":
+        return None
+    text = str(track_name or "").strip()
+    if not text:
+        return None
+    return text
+
+
+def lookup_draw_win_place_pct(
+    conn: Any,
+    *,
+    venue_code: str,
+    track_type: str,
+    rail_position: str,
+    distance_m: int,
+    draw_no: int,
+) -> tuple[str | None, str | None]:
+    """Read win_pct/place_pct by full unique key. 0 kept; missing → (None, None).
+
+    Multiple rows for the key → DrawStatisticsError (do not pick/merge).
+    """
+    rows = conn.execute(
+        """
+        SELECT win_pct, place_pct
+          FROM racing_draw_statistics
+         WHERE venue_code = ?
+           AND track_type = ?
+           AND rail_position = ?
+           AND distance_m = ?
+           AND draw_no = ?
+        """,
+        (
+            str(venue_code).strip().upper(),
+            str(track_type).strip().upper(),
+            str(rail_position),
+            int(distance_m),
+            int(draw_no),
+        ),
+    ).fetchall()
+    if not rows:
+        return None, None
+    if len(rows) > 1:
+        raise DrawStatisticsError(
+            "draw_lookup_ambiguous",
+            (
+                f"multiple draw stats for "
+                f"{venue_code}/{track_type}/{rail_position!r}/{distance_m}/{draw_no}"
+            ),
+        )
+    win_pct = rows[0]["win_pct"]
+    place_pct = rows[0]["place_pct"]
+    # Preserve stored "0"; only treat SQL NULL as missing.
+    win_out = None if win_pct is None else str(win_pct)
+    place_out = None if place_pct is None else str(place_pct)
+    return win_out, place_out
+
+
+def update_draw_rates_for_meeting(
+    conn: Any,
+    *,
+    race_date: str,
+    racecourse: str,
+) -> int:
+    """Write 檔位勝出率／檔位上名率 for starters of one meeting (lookup only)."""
+    from hppv.racing_horse_form import normalize_distance
+    from hppv.schema import (
+        RACECARD_DRAW_PLACE_RATE_COLUMN,
+        RACECARD_DRAW_WIN_RATE_COLUMN,
+        qident,
+    )
+
+    venue_code = str(racecourse or "").strip().upper()
+    if not venue_code:
+        return 0
+    # Table may be absent before first draw-stats download.
+    exists = conn.execute(
+        """
+        SELECT 1 FROM sqlite_master
+         WHERE type = 'table' AND name = 'racing_draw_statistics'
+         LIMIT 1
+        """
+    ).fetchone()
+    win_col = qident(RACECARD_DRAW_WIN_RATE_COLUMN)
+    place_col = qident(RACECARD_DRAW_PLACE_RATE_COLUMN)
+    starters = conn.execute(
+        """
+        SELECT s.id AS starter_id,
+               s."檔位" AS draw,
+               ri.distance AS distance,
+               ri.track_name AS track_name,
+               ri.race_course_area AS race_course_area
+          FROM racecard_starters AS s
+          JOIN racecard_race_info AS ri
+            ON ri.race_date = s.race_date
+           AND ri.racecourse = s.racecourse
+           AND ri.race_no = s.race_no
+         WHERE s.race_date = ?
+           AND s.racecourse = ?
+           AND TRIM(COALESCE(s."檔位", '')) != ''
+        """,
+        (race_date, racecourse),
+    ).fetchall()
+    updated = 0
+    for row in starters:
+        starter_id = int(row["starter_id"])
+        win_val: str | None = None
+        place_val: str | None = None
+        if exists:
+            track_type = track_type_from_race_course_area(row["race_course_area"])
+            dist_txt = normalize_distance(row["distance"])
+            draw_txt = str(row["draw"] or "").strip()
+            rail = (
+                rail_position_for_draw_lookup(
+                    track_type=track_type or "",
+                    track_name=row["track_name"],
+                )
+                if track_type
+                else None
+            )
+            if (
+                track_type
+                and rail is not None
+                and dist_txt.isdigit()
+                and draw_txt.isdigit()
+            ):
+                win_val, place_val = lookup_draw_win_place_pct(
+                    conn,
+                    venue_code=venue_code,
+                    track_type=track_type,
+                    rail_position=rail,
+                    distance_m=int(dist_txt),
+                    draw_no=int(draw_txt),
+                )
+        # Always write (NULL clears stale values when lookup misses).
+        cur = conn.execute(
+            f"""
+            UPDATE racecard_starters
+               SET {win_col} = ?,
+                   {place_col} = ?
+             WHERE id = ?;
+            """,
+            (win_val, place_val, starter_id),
+        )
+        updated += int(cur.rowcount or 0)
+    return updated
+
+
 def build_drawadvsearch_url(
     *,
     year: int,

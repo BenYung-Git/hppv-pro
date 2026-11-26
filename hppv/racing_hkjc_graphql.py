@@ -14,6 +14,12 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 import requests
 
 from hppv.models import RaceRecord
+from hppv.schema import (
+    RACECARD_IMMEDIATE_ODDS_COLUMN,
+    RACECARD_ODDS_DIFF_COLUMN,
+    RACECARD_PREDICTED_ODDS_COLUMN,
+    qident,
+)
 
 # Official bet.hkjc.com racing client uses base-get.
 GRAPHQL_URL = "https://info.cld.hkjc.com/graphql/base-get/"
@@ -115,6 +121,80 @@ _VENUE_DISPLAY: dict[str, str] = {
     "HV": "跑馬地",
     "FC": "從化",
 }
+
+
+def venue_display_name(venue_code: str) -> str:
+    """Map ST/HV/FC → Chinese race_records venue label; other values returned trimmed."""
+    text = str(venue_code or "").strip()
+    if not text:
+        return ""
+    return _VENUE_DISPLAY.get(text.upper(), text)
+
+
+def venue_code_name(venue: str) -> str:
+    """Map Chinese display or code → ST/HV/FC; unknown values returned trimmed as-is."""
+    text = str(venue or "").strip()
+    if not text:
+        return ""
+    upper = text.upper()
+    if upper in _VENUE_DISPLAY:
+        return upper
+    for code, label in _VENUE_DISPLAY.items():
+        if text == label:
+            return code
+    return text
+
+
+def venue_for_race_records(venue: str) -> str:
+    """Normalize ST/HV/FC or Chinese label → race_records.venue Chinese text."""
+    code = venue_code_name(venue)
+    if code in _VENUE_DISPLAY:
+        return _VENUE_DISPLAY[code]
+    return str(venue or "").strip()
+
+
+def other_main_venue_code(venue: str) -> str | None:
+    """ST↔HV pair only. Other / unknown venues → None."""
+    code = venue_code_name(venue)
+    if code == "ST":
+        return "HV"
+    if code == "HV":
+        return "ST"
+    return None
+
+
+def known_venue_zh_labels() -> tuple[str, ...]:
+    """Chinese race_records.venue labels used by the project (ST/HV/FC)."""
+    return tuple(_VENUE_DISPLAY.values())
+
+
+def is_known_race_venue_label(venue: str) -> bool:
+    """True when venue is already ST/HV/FC code or 沙田/跑馬地/從化."""
+    text = str(venue or "").strip()
+    if not text:
+        return False
+    code = venue_code_name(text)
+    return code in _VENUE_DISPLAY
+
+
+def suggest_venue_zh_from_course(course: str) -> str | None:
+    """Derive 沙田/跑馬地/從化 from course when exactly one label matches.
+
+    Prefer startswith; else unique substring. Ambiguous / none → None (no invent).
+    """
+    text = str(course or "").strip()
+    if not text:
+        return None
+    labels = known_venue_zh_labels()
+    starts = [v for v in labels if text.startswith(v)]
+    if len(starts) == 1:
+        return starts[0]
+    if len(starts) > 1:
+        return None
+    contained = [v for v in labels if v in text]
+    if len(contained) == 1:
+        return contained[0]
+    return None
 
 PostFunc = Callable[..., Any]
 
@@ -762,6 +842,35 @@ def upsert_starter_from_graphql(
     )
 
 
+def parse_odds_number(raw: Any) -> float | None:
+    """Parse stored/GraphQL odds text to float. Missing/invalid → None (no invent)."""
+    text = _txt(raw)
+    if text is None:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def format_odds_number(odds_decimal: float) -> str:
+    """Same display convention as predicted odds: up to 2 decimals, trim zeros."""
+    v = round(float(odds_decimal), 2)
+    s = f"{v:.2f}"
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return s
+
+
+def compute_odds_diff(predicted_odds: Any, immediate_odds: Any) -> str | None:
+    """預測賠率 − 即時賠率. Either side missing/invalid → None (store NULL)."""
+    predicted = parse_odds_number(predicted_odds)
+    immediate = parse_odds_number(immediate_odds)
+    if predicted is None or immediate is None:
+        return None
+    return format_odds_number(predicted - immediate)
+
+
 def update_immediate_win_odds(
     conn: sqlite3.Connection,
     *,
@@ -771,22 +880,43 @@ def update_immediate_win_odds(
     horse_no: str,
     win_odds: Any,
 ) -> int:
-    """Update 即時賠率 for a non-standby starter. Returns affected rowcount."""
-    if _txt(win_odds) is None:
+    """Update 即時賠率 and 賠率差異 for a non-standby starter. Returns affected rowcount."""
+    immediate = _txt(win_odds)
+    if immediate is None:
         return 0
-    cur = conn.execute(
-        """
-        UPDATE racecard_starters
-           SET "即時賠率" = ?
+    predicted_col = qident(RACECARD_PREDICTED_ODDS_COLUMN)
+    immediate_col = qident(RACECARD_IMMEDIATE_ODDS_COLUMN)
+    diff_col = qident(RACECARD_ODDS_DIFF_COLUMN)
+    rows = conn.execute(
+        f"""
+        SELECT id, {predicted_col} AS predicted_odds
+          FROM racecard_starters
          WHERE race_date = ?
            AND racecourse = ?
            AND race_no = ?
            AND "馬號" = ?
            AND 後備 = '否';
         """,
-        (str(win_odds).strip(), race_date, racecourse, race_no, str(horse_no)),
-    )
-    return int(cur.rowcount or 0)
+        (race_date, racecourse, race_no, str(horse_no)),
+    ).fetchall()
+    if not rows:
+        return 0
+    updated = 0
+    for row in rows:
+        row_id = int(row[0])
+        predicted_odds = row[1]
+        diff = compute_odds_diff(predicted_odds, immediate)
+        cur = conn.execute(
+            f"""
+            UPDATE racecard_starters
+               SET {immediate_col} = ?,
+                   {diff_col} = ?
+             WHERE id = ?;
+            """,
+            (immediate, diff, row_id),
+        )
+        updated += int(cur.rowcount or 0)
+    return updated
 
 
 def apply_meeting_racecard_to_db(
@@ -837,6 +967,15 @@ def apply_meeting_racecard_to_db(
                 race_no=rn,
                 fields=fields,
             )
+    from hppv.racing_download import update_finish_pos_for_meeting
+    from hppv.racing_draw_statistics import update_draw_rates_for_meeting
+    from hppv.racing_horse_form import update_hv_same_distance_win_rates_for_meeting
+
+    update_hv_same_distance_win_rates_for_meeting(
+        conn, race_date=db_date, racecourse=venue
+    )
+    update_draw_rates_for_meeting(conn, race_date=db_date, racecourse=venue)
+    update_finish_pos_for_meeting(conn, race_date=db_date, racecourse=venue)
     return db_date, venue, sorted(set(race_nos))
 
 

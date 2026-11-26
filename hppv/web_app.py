@@ -8,8 +8,6 @@ from typing import Any
 import io
 import json
 import logging
-import re
-from urllib.parse import urlencode
 from datetime import date, datetime
 
 import pandas as pd
@@ -32,23 +30,9 @@ from hppv import reports
 from hppv.config import default_config
 from hppv.db import (
     count_horses,
-    count_race_records,
-    fetch_horse_by_id,
-    fetch_horses,
-    fetch_race_records,
-    get_recent_form_for_horse,
-    get_horse_status,
     get_connection,
     init_db,
     sqlite3,
-    search_horses_by_keyword,
-)
-from hppv.pp_preset import (
-    find_preset,
-    load_pp_preset_list,
-    save_pp_preset_default,
-    save_pp_preset_list,
-    slug_preset_id,
 )
 from hppv.soccer_db import (
     SoccerSchemaMismatchError,
@@ -96,6 +80,8 @@ from hppv.soccer_match_form import (
     normalize_venue_filter,
 )
 from hppv.racing_horse_form import (
+    DEFAULT_HORSE_FORM_LIMIT,
+    HORSE_FORM_LIMIT_OPTIONS,
     HorseFormError,
     HorseFormValidationError,
     fetch_horse_form,
@@ -209,34 +195,8 @@ from hppv.translations import (
     translate,
     update_translation,
 )
-from hppv.web_utils import format_race_date_display, race_date_sort_key
-
 BASE_DIR = Path(__file__).resolve().parent
 
-
-
-# 與 horses_list 往績 sorters 欄位一致（save_pp_preset 驗證用）
-HORSES_RECORD_SORT_KEYS: frozenset[str] = frozenset(
-    {
-        "race_date",
-        "venue",
-        "race_no",
-        "course",
-        "distance",
-        "going",
-        "class_band",
-        "draw",
-        "rating",
-        "jockey",
-        "trainer",
-        "finish_pos",
-        "running_pos",
-        "win_odds",
-        "time",
-        "prize",
-        "flag",
-    }
-)
 TEMPLATE_DIR = BASE_DIR / "web_templates"
 
 app = Flask(__name__, template_folder=str(TEMPLATE_DIR))
@@ -249,8 +209,6 @@ DB_PATH = cfg.db_path
 SOCCER_DB_PATH = cfg.soccer_db_path
 SOCCER_REQUESTS_DIR = cfg.soccer_requests_dir
 RACING_REQUESTS_DIR = cfg.racing_requests_dir
-RANKINGS_UI_VERSION = "rankings-ui-v3"
-
 # One-time process init for soccer DB / translations seed (not per-request DDL).
 try:
     init_soccer_db(SOCCER_DB_PATH)
@@ -382,20 +340,11 @@ WEB_BUILD_TAG = _compute_web_build_tag()
 @app.get("/api/debug/web_app_info")
 def api_debug_web_app_info() -> Any:
     """診斷：確認目前 process 載入嘅 web_app / 模板係邊個檔案（排查仍見舊版）。"""
-    rankings_path = TEMPLATE_DIR / "rankings.html"
-    has_stamp = False
-    try:
-        has_stamp = "build-stamp" in rankings_path.read_text(encoding="utf-8")
-    except OSError:
-        pass
     return jsonify(
         {
             "ok": True,
             "web_app_py": str(Path(__file__).resolve()),
             "template_dir": str(TEMPLATE_DIR.resolve()),
-            "rankings_html": str(rankings_path.resolve()),
-            "rankings_template_has_build_stamp": has_stamp,
-            "RANKINGS_UI_VERSION": RANKINGS_UI_VERSION,
             "WEB_BUILD_TAG": WEB_BUILD_TAG,
             "db_path": str(DB_PATH),
         }
@@ -508,85 +457,6 @@ def _message_board_images() -> list[str]:
     ]
     files.sort()
     return files
-
-
-def _latest_rankings_payload() -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "race_date": "—",
-        "racecourse": "—",
-        "race_count": 0,
-        "races": [],
-    }
-    try:
-        with get_connection(DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
-            meeting = conn.execute(
-                """
-                SELECT race_date, racecourse
-                FROM racecard_starters
-                GROUP BY race_date, racecourse
-                ORDER BY race_date DESC, racecourse ASC
-                LIMIT 1;
-                """
-            ).fetchone()
-            if not meeting:
-                return payload
-
-            race_date = str(meeting["race_date"] or "")
-            racecourse = str(meeting["racecourse"] or "")
-            rows = conn.execute(
-                """
-                SELECT
-                    race_no,
-                    horse_id,
-                    "馬號" AS horse_no,
-                    "馬名" AS horse_name,
-                    "檔位" AS draw,
-                    "騎師" AS jockey,
-                    "練馬師" AS trainer,
-                    "評分" AS rating,
-                    "負磅" AS handicap,
-                    "後備" AS reserve
-                FROM racecard_starters
-                WHERE race_date = ? AND racecourse = ?
-                ORDER BY race_no ASC, CAST("馬號" AS INTEGER) ASC, "馬號" ASC;
-                """,
-                (race_date, racecourse),
-            ).fetchall()
-    except Exception:
-        return payload
-
-    races_map: dict[int, list[dict[str, str]]] = {}
-    for row in rows:
-        race_no = int(row["race_no"] or 0)
-        races_map.setdefault(race_no, []).append(
-            {
-                "horse_id": str(row["horse_id"] or ""),
-                "horse_no": str(row["horse_no"] or ""),
-                "horse_name": str(row["horse_name"] or ""),
-                "draw": str(row["draw"] or ""),
-                "jockey": str(row["jockey"] or ""),
-                "trainer": str(row["trainer"] or ""),
-                "rating": str(row["rating"] or ""),
-                "handicap": str(row["handicap"] or ""),
-                "reserve": str(row["reserve"] or ""),
-            }
-        )
-
-    races = [
-        {
-            "race_no": race_no,
-            "title": f"第 {race_no} 場｜{_racecourse_display(racecourse)}｜距離：—｜班次：—",
-            "rows": races_map[race_no],
-        }
-        for race_no in sorted(races_map.keys())
-    ]
-    return {
-        "race_date": race_date,
-        "racecourse": _racecourse_display(racecourse),
-        "race_count": len(races),
-        "races": races,
-    }
 
 
 @app.get("/assets/message_board/<path:filename>")
@@ -1047,6 +917,8 @@ def racing_info() -> str:
         "racing_info.html",
         active_tab=active_tab,
         racing_page_size=50,
+        horse_form_limit=DEFAULT_HORSE_FORM_LIMIT,
+        horse_form_limit_options=list(HORSE_FORM_LIMIT_OPTIONS),
         racing_layout_settings=hist_layout,
         racing_layout_catalog=shared_catalog_public(
             SPORT_RACING, LAYOUT_KEY_RACING_HISTORY
@@ -1351,6 +1223,7 @@ def _records_racing_daily() -> Any:
         RacingDailyError,
         RacingDailySearchError,
         fetch_racing_daily_race,
+        list_available_race_dates,
         parse_racing_daily_sort_param,
     )
     from hppv.racing_layout import (
@@ -1396,6 +1269,7 @@ def _records_racing_daily() -> Any:
                     "racecourse_name": meeting.racecourse_name,
                     "source": meeting.source,
                 },
+                "meetings": list_available_race_dates(DB_PATH),
                 "races": [
                     {"race_no": r.race_no, "horse_count": r.horse_count}
                     for r in result.races
@@ -2525,6 +2399,7 @@ def api_racing_horse_form() -> Any:
             distance=request.args.get("distance"),
             race_no=request.args.get("race_no"),
             horse_name=request.args.get("horse_name"),
+            handicap=request.args.get("handicap"),
             limit=request.args.get("limit"),
             recent_filter=request.args.get("recent_filter"),
         )
@@ -2860,71 +2735,6 @@ def api_translations_toggle(tx_id: int) -> Any:
     return jsonify({"ok": True, "item": item})
 
 
-@app.get("/rankings")
-def rankings() -> str:
-    init_db(DB_PATH)
-    payload = _latest_rankings_payload()
-    rankings_path = (TEMPLATE_DIR / "rankings.html").resolve()
-    html = render_template(
-        "rankings.html",
-        payload=payload,
-        ui_version=RANKINGS_UI_VERSION,
-        debug_web_app_py=str(Path(__file__).resolve()),
-        debug_rankings_html=str(rankings_path),
-    )
-    resp = make_response(html)
-    # 避免瀏覽器長期快取排位頁，導致仍顯示舊版（無 Build 區塊）
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    return resp
-
-
-@app.get("/api/horse/<horse_id>/recent_form")
-def api_horse_recent_form(horse_id: str):
-    init_db(DB_PATH)
-    limit_raw = (request.args.get("limit") or "").strip()
-    try:
-        limit = int(limit_raw) if limit_raw else 10
-    except ValueError:
-        limit = 10
-    if limit <= 0 or limit > 50:
-        limit = 10
-    # 排位彈窗往績固定用「最新在前」：race_date DESC
-    sort_seq_for_recent: list[tuple[str, str]] = [("race_date", "desc")]
-    try:
-        rows = get_recent_form_for_horse(
-            DB_PATH,
-            horse_id,
-            limit=limit,
-            sort_seq=sort_seq_for_recent,
-        )
-    except Exception as e:
-        return jsonify({"ok": False, "error": "db_error", "detail": str(e)}), 500
-    records: list[dict[str, str]] = []
-    for r in rows:
-        records.append(
-            {
-                "race_date": str(r["race_date"] or ""),
-                "venue": str(r["venue"] or ""),
-                "race_no": str(r["race_no"] or ""),
-                "course": str(r["course"] or ""),
-                "distance": str(r["distance"] or ""),
-                "going": str(r["going"] or ""),
-                "class_band": str(r["class_band"] or ""),
-                "draw": str(r["draw"] or ""),
-                "rating": str(r["rating"] or ""),
-                "jockey": str(r["jockey"] or ""),
-                "trainer": str(r["trainer"] or ""),
-                "finish_pos": str(r["finish_pos"] or ""),
-                "running_pos": str(r["running_pos"] or ""),
-                "win_odds": str(r["win_odds"] or ""),
-                "time": str(r["time"] or ""),
-                "prize": str(r["prize"] or ""),
-            }
-        )
-    return jsonify({"ok": True, "records": records})
-
-
 @app.get("/reports/export")
 def export_report():
     report_code = (request.args.get("report") or "").strip()
@@ -2946,396 +2756,6 @@ def export_report():
         as_attachment=True,
         download_name=filename,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-
-@app.get("/horses")
-def horses_list() -> str:
-    init_db(DB_PATH)
-    q = (request.args.get("q") or "").strip()
-    horse_id_query = (request.args.get("horse_id") or "").strip()
-    panel_state = (request.args.get("panel") or "").strip().lower()
-    def _to_number(text: str) -> float:
-        t = str(text or "").strip()
-        if not t:
-            return float("-inf")
-        m = re.search(r"-?\d+(?:\.\d+)?", t.replace(",", ""))
-        return float(m.group(0)) if m else float("-inf")
-
-    sorters = {
-        "race_date": ("Race Date", lambda x: race_date_sort_key(x["race_date"])),
-        "venue": ("Venue", lambda x: str(x["venue"] or "").lower()),
-        "race_no": ("Race No.", lambda x: _to_number(x["race_no"])),
-        "course": ("Course", lambda x: str(x["course"] or "").lower()),
-        "distance": ("Distance", lambda x: _to_number(x["distance"])),
-        "going": ("Going", lambda x: str(x["going"] or "").lower()),
-        "class_band": ("Class", lambda x: str(x["class_band"] or "").lower()),
-        "draw": ("Draw", lambda x: _to_number(x["draw"])),
-        "rating": ("Rating", lambda x: _to_number(x["rating"])),
-        "jockey": ("Jockey", lambda x: str(x["jockey"] or "").lower()),
-        "trainer": ("Trainer", lambda x: str(x["trainer"] or "").lower()),
-        "finish_pos": ("Finish Pos", lambda x: _to_number(x["finish_pos"])),
-        "running_pos": ("Running Pos", lambda x: _to_number(x["running_pos"])),
-        "win_odds": ("Win Odds", lambda x: _to_number(x["win_odds"])),
-        "time": ("Time", lambda x: str(x["time"] or "")),
-        "prize": ("Prize", lambda x: _to_number(x["prize"])),
-        "flag": ("Flag", lambda x: str(x["flag"] or "").lower()),
-    }
-
-    pp_presets = load_pp_preset_list()
-    pp_preset_id_param = (request.args.get("pp_preset_id") or "").strip()
-    active_preset = find_preset(pp_presets, pp_preset_id_param) or pp_presets[0]
-    pp_active_preset_id = str(active_preset["id"])
-    active_sort_source = [
-        (sk, dk)
-        for sk, dk in (active_preset.get("sort_seq") or [])
-        if sk in sorters and dk in ("asc", "desc")
-    ][:3]
-    active_show_source = [k for k in (active_preset.get("show_cols") or []) if k in sorters]
-    pp_visible_request = (request.args.get("pp_visible") or "").strip()
-
-    raw_seq: list[tuple[str, str]] = []
-    for i in (1, 2, 3):
-        sk = (request.args.get(f"sort{i}") or "").strip()
-        dk = (request.args.get(f"dir{i}") or "asc").strip().lower()
-        if dk not in ("asc", "desc"):
-            dk = "asc"
-        if sk and sk in sorters:
-            raw_seq.append((sk, dk))
-    # dedupe keys, keep first occurrence, max 3 keys
-    seen: set[str] = set()
-    sort_seq: list[tuple[str, str]] = []
-    for key, direction in raw_seq:
-        if key in seen:
-            continue
-        seen.add(key)
-        sort_seq.append((key, direction))
-        if len(sort_seq) >= 3:
-            break
-    if not sort_seq:
-        seen_pp: set[str] = set()
-        for sk, dk in active_sort_source:
-            if sk not in sorters or dk not in ("asc", "desc"):
-                continue
-            if sk in seen_pp:
-                continue
-            seen_pp.add(sk)
-            sort_seq.append((sk, dk))
-            if len(sort_seq) >= 3:
-                break
-        if not sort_seq:
-            sort_seq = [("race_date", "desc")]
-
-    clicked_col = (request.args.get("clicked_col") or "").strip()
-    selected_col = (request.args.get("selected_col") or (sort_seq[0][0] if sort_seq else "")).strip()
-    if clicked_col and clicked_col in sorters:
-        idx = next((i for i, (k, _d) in enumerate(sort_seq) if k == clicked_col), -1)
-        if idx != -1:
-            k, d = sort_seq[idx]
-            sort_seq[idx] = (k, "desc" if d == "asc" else "asc")
-        else:
-            default_dir = "desc" if clicked_col == "race_date" else "asc"
-            # 新欄位接在排序鍵列表**末尾**（先點的欄位維持在較前），避免「永遠插在主鍵後面」
-            # 把先前點的副鍵（如 jockey）擠到後面。
-            insert_pos = len(sort_seq)
-            sort_seq.insert(insert_pos, (clicked_col, default_dir))
-            # 最多 3 鍵：保留主鍵 sort_seq[0]，超出則從索引 1 開始移除最舊的副鍵
-            while len(sort_seq) > 3:
-                sort_seq.pop(1)
-
-    rows = fetch_horses(DB_PATH, limit=None)
-
-    def _resolve_query_to_horse_id(keyword: str) -> str:
-        kw = keyword.strip()
-        if not kw:
-            return ""
-        kw_up = kw.upper()
-        # 優先：HorseId / Brand No. 精準匹配
-        for r in rows:
-            hid = str(r["horse_id"] or "").strip()
-            brand = str(r["brand_no"] or "").strip()
-            if hid.upper() == kw_up:
-                return hid
-            if brand.upper() == kw_up:
-                return hid
-        # 次優先：中文名包含
-        for r in rows:
-            zh = str(r["name_zh"] or "").strip()
-            if kw and kw in zh:
-                return str(r["horse_id"] or "")
-        # 次優先：英文名包含（不分大小寫）
-        for r in rows:
-            en = str(r["name_en"] or "").strip().upper()
-            if kw_up and kw_up in en:
-                return str(r["horse_id"] or "")
-        # 最後 fallback：沿用既有搜尋函式的第一筆
-        hit = search_horses_by_keyword(DB_PATH, kw, limit=1)
-        if hit:
-            return str(hit[0]["horse_id"] or "")
-        return ""
-
-    selected_horse_id = ""
-    if rows:
-        valid_ids = {str(r["horse_id"] or "") for r in rows}
-        resolved_by_q = _resolve_query_to_horse_id(q) if q else ""
-        # 有輸入關鍵字時，優先用 q 定位；找不到才回退到 horse_id 參數。
-        if resolved_by_q and resolved_by_q in valid_ids:
-            selected_horse_id = resolved_by_q
-        elif horse_id_query and horse_id_query in valid_ids:
-            selected_horse_id = horse_id_query
-        else:
-            selected_horse_id = str(rows[0]["horse_id"] or "")
-
-    records_view: list[dict[str, str]] = []
-    selected_status = ""
-    if selected_horse_id:
-        selected_status = get_horse_status(DB_PATH, selected_horse_id)
-        selected_records = fetch_race_records(DB_PATH, selected_horse_id)
-        rows_unsorted = [
-            {
-                "race_date": format_race_date_display(r.race_date),
-                "venue": r.venue,
-                "race_no": r.race_no,
-                "course": r.course,
-                "distance": r.distance,
-                "going": r.going,
-                "class_band": r.class_band,
-                "draw": r.draw,
-                "rating": r.rating,
-                "jockey": r.jockey,
-                "trainer": r.trainer,
-                "finish_pos": r.finish_pos,
-                "running_pos": r.running_pos,
-                "win_odds": r.win_odds,
-                "time": r.time,
-                "prize": r.prize,
-                "flag": selected_status,
-            }
-            for r in selected_records
-        ]
-        records_view = list(rows_unsorted)
-        # stable multi-key sort: apply from lowest priority to highest
-        for key, direction in reversed(sort_seq):
-            records_view.sort(key=sorters[key][1], reverse=(direction == "desc"))
-
-    base_header_params: dict[str, str] = {"q": q, "horse_id": selected_horse_id}
-    if pp_active_preset_id:
-        base_header_params["pp_preset_id"] = pp_active_preset_id
-    if panel_state == "open":
-        base_header_params["panel"] = "open"
-    if sort_seq:
-        base_header_params["selected_col"] = sort_seq[0][0]
-    for idx, (sk, dk) in enumerate(sort_seq, start=1):
-        base_header_params[f"sort{idx}"] = sk
-        base_header_params[f"dir{idx}"] = dk
-    sort_labels = {k: v[0] for k, v in sorters.items()}
-    sort_summary = "  ".join(
-        [f"{i+1}. {sort_labels[k]}({'↑' if d == 'asc' else '↓'})" for i, (k, d) in enumerate(sort_seq)]
-    )
-    sort_state: dict[str, dict[str, Any]] = {}
-    for i, (k, d) in enumerate(sort_seq, start=1):
-        sort_state[k] = {"order": i, "dir": d, "selected": True}
-    for k in sorters.keys():
-        if k not in sort_state:
-            sort_state[k] = {"order": 999, "dir": "asc", "selected": False}
-
-    pp_show_cols_default = list(active_show_source)
-    if not pp_show_cols_default:
-        pp_show_cols_default = list(sorters.keys())
-    if pp_visible_request:
-        parsed_vis: list[str] = []
-        seen_vis: set[str] = set()
-        for part in pp_visible_request.split(","):
-            vk = part.strip()
-            if vk in sorters and vk not in seen_vis:
-                seen_vis.add(vk)
-                parsed_vis.append(vk)
-        if parsed_vis:
-            pp_show_cols_default = parsed_vis
-    pp_sort_seq_default = [
-        (sk, dk)
-        for sk, dk in active_sort_source
-        if sk in sorters and dk in ("asc", "desc")
-    ][:3]
-
-    pp_presets_meta = [{"id": p["id"], "name": p["name"]} for p in pp_presets]
-
-    pp_visible_param = ""
-    if set(pp_show_cols_default) != set(active_show_source):
-        pp_visible_param = ",".join(pp_show_cols_default)
-    if pp_visible_param:
-        base_header_params["pp_visible"] = pp_visible_param
-    base_header_qs = urlencode(base_header_params)
-
-    return render_template(
-        "horses_list.html",
-        horses=rows,
-        q=q,
-        selected_horse_id=selected_horse_id,
-        selected_status=selected_status,
-        records=records_view,
-        sort_seq=sort_seq,
-        sort_labels=sort_labels,
-        sort_summary=sort_summary,
-        sort_state=sort_state,
-        base_header_qs=base_header_qs,
-        panel_state=panel_state,
-        pp_presets_meta=pp_presets_meta,
-        pp_active_preset_id=pp_active_preset_id,
-        pp_visible_param=pp_visible_param,
-        pp_show_cols_default=pp_show_cols_default,
-        pp_sort_seq_default=pp_sort_seq_default,
-        sortable_fields=[
-            ("race_date", "Race Date"),
-            ("jockey", "Jockey"),
-            ("trainer", "Trainer"),
-            ("class_band", "Class"),
-            ("rating", "Rating"),
-            ("win_odds", "Odds"),
-            ("draw", "Draw"),
-            ("race_no", "Race No."),
-            ("distance", "Distance"),
-            ("finish_pos", "Finish Pos"),
-            ("running_pos", "Running Pos"),
-            ("time", "Time"),
-            ("prize", "Prize"),
-            ("venue", "Venue"),
-            ("course", "Course"),
-            ("going", "Going"),
-            ("flag", "Flag"),
-        ],
-    )
-
-
-@app.post("/horses/save_pp_preset")
-def save_pp_preset() -> tuple[Any, int] | Any:
-    """建立／更新往績 preset 列表；無 mode 時相容第 2 階段（覆寫 default）。"""
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return jsonify({"ok": False, "error": "invalid_json"}), 400
-    show_raw = data.get("show_cols")
-    sort_raw = data.get("sort_seq")
-    if not isinstance(show_raw, list):
-        show_raw = []
-    if not isinstance(sort_raw, list):
-        sort_raw = []
-
-    show_cols: list[str] = []
-    seen_show: set[str] = set()
-    for k in show_raw:
-        if not isinstance(k, str) or k not in HORSES_RECORD_SORT_KEYS:
-            continue
-        if k in seen_show:
-            continue
-        seen_show.add(k)
-        show_cols.append(k)
-
-    sort_seq_tuples: list[tuple[str, str]] = []
-    seen_sort: set[str] = set()
-    for item in sort_raw[:10]:
-        if not isinstance(item, (list, tuple)) or len(item) < 2:
-            continue
-        sk = str(item[0]).strip()
-        dk = str(item[1]).strip().lower()
-        if sk not in HORSES_RECORD_SORT_KEYS or dk not in ("asc", "desc"):
-            continue
-        if sk in seen_sort:
-            continue
-        seen_sort.add(sk)
-        sort_seq_tuples.append((sk, dk))
-        if len(sort_seq_tuples) >= 3:
-            break
-
-    if not show_cols:
-        return jsonify({"ok": False, "error": "no_show_cols"}), 400
-    if not sort_seq_tuples:
-        sort_seq_tuples = [("race_date", "desc")]
-
-    mode = str(data.get("mode") or "").lower()
-
-    try:
-        if mode == "create":
-            name = (data.get("name") or "").strip()
-            if not name:
-                return jsonify({"ok": False, "error": "name_required"}), 400
-            presets = load_pp_preset_list()
-            existing_ids = {str(p["id"]) for p in presets}
-            new_id = slug_preset_id(name, existing_ids)
-            presets.append(
-                {
-                    "id": new_id,
-                    "name": name,
-                    "is_builtin": False,
-                    "show_cols": list(show_cols),
-                    "sort_seq": list(sort_seq_tuples),
-                }
-            )
-            save_pp_preset_list(presets)
-            return jsonify({"ok": True, "id": new_id})
-
-        if mode == "update":
-            preset_id = (data.get("id") or "").strip()
-            if not preset_id:
-                return jsonify({"ok": False, "error": "id_required"}), 400
-            presets = load_pp_preset_list()
-            target = find_preset(presets, preset_id)
-            if target is None:
-                return jsonify({"ok": False, "error": "preset_not_found"}), 404
-            target["show_cols"] = list(show_cols)
-            target["sort_seq"] = list(sort_seq_tuples)
-            if preset_id == "default":
-                save_pp_preset_default(
-                    {"show_cols": list(show_cols), "sort_seq": list(sort_seq_tuples)}
-                )
-            else:
-                save_pp_preset_list(presets)
-            return jsonify({"ok": True, "id": preset_id})
-
-        save_pp_preset_default(
-            {"show_cols": list(show_cols), "sort_seq": list(sort_seq_tuples)}
-        )
-    except OSError as e:
-        return jsonify({"ok": False, "error": "write_failed", "detail": str(e)}), 500
-    return jsonify({"ok": True})
-
-
-@app.get("/horses/<horse_id>")
-def horse_detail(horse_id: str) -> str:
-    init_db(DB_PATH)
-    horse = fetch_horse_by_id(DB_PATH, horse_id)
-    if horse is None:
-        abort(404)
-
-    records = fetch_race_records(DB_PATH, horse_id)
-    status = get_horse_status(DB_PATH, horse_id)
-    records_view = [
-        {
-            "race_date": format_race_date_display(r.race_date),
-            "venue": r.venue,
-            "race_no": r.race_no,
-            "course": r.course,
-            "distance": r.distance,
-            "going": r.going,
-            "class_band": r.class_band,
-            "draw": r.draw,
-            "rating": r.rating,
-            "jockey": r.jockey,
-            "trainer": r.trainer,
-            "finish_pos": r.finish_pos,
-            "running_pos": r.running_pos,
-            "win_odds": r.win_odds,
-            "time": r.time,
-            "prize": r.prize,
-            "flag": status,
-        }
-        for r in records
-    ]
-    return render_template(
-        "horse_detail.html",
-        horse=horse,
-        status=status,
-        records=records_view,
-        records_total=count_race_records(DB_PATH, horse_id),
     )
 
 

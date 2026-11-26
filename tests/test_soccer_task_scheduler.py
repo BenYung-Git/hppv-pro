@@ -224,3 +224,22 @@ def test_scheduler_failure_records_error_and_continues(
         assert state.running is False
     finally:
         sched.stop()
+
+
+def test_year_interval_timer_delay_capped(soccer_db: Path) -> None:
+    """year next_run must not pass a multi-month delay into threading.Timer (Windows)."""
+    from hppv.soccer_task_scheduler import _TIMER_MAX_DELAY_SEC
+
+    save_update_matches_settings(
+        soccer_db, enabled=True, interval_value=1, interval_unit="year"
+    )
+    sched = UpdateMatchesScheduler(soccer_db, soccer_db.parent / "req")
+    try:
+        sched.start()
+        assert sched._timer is not None
+        assert 0 < float(sched._timer.interval) <= float(_TIMER_MAX_DELAY_SEC)
+        state = get_update_matches_state(soccer_db)
+        nxt = datetime.fromisoformat(state.next_run_at)
+        assert (nxt - datetime.now(timezone.utc)) > timedelta(days=300)
+    finally:
+        sched.stop()

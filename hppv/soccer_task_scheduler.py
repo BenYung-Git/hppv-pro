@@ -54,6 +54,9 @@ TASK_KEY_UPDATE_RESULTS = "update_results"
 INTERVAL_UNITS = frozenset({"mins", "hour", "day", "year"})
 DEFAULT_INTERVAL_VALUE = 1
 DEFAULT_INTERVAL_UNIT = "mins"
+# Windows Condition.wait overflows above ~24.8d (signed 32-bit ms). Cap the
+# in-process Timer; _execute_due_job re-arms until real next_run_at is due.
+_TIMER_MAX_DELAY_SEC = 24 * 60 * 60
 
 STATUS_IDLE = "idle"
 STATUS_RUNNING = "running"
@@ -955,6 +958,8 @@ class _TaskSchedulerBase:
         delay = (next_dt - _now_utc()).total_seconds()
         if delay < 0.05:
             delay = 0.05
+        elif delay > _TIMER_MAX_DELAY_SEC:
+            delay = float(_TIMER_MAX_DELAY_SEC)
         timer = threading.Timer(delay, self._on_timer)
         timer.daemon = True
         self._timer = timer

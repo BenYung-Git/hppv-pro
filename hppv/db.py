@@ -15,6 +15,7 @@ from .schema import (
 # HKJC：HorseId 多為 HK_YYYY_XXXX；測試或舊資料可能為 HK_1。
 _RE_HKJC_HORSE_ID = re.compile(r"^HK_[A-Za-z0-9_]+$")
 _RE_BRAND_NO = re.compile(r"^[A-Z]\d{3}$")
+_RE_CJK = re.compile(r"[\u4e00-\u9fff]")
 _DISALLOWED_HORSE_IDS = frozenset(
     {
         "name",
@@ -128,6 +129,124 @@ def init_db(db_path: Path) -> None:
         )
         # Backfill: older rows had horse_id = brand_no.
         conn.execute("UPDATE horses SET brand_no = horse_id WHERE brand_no IS NULL OR brand_no = '';")
+
+
+def backfill_misstored_venues_from_course(db_path: Path) -> dict[str, int]:
+    """Fix race_records.venue when it is not a known venue but course uniquely implies one.
+
+    - Known venue labels (沙田/跑馬地/從化 or ST/HV/FC) are left unchanged.
+    - ``going`` is never modified.
+    - Rows whose course cannot uniquely determine a venue are skipped (pending).
+    Returns counts: scanned, updated, skipped_known, skipped_pending.
+    """
+    from hppv.racing_hkjc_graphql import (
+        is_known_race_venue_label,
+        suggest_venue_zh_from_course,
+    )
+
+    scanned = updated = skipped_known = skipped_pending = 0
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, venue, course
+              FROM race_records
+             ORDER BY id
+            """
+        ).fetchall()
+        for row in rows:
+            scanned += 1
+            venue = str(row["venue"] or "").strip()
+            course = str(row["course"] or "").strip()
+            if is_known_race_venue_label(venue):
+                skipped_known += 1
+                continue
+            suggested = suggest_venue_zh_from_course(course)
+            if not suggested:
+                skipped_pending += 1
+                continue
+            if suggested == venue:
+                skipped_known += 1
+                continue
+            cur = conn.execute(
+                "UPDATE race_records SET venue = ? WHERE id = ?;",
+                (suggested, int(row["id"])),
+            )
+            updated += int(cur.rowcount or 0)
+        conn.commit()
+    return {
+        "scanned": scanned,
+        "updated": updated,
+        "skipped_known": skipped_known,
+        "skipped_pending": skipped_pending,
+    }
+
+
+def class_band_has_cjk(class_band: str | None) -> bool:
+    """True when class_band contains CJK (e.g. 第四班)."""
+    return bool(_RE_CJK.search(str(class_band or "")))
+
+
+def delete_duplicate_race_records_prefer_cjk_class(db_path: Path) -> dict[str, int]:
+    """Delete duplicate race_records sharing (horse_id, venue, race_date, race_no).
+
+    Keep rule:
+      1. Prefer row whose class_band contains CJK.
+      2. If tie (both/neither CJK), keep the larger id.
+    Does not modify going or other columns; does not recompute derived rates.
+    """
+    groups = 0
+    deleted = 0
+    kept = 0
+    with get_connection(db_path) as conn:
+        dup_keys = conn.execute(
+            """
+            SELECT horse_id, venue, race_date, race_no, COUNT(*) AS c
+              FROM race_records
+             WHERE TRIM(COALESCE(horse_id, '')) != ''
+               AND TRIM(COALESCE(venue, '')) != ''
+               AND TRIM(COALESCE(race_date, '')) != ''
+               AND TRIM(COALESCE(race_no, '')) != ''
+             GROUP BY horse_id, venue, race_date, race_no
+            HAVING COUNT(*) > 1
+            """
+        ).fetchall()
+        for key in dup_keys:
+            groups += 1
+            rows = conn.execute(
+                """
+                SELECT id, class_band
+                  FROM race_records
+                 WHERE horse_id = ?
+                   AND venue = ?
+                   AND race_date = ?
+                   AND race_no = ?
+                 ORDER BY id ASC
+                """,
+                (
+                    key["horse_id"],
+                    key["venue"],
+                    key["race_date"],
+                    key["race_no"],
+                ),
+            ).fetchall()
+            if len(rows) < 2:
+                continue
+            cjk_rows = [r for r in rows if class_band_has_cjk(r["class_band"])]
+            if len(cjk_rows) == 1:
+                keep_id = int(cjk_rows[0]["id"])
+            elif len(cjk_rows) > 1:
+                keep_id = max(int(r["id"]) for r in cjk_rows)
+            else:
+                keep_id = max(int(r["id"]) for r in rows)
+            kept += 1
+            for r in rows:
+                rid = int(r["id"])
+                if rid == keep_id:
+                    continue
+                cur = conn.execute("DELETE FROM race_records WHERE id = ?;", (rid,))
+                deleted += int(cur.rowcount or 0)
+        conn.commit()
+    return {"groups": groups, "kept": kept, "deleted": deleted}
 
 
 def upsert_race_records(

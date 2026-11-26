@@ -22,10 +22,12 @@ from typing import Any, Callable
 
 from hppv.config import HKJC_MCS_HORSES_CLAS_URL_EN
 from hppv.db import (
+    _RACE_RECORD_DATE_ORDER_EXPR,
     get_connection,
     init_db,
     insert_or_fill_horse,
     is_acceptable_horse_id,
+    normalize_race_record_date_iso,
     upsert_race_records,
 )
 from hppv.racing_requests import HORSES_OPERATION, HORSES_QUERY
@@ -58,8 +60,10 @@ from hppv.racing_local_results import (
     to_localresults_date,
 )
 from hppv.schema import (
+    RACECARD_FINISH_POS_COLUMN,
     RACECARD_STARTERS_DEFAULT_DISPLAY_FIELDS,
     ensure_racecard_starters_columns,
+    qident,
     racecard_base_schema_sql,
 )
 
@@ -144,6 +148,72 @@ def ensure_racecard_db(db_path: Path) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def update_finish_pos_for_meeting(
+    conn: Any,
+    *,
+    race_date: str,
+    racecourse: str,
+) -> int:
+    """Write racecard_starters.名次 from race_records for one meeting.
+
+    Match: horse_id + venue (Chinese) + same calendar day; prefer same race_no,
+    then complete rows (non-empty time), then newest id.
+    """
+    from hppv.racing_hkjc_graphql import venue_for_race_records
+
+    date_iso = normalize_race_record_date_iso(race_date)
+    venue_zh = venue_for_race_records(racecourse)
+    if not date_iso or not venue_zh:
+        return 0
+    finish_col = qident(RACECARD_FINISH_POS_COLUMN)
+    starters = conn.execute(
+        """
+        SELECT id, horse_id, race_no
+          FROM racecard_starters
+         WHERE race_date = ?
+           AND racecourse = ?
+           AND TRIM(COALESCE(horse_id, '')) != ''
+        """,
+        (race_date, racecourse),
+    ).fetchall()
+    updated = 0
+    lookup_sql = f"""
+        SELECT finish_pos
+          FROM race_records AS rr
+         WHERE rr.horse_id = ?
+           AND TRIM(COALESCE(rr.venue, '')) = ?
+           AND ({_RACE_RECORD_DATE_ORDER_EXPR}) = ?
+         ORDER BY
+           CASE WHEN CAST(rr.race_no AS INTEGER) = ? THEN 0 ELSE 1 END,
+           CASE WHEN TRIM(COALESCE(rr.time, '')) != '' THEN 0 ELSE 1 END,
+           rr.id DESC
+         LIMIT 1
+    """
+    for row in starters:
+        starter_id = int(row["id"])
+        horse_id = str(row["horse_id"] or "").strip()
+        try:
+            race_no = int(row["race_no"])
+        except (TypeError, ValueError):
+            race_no = -1
+        found = conn.execute(
+            lookup_sql, (horse_id, venue_zh, date_iso, race_no)
+        ).fetchone()
+        finish_val = (
+            str(found["finish_pos"]).strip()
+            if found and found["finish_pos"] is not None
+            else None
+        )
+        if finish_val == "":
+            finish_val = None
+        conn.execute(
+            f"UPDATE racecard_starters SET {finish_col} = ? WHERE id = ?",
+            (finish_val, starter_id),
+        )
+        updated += 1
+    return updated
 
 
 def _emit(cb: ProgressCb | None, prog: RacingDownloadProgress) -> None:
@@ -342,6 +412,14 @@ def run_racecard_download(
             )
 
             _fill_predicted_win_odds_for_meeting(conn, db_date, venue)
+        from hppv.racing_draw_statistics import update_draw_rates_for_meeting
+        from hppv.racing_horse_form import update_hv_same_distance_win_rates_for_meeting
+
+        update_hv_same_distance_win_rates_for_meeting(
+            conn, race_date=db_date, racecourse=venue
+        )
+        update_draw_rates_for_meeting(conn, race_date=db_date, racecourse=venue)
+        update_finish_pos_for_meeting(conn, race_date=db_date, racecourse=venue)
         _write_meta(conn, race_date=db_date, venue=venue, race_nos=sorted(set(race_nos)))
         conn.commit()
     finally:
@@ -579,6 +657,13 @@ def run_daily_results_download(
         prog.message = f"已處理 {prog.processed}/{prog.total} record"
         _emit(progress_cb, prog)
 
+    conn = get_connection(db_path)
+    try:
+        update_finish_pos_for_meeting(conn, race_date=db_date, racecourse=venue)
+        conn.commit()
+    finally:
+        conn.close()
+
     prog.phase = "done"
     prog.message = f"已處理 {prog.processed}/{prog.total} record"
     _emit(progress_cb, prog)
@@ -745,6 +830,31 @@ def run_results_period_download(
         prog.processed += 1
         prog.message = f"已處理 {prog.processed}/{prog.total} record"
         _emit(progress_cb, prog)
+
+    # Sync finish positions onto any stored racecard meetings touched by this window.
+    conn = get_connection(db_path)
+    try:
+        seen_meetings: set[tuple[str, str]] = set()
+        for meta in meeting_metas:
+            day = str(meta.get("race_date") or "").strip()
+            venue = str(meta.get("venue_code") or "").strip().upper()
+            if not day or not venue:
+                continue
+            # localresults meta race_date may be DD/MM/YYYY; racecard uses YYYY/MM/DD.
+            day_iso = normalize_race_record_date_iso(day)
+            if not day_iso:
+                continue
+            racecard_day = day_iso.replace("-", "/")
+            key = (racecard_day, venue)
+            if key in seen_meetings:
+                continue
+            seen_meetings.add(key)
+            update_finish_pos_for_meeting(
+                conn, race_date=racecard_day, racecourse=venue
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
     prog.phase = "done"
     prog.message = f"已處理 {prog.processed}/{prog.total} record"

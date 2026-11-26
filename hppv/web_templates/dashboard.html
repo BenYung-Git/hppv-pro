@@ -71,20 +71,20 @@
 </div>
 
 <div class="cards">
-  <a class="card-link" href="{{ url_for('horses_list') }}">
+  <a class="card-link" href="{{ url_for('racing_info', tab='history') }}">
     <div class="card">
       <div class="card-title">現役馬匹總數</div>
       <div class="card-value">{{ stats.active_horses }}</div>
-      <div class="link-hint">→ 往馬匹列表</div>
+      <div class="link-hint">→ 賽馬往績</div>
     </div>
   </a>
 
-  <a class="card-link" href="{{ url_for('rankings') }}">
+  <a class="card-link" href="{{ url_for('racing_info', tab='matches') }}">
     <div class="card">
       <div class="card-title">最新賽卡／排位</div>
       <div class="card-value">{{ stats.race_date }}｜{{ stats.racecourse }}</div>
       <div>場次：{{ stats.race_count }} 場</div>
-      <div class="link-hint">→ 查看排位</div>
+      <div class="link-hint">→ 賽馬資訊</div>
     </div>
   </a>
 

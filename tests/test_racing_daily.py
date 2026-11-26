@@ -10,8 +10,11 @@ from hppv.db import get_connection, init_db
 from hppv.racing_daily import (
     fetch_racing_daily_filtered,
     fetch_racing_daily_race,
+    list_available_race_dates,
     resolve_active_meeting,
 )
+from hppv.racing_download import ensure_racecard_db, update_finish_pos_for_meeting
+from hppv.schema import RACECARD_FINISH_POS_COLUMN
 from hppv.racing_layout import (
     LAYOUT_KEY_RACING_DAILY,
     LAYOUT_KEY_RACING_HISTORY,
@@ -76,9 +79,44 @@ def _seed_racecard(db: Path) -> None:
 def test_daily_catalog_all_default_visible() -> None:
     assert RACING_DAILY_COLUMN_CATALOG
     assert all(bool(c.get("default_visible")) for c in RACING_DAILY_COLUMN_CATALOG)
+    assert any(c["key"] == "finish_pos" for c in RACING_DAILY_COLUMN_CATALOG)
     settings = default_layout_settings(LAYOUT_KEY_RACING_DAILY)
     assert all(c["visible"] for c in settings["columns"])
     assert len(settings["columns"]) == len(RACING_DAILY_COLUMN_CATALOG)
+    assert any(c["key"] == "finish_pos" for c in settings["columns"])
+
+
+def test_update_finish_pos_from_race_records(tmp_path: Path) -> None:
+    db = tmp_path / "hppv.sqlite3"
+    _seed_racecard(db)
+    ensure_racecard_db(db)
+    with get_connection(db) as conn:
+        conn.execute(
+            """
+            INSERT INTO race_records (
+              horse_id, race_date, venue, race_no, course, distance, going, class_band,
+              draw, rating, handicap, jockey, trainer, finish_pos, running_pos,
+              win_odds, time, prize
+            ) VALUES (
+              'HK_2024_K101', '08/11/26', '沙田', '1', '沙田草地"C"', '1200', '好',
+              '第三班', '3', '60', '120', '騎師甲', '練馬師乙', '02', '',
+              '5.5', '1.10.00', ''
+            )
+            """
+        )
+        n = update_finish_pos_for_meeting(conn, race_date="2026/11/08", racecourse="ST")
+        conn.commit()
+        assert n >= 1
+        row = conn.execute(
+            f"""
+            SELECT "{RACECARD_FINISH_POS_COLUMN}" AS fp
+              FROM racecard_starters
+             WHERE horse_id = 'HK_2024_K101' AND race_no = 1
+            """
+        ).fetchone()
+        assert row["fp"] == "02"
+    view = fetch_racing_daily_race(db, race_no=1)
+    assert any(r.get("finish_pos") == "02" for r in view.rows)
 
 
 def test_daily_pref_isolated_from_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,6 +141,17 @@ def test_resolve_active_meeting_uses_meta(tmp_path: Path) -> None:
     assert meeting.race_date == "2026/11/08"
     assert meeting.racecourse == "ST"
     assert meeting.source == "meta"
+
+
+def test_list_available_race_dates_newest_first(tmp_path: Path) -> None:
+    db = tmp_path / "hppv.sqlite3"
+    _seed_racecard(db)
+    meetings = list_available_race_dates(db)
+    assert len(meetings) == 2
+    assert meetings[0]["race_date"] == "2026/11/08"
+    assert meetings[0]["racecourse"] == "ST"
+    assert meetings[1]["race_date"] == "2026/10/01"
+    assert meetings[1]["racecourse"] == "HV"
 
 
 def test_fetch_daily_race_isolated(tmp_path: Path) -> None:
@@ -147,7 +196,7 @@ def test_api_racing_daily_race_ui(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(rl, "layout_settings_path", lambda: tmp_path / "racing_layout_settings.json")
 
     client = wa.app.test_client()
-    r = client.get("/api/racing/daily-records")
+    r = client.get("/api/records/racing/racing_daily")
     assert r.status_code == 200
     body = r.get_json()
     assert body["ok"] is True
@@ -158,18 +207,32 @@ def test_api_racing_daily_race_ui(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert body["selected_race_no"] == 1
     assert len(body["races"]) == 2
     assert body["total_count"] == 2
+    assert len(body["meetings"]) == 2
+    assert body["meetings"][0]["race_date"] == "2026/11/08"
     assert all(c.get("default_visible") for c in body["catalog"])
 
-    r2 = client.get("/api/racing/daily-records?race_no=2")
+    r2 = client.get("/api/records/racing/racing_daily?race_no=2")
     b2 = r2.get_json()
     assert b2["selected_race_no"] == 2
     assert b2["total_count"] == 2
     assert b2["summary"]["event_name"] == "測試賽二"
 
+    r_old = client.get(
+        "/api/records/racing/racing_daily?date=2026-10-01&racecourse=HV"
+    )
+    b_old = r_old.get_json()
+    assert r_old.status_code == 200
+    assert b_old["meeting"]["race_date"] == "2026/10/01"
+    assert b_old["meeting"]["racecourse"] == "HV"
+    assert b_old["meeting"]["source"] == "request"
+    assert b_old["total_count"] == 1
+    assert b_old["rows"][0]["horse_name"] == "舊會馬"
+
     page = client.get("/racing/info")
     html = page.get_data(as_text=True)
     assert "racing-daily-table" in html
     assert "racing-daily-race-cards" in html
+    assert "racing-daily-meeting-select" in html
     assert "racing-daily-all-records" not in html
     assert "racing-daily-search" not in html
     assert "racing-daily-pager" not in html

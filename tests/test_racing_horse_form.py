@@ -1,15 +1,25 @@
-"""Racing horse form: same-distance / recent / place stats (read-only)."""
+"""Racing horse form: same-distance / recent / place + handicap stats (read-only)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from hppv.db import get_connection, init_db
 from hppv.racing_horse_form import (
+    DEFAULT_HORSE_FORM_LIMIT,
+    HORSE_FORM_LIMIT,
+    HORSE_FORM_LIMIT_OPTIONS,
+    HorseFormValidationError,
     classify_finish_pos,
     fetch_horse_form,
     normalize_distance,
+    normalize_horse_form_limit,
+    parse_handicap_pounds,
+    summarize_handicap_groups,
     summarize_places,
+    summarize_win_counts,
 )
 
 
@@ -45,12 +55,32 @@ def _seed(db: Path) -> None:
         conn.commit()
 
 
+def test_shared_limit_settings() -> None:
+    assert HORSE_FORM_LIMIT == 12
+    assert HORSE_FORM_LIMIT_OPTIONS == (12,)
+    assert DEFAULT_HORSE_FORM_LIMIT == 12
+    assert normalize_horse_form_limit(None) == 12
+    assert normalize_horse_form_limit("") == 12
+    assert normalize_horse_form_limit(12) == 12
+    assert normalize_horse_form_limit("12") == 12
+    with pytest.raises(HorseFormValidationError):
+        normalize_horse_form_limit(10)
+    with pytest.raises(HorseFormValidationError):
+        normalize_horse_form_limit(5)
+
+
 def test_normalize_and_classify() -> None:
     assert normalize_distance("1200米") == "1200"
     assert classify_finish_pos("01") == "first"
+    assert classify_finish_pos("04") == "fourth"
+    assert classify_finish_pos("05") == "other"
     assert classify_finish_pos("WV") == "withdrawn"
     assert classify_finish_pos("WV-A") == "withdrawn"
     assert classify_finish_pos("PU") == "unknown"
+    assert parse_handicap_pounds("124") == 124
+    assert parse_handicap_pounds("—") is None
+    assert parse_handicap_pounds("") is None
+    assert parse_handicap_pounds("124.5") is None
 
 
 def test_same_distance_and_recent_filters(tmp_path: Path) -> None:
@@ -62,11 +92,13 @@ def test_same_distance_and_recent_filters(tmp_path: Path) -> None:
         race_date="2026-03-01",
         venue="沙田",
         distance="1200",
-        limit=5,
+        handicap="124",
         recent_filter="all",
     )
+    assert payload["limit"] == 12
+    assert payload["limit_options"] == [12]
     same = payload["same_distance"]
-    assert len(same) <= 5
+    assert len(same) <= 12
     assert all(normalize_distance(r["distance"]) == "1200" for r in same)
     # Newest before 2026-03-01 at 1200 should include Feb 10 then Feb 1 (WV) …
     assert same[0]["race_date"] == "2026-02-10"
@@ -83,7 +115,7 @@ def test_same_distance_and_recent_filters(tmp_path: Path) -> None:
         race_date="2026-03-01",
         venue="沙田",
         distance="1200",
-        limit=10,
+        handicap="124",
         recent_filter="same_venue",
     )["recent"]
     assert venue_only
@@ -99,7 +131,7 @@ def test_summary_wv_not_in_valid(tmp_path: Path) -> None:
         race_date="2026-03-01",
         venue="沙田",
         distance="1200",
-        limit=10,
+        handicap="124",
         recent_filter="same_distance",
     )
     recent = payload["recent"]
@@ -107,10 +139,58 @@ def test_summary_wv_not_in_valid(tmp_path: Path) -> None:
     summary = payload["summary"]
     assert summary["withdrawn"] >= 1
     assert summary["valid_played"] == (
-        summary["first"] + summary["second"] + summary["third"] + summary["other"]
+        summary["first"]
+        + summary["second"]
+        + summary["third"]
+        + summary["fourth"]
+        + summary["other"]
     )
     assert summary["win_rate"] != "—"
     empty = summarize_places([])
     assert empty["valid_played"] == 0
     assert empty["win_rate"] == "—"
     assert empty["place_rate"] == "—"
+
+
+def test_handicap_groups_nonexclusive_and_shared_win_counts(tmp_path: Path) -> None:
+    db = tmp_path / "hppv.sqlite3"
+    _seed(db)
+    payload = fetch_horse_form(
+        db,
+        horse_id="HK_2024_T100",
+        race_date="2026-03-01",
+        venue="沙田",
+        distance="1200",
+        handicap="124",
+        recent_filter="all",
+    )
+    hs = payload["handicap_stats"]
+    assert hs["today_handicap"] == "124"
+    assert hs["today_handicap_valid"] is True
+    # Equal-to-today (124 WV) counts in both groups.
+    assert hs["ge"]["wins"] == 1
+    assert hs["ge"]["valid_played"] == 3
+    assert hs["ge"]["win_rate"] == round(1 / 3, 4)
+    assert hs["le"]["wins"] == 0
+    assert hs["le"]["valid_played"] == 2
+    assert hs["le"]["win_rate"] == 0.0
+    shared = summarize_win_counts(payload["recent"])
+    assert shared["wins"] == payload["summary"]["first"]
+    assert shared["valid_played"] == payload["summary"]["valid_played"]
+
+
+def test_handicap_missing_today_no_invent() -> None:
+    rows = [
+        {
+            "finish_pos": "01",
+            "place_bucket": "first",
+            "handicap": "126",
+        }
+    ]
+    hs = summarize_handicap_groups(rows, today_handicap="")
+    assert hs["today_handicap"] == "—"
+    assert hs["today_handicap_valid"] is False
+    assert hs["ge"]["wins"] == 0
+    assert hs["ge"]["valid_played"] == 0
+    assert hs["ge"]["win_rate"] == "—"
+    assert hs["le"]["win_rate"] == "—"

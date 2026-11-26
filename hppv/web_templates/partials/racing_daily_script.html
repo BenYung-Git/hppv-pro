@@ -36,6 +36,8 @@
     horseFormSameDistance: {{ t('racing.horse_form.same_distance')|tojson }},
     horseFormRecent: {{ t('racing.horse_form.recent')|tojson }},
     horseFormSummary: {{ t('racing.horse_form.summary')|tojson }},
+    horseFormSummarySt: {{ t('racing.horse_form.summary_st')|tojson }},
+    horseFormSameVenueDistanceWin: {{ t('racing.horse_form.same_venue_distance_win')|tojson }},
     horseFormLimit: {{ t('racing.horse_form.limit')|tojson }},
     horseFormFilterAll: {{ t('racing.horse_form.filter_all')|tojson }},
     horseFormFilterVenue: {{ t('racing.horse_form.filter_same_venue')|tojson }},
@@ -54,6 +56,7 @@
     horseFormStatFirst: {{ t('racing.horse_form.stat.first')|tojson }},
     horseFormStatSecond: {{ t('racing.horse_form.stat.second')|tojson }},
     horseFormStatThird: {{ t('racing.horse_form.stat.third')|tojson }},
+    horseFormStatFourth: {{ t('racing.horse_form.stat.fourth')|tojson }},
     horseFormStatOther: {{ t('racing.horse_form.stat.other')|tojson }},
     horseFormStatWithdrawn: {{ t('racing.horse_form.stat.withdrawn')|tojson }},
     horseFormStatUnknown: {{ t('racing.horse_form.stat.unknown')|tojson }},
@@ -62,6 +65,9 @@
     horseFormStatValid: {{ t('racing.horse_form.stat.valid')|tojson }},
     horseFormStatNoValid: {{ t('racing.horse_form.stat.no_valid')|tojson }},
     horseFormPlayedOf: {{ t('racing.horse_form.played_of')|tojson }},
+    horseFormHandicapStatsToday: {{ t('racing.horse_form.handicap_stats.today')|tojson }},
+    horseFormHandicapStatsGe: {{ t('racing.horse_form.handicap_stats.ge')|tojson }},
+    horseFormHandicapStatsLe: {{ t('racing.horse_form.handicap_stats.le')|tojson }},
     horseFormLoading: {{ t('racing.horse_form.loading')|tojson }},
     horseFormEmpty: {{ t('racing.horse_form.empty')|tojson }},
     horseFormError: {{ t('racing.horse_form.error')|tojson }},
@@ -89,6 +95,7 @@
     horse_id: {{ t('racing.daily.col.horse_id')|tojson }},
     horse_no: {{ t('racing.daily.col.horse_no')|tojson }},
     horse_name: {{ t('racing.daily.col.horse_name')|tojson }},
+    finish_pos: {{ t('racing.daily.col.finish_pos')|tojson }},
     draw: {{ t('racing.daily.col.draw')|tojson }},
     jockey: {{ t('racing.daily.col.jockey')|tojson }},
     trainer: {{ t('racing.daily.col.trainer')|tojson }},
@@ -98,6 +105,11 @@
     gear: {{ t('racing.daily.col.gear')|tojson }},
     predicted_odds: {{ t('racing.daily.col.predicted_odds')|tojson }},
     immediate_odds: {{ t('racing.daily.col.immediate_odds')|tojson }},
+    odds_diff: {{ t('racing.daily.col.odds_diff')|tojson }},
+    weighted_win_rate: {{ t('racing.daily.col.weighted_win_rate')|tojson }},
+    same_distance_win_rate: {{ t('racing.daily.col.same_distance_win_rate')|tojson }},
+    draw_win_rate: {{ t('racing.daily.col.draw_win_rate')|tojson }},
+    draw_place_rate: {{ t('racing.daily.col.draw_place_rate')|tojson }},
     event_name: {{ t('racing.daily.col.event_name')|tojson }},
     calendar_date: {{ t('racing.daily.col.calendar_date')|tojson }},
     weekday: {{ t('racing.daily.col.weekday')|tojson }},
@@ -120,6 +132,7 @@
     horse_id: {{ t('racing.daily.col.desc.horse_id')|tojson }},
     horse_no: {{ t('racing.daily.col.desc.horse_no')|tojson }},
     horse_name: {{ t('racing.daily.col.desc.horse_name')|tojson }},
+    finish_pos: {{ t('racing.daily.col.desc.finish_pos')|tojson }},
     draw: {{ t('racing.daily.col.desc.draw')|tojson }},
     jockey: {{ t('racing.daily.col.desc.jockey')|tojson }},
     trainer: {{ t('racing.daily.col.desc.trainer')|tojson }},
@@ -129,6 +142,11 @@
     gear: {{ t('racing.daily.col.desc.gear')|tojson }},
     predicted_odds: {{ t('racing.daily.col.desc.predicted_odds')|tojson }},
     immediate_odds: {{ t('racing.daily.col.desc.immediate_odds')|tojson }},
+    odds_diff: {{ t('racing.daily.col.desc.odds_diff')|tojson }},
+    weighted_win_rate: {{ t('racing.daily.col.desc.weighted_win_rate')|tojson }},
+    same_distance_win_rate: {{ t('racing.daily.col.desc.same_distance_win_rate')|tojson }},
+    draw_win_rate: {{ t('racing.daily.col.desc.draw_win_rate')|tojson }},
+    draw_place_rate: {{ t('racing.daily.col.desc.draw_place_rate')|tojson }},
     event_name: {{ t('racing.daily.col.desc.event_name')|tojson }},
     calendar_date: {{ t('racing.daily.col.desc.calendar_date')|tojson }},
     weekday: {{ t('racing.daily.col.desc.weekday')|tojson }},
@@ -146,16 +164,19 @@
   const raceCardsEl = document.getElementById("racing-daily-race-cards");
   const summaryEl = document.getElementById("racing-daily-summary");
   const horseIconTpl = document.getElementById("racing-daily-horse-icon-template");
+  const meetingSelect = document.getElementById("racing-daily-meeting-select");
   let layoutSaved = {{ racing_daily_layout_settings|tojson }};
   let layoutDraft = JSON.parse(JSON.stringify(layoutSaved));
   let catalog = {{ (racing_daily_layout_catalog if racing_daily_layout_catalog is defined else [])|tojson }};
   let meeting = null;
+  let meetings = [];
   let races = [];
   let selectedRaceNo = null;
   let lastRaceSummary = null;
   let listCtrl = null;
   let dailyLayoutEditor = null;
   let loaded = false;
+  let meetingSelectSyncing = false;
   const SORTABLE = {};
 
   // Align with soccer history: catalog.sortable gates header + layout-editor sort.
@@ -183,10 +204,68 @@
     try {
       sessionStorage.setItem(SEL_KEY, JSON.stringify({
         race_date: meeting.race_date,
+        race_date_iso: meeting.race_date_iso || "",
         racecourse: meeting.racecourse,
         race_no: selectedRaceNo,
       }));
     } catch (_e) {}
+  }
+
+  function meetingOptionValue(m) {
+    if (!m) return "";
+    return String(m.race_date_iso || m.race_date || "") + "|" + String(m.racecourse || "");
+  }
+
+  function meetingOptionLabel(m) {
+    const dateTxt = m.race_date || m.race_date_iso || "—";
+    const name = m.racecourse_name || m.racecourse || "—";
+    const code = m.racecourse || "";
+    return code ? (dateTxt + "  " + name + "（" + code + "）") : (dateTxt + "  " + name);
+  }
+
+  function parseMeetingOptionValue(raw) {
+    const text = String(raw || "");
+    const idx = text.indexOf("|");
+    if (idx < 0) return null;
+    const datePart = text.slice(0, idx).trim();
+    const course = text.slice(idx + 1).trim().toUpperCase();
+    if (!datePart || !course) return null;
+    return { date: datePart, racecourse: course };
+  }
+
+  function applySavedMeetingHint() {
+    const saved = readSavedSelection();
+    if (!saved || !saved.racecourse) return;
+    const dateRaw = saved.race_date_iso || saved.race_date;
+    if (!dateRaw) return;
+    meeting = {
+      race_date: saved.race_date || dateRaw,
+      race_date_iso: saved.race_date_iso || "",
+      racecourse: String(saved.racecourse).toUpperCase(),
+      racecourse_name: "",
+      source: "session",
+    };
+    if (saved.race_no != null) selectedRaceNo = saved.race_no;
+  }
+
+  function syncMeetingSelect() {
+    if (!meetingSelect) return;
+    meetingSelectSyncing = true;
+    meetingSelect.innerHTML = "";
+    meetings.forEach((m) => {
+      const opt = document.createElement("option");
+      opt.value = meetingOptionValue(m);
+      opt.textContent = meetingOptionLabel(m);
+      meetingSelect.appendChild(opt);
+    });
+    const current = meetingOptionValue(meeting);
+    if (current && Array.from(meetingSelect.options).some((o) => o.value === current)) {
+      meetingSelect.value = current;
+    } else if (meetingSelect.options.length) {
+      meetingSelect.selectedIndex = 0;
+    }
+    meetingSelect.disabled = meetingSelect.options.length === 0;
+    meetingSelectSyncing = false;
   }
 
   function visibleColumns() {
@@ -282,7 +361,18 @@
   let horseFormOpenKey = null;
   let horseFormFetchSeq = 0;
   const horseFormCache = Object.create(null);
-  const horseFormFilters = { limit: 10, recent_filter: "all" };
+  const HORSE_FORM_LIMIT_OPTIONS = {{ (horse_form_limit_options if horse_form_limit_options is defined else [])|tojson }};
+  const HORSE_FORM_LIMIT_DEFAULT = {{ (horse_form_limit if horse_form_limit is defined else none)|tojson }};
+  if (!Array.isArray(HORSE_FORM_LIMIT_OPTIONS) || !HORSE_FORM_LIMIT_OPTIONS.length) {
+    throw new Error("horse form limit options missing");
+  }
+  if (HORSE_FORM_LIMIT_DEFAULT == null || HORSE_FORM_LIMIT_OPTIONS.indexOf(HORSE_FORM_LIMIT_DEFAULT) < 0) {
+    throw new Error("horse form default limit missing");
+  }
+  const horseFormFilters = {
+    limit: HORSE_FORM_LIMIT_DEFAULT,
+    recent_filter: "all",
+  };
 
   function hfEsc(s) {
     return String(s == null ? "" : s)
@@ -308,6 +398,15 @@
     document.querySelectorAll(".racing-daily-horse-icon.is-open").forEach((btn) => {
       btn.classList.remove("is-open");
       btn.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  function hfLimitOptions(fromPayload) {
+    const raw = Array.isArray(fromPayload) && fromPayload.length
+      ? fromPayload
+      : HORSE_FORM_LIMIT_OPTIONS;
+    return raw.map(function (n) {
+      return { value: n, label: String(n) };
     });
   }
 
@@ -382,25 +481,81 @@
     return '<span class="hf-stat-chip' + (cls ? " " + cls : "") + '">' + hfEsc(text) + "</span>";
   }
 
-  function hfSummaryCardHtml(summary, limit) {
+  function hfHandicapLine(template, group) {
+    const g = group || {};
+    return String(template || "")
+      .replace("{wins}", String(g.wins || 0))
+      .replace("{played}", String(g.valid_played || 0))
+      .replace("{rate}", hfRateText(g.win_rate));
+  }
+
+  function hfHandicapStatsHtml(stats) {
+    const hs = stats || {};
+    const today = (hs.today_handicap != null && hs.today_handicap !== "")
+      ? hs.today_handicap
+      : "—";
+    const title = String(MSG.horseFormHandicapStatsToday || "")
+      .replace("{handicap}", String(today));
+    return '<div class="hf-handicap-stats">' +
+      "<p><strong>" + hfEsc(title) + "</strong></p>" +
+      "<p>" + hfEsc(hfHandicapLine(MSG.horseFormHandicapStatsGe, hs.ge)) + "</p>" +
+      "<p>" + hfEsc(hfHandicapLine(MSG.horseFormHandicapStatsLe, hs.le)) + "</p>" +
+      "</div>";
+  }
+
+  function hfIsShaTinVenue(venue) {
+    const v = String(venue || "").trim();
+    return v === "ST" || v === "沙田";
+  }
+
+  function hfSummaryTitle(anchorVenue) {
+    return hfIsShaTinVenue(anchorVenue) ? (MSG.horseFormSummarySt || MSG.horseFormSummary)
+      : MSG.horseFormSummary;
+  }
+
+  function hfVenueDistanceWinLine(stats, fallbackVenue) {
+    if (!stats) return "";
+    const g = stats || {};
+    const venue = String(g.venue_code || fallbackVenue || "").trim() || "—";
+    const line = String(MSG.horseFormSameVenueDistanceWin || "{venue} 同程勝率 {rate}")
+      .replace("{venue}", venue)
+      .replace("{rate}", hfRateText(g.win_rate));
+    return "<p>" + hfEsc(line) + "</p>";
+  }
+
+  function hfSummaryCardHtml(
+    summary,
+    limit,
+    handicapStats,
+    anchorVenue,
+    sameVenueDistanceWin,
+    otherVenueDistanceWin
+  ) {
     const s = summary || {};
+    const title = hfSummaryTitle(anchorVenue);
     const playedOf = String(MSG.horseFormPlayedOf || "").replace("{total}", String(limit || s.played || 0));
     const noValid = !(s.valid_played > 0);
-    return '<div class="hf-summary-card"><h5>' + hfEsc(MSG.horseFormSummary) + "</h5>" +
+    const validText = MSG.horseFormStatValid + " " + (s.valid_played || 0) + playedOf +
+      (noValid ? " · " + MSG.horseFormStatNoValid : "");
+    const todayCode = (sameVenueDistanceWin && sameVenueDistanceWin.venue_code) || "";
+    return '<div class="hf-summary-card">' +
+      "<h5><span class=\"hf-summary-title\">" + hfEsc(title) + "</span>" +
+      '<span class="hf-valid-highlight">' + hfEsc(validText) + "</span></h5>" +
       '<div class="hf-stat-chips">' +
       hfStatChip(MSG.horseFormStatFirst + " " + (s.first || 0), "is-first") +
       hfStatChip(MSG.horseFormStatSecond + " " + (s.second || 0), "is-second") +
       hfStatChip(MSG.horseFormStatThird + " " + (s.third || 0), "is-third") +
+      hfStatChip(MSG.horseFormStatFourth + " " + (s.fourth || 0), "is-fourth") +
       hfStatChip(MSG.horseFormStatOther + " " + (s.other || 0), "") +
       hfStatChip(MSG.horseFormStatWithdrawn + " " + (s.withdrawn || 0), "is-withdrawn") +
       (s.unknown ? hfStatChip(MSG.horseFormStatUnknown + " " + s.unknown, "") : "") +
       "</div>" +
       "<p>" + hfEsc(MSG.horseFormStatWinRate) + " " + hfEsc(hfRateText(s.win_rate)) +
       " ｜ " + hfEsc(MSG.horseFormStatPlaceRate) + " " + hfEsc(hfRateText(s.place_rate)) + "</p>" +
-      "<p>" + hfEsc(MSG.horseFormStatValid) + " " + hfEsc(s.valid_played || 0) +
-      hfEsc(playedOf) +
-      (noValid ? " · " + hfEsc(MSG.horseFormStatNoValid) : "") +
-      "</p></div>";
+      hfVenueDistanceWinLine(sameVenueDistanceWin, todayCode) +
+      hfVenueDistanceWinLine(otherVenueDistanceWin, "") +
+      hfHandicapStatsHtml(handicapStats) +
+      "</div>";
   }
 
   function renderHorseFormPanelContent(host, state) {
@@ -421,28 +576,49 @@
     }
     const data = state && state.data ? state.data : {};
     const f = Object.assign({}, horseFormFilters, (data.filters || {}));
-    if (data.limit) f.limit = data.limit;
+    if (data.limit != null) f.limit = data.limit;
+    const limitOpts = hfLimitOptions(data.limit_options);
     const name = (data.horse && data.horse.horse_name) || "";
+    const anchorVenue = (data.anchor && data.anchor.venue) || "";
+    const summaryTitle = hfSummaryTitle(anchorVenue);
     host.innerHTML =
       '<div class="horse-form-panel" data-horse-id="' + hfEsc((data.horse && data.horse.horse_id) || "") + '">' +
       '<div class="hf-head"><h4 class="hf-title">' + hfEsc(MSG.horseFormTitle) +
       (name ? " — " + hfEsc(name) : "") + "</h4>" +
       '<span class="hf-cutoff">' + hfEsc(MSG.horseFormCutoff) + "</span>" +
-      hfSelectHtml("limit", f.limit, [{ value: 5, label: "5" }, { value: 10, label: "10" }]) +
+      hfSelectHtml("limit", f.limit, limitOpts) +
       "</div>" +
       '<div class="hf-section"><h5 class="hf-section-title">1. ' + hfEsc(MSG.horseFormSameDistance) + "</h5>" +
       hfFormTableHtml(data.same_distance) + "</div>" +
       '<div class="hf-section"><h5 class="hf-section-title">2. ' + hfEsc(MSG.horseFormRecent) + "</h5>" +
       '<div class="hf-toolbar">' + hfFilterSelectHtml(f.recent_filter || "all") + "</div>" +
       hfFormTableHtml(data.recent) + "</div>" +
-      '<div class="hf-section"><h5 class="hf-section-title">3. ' + hfEsc(MSG.horseFormSummary) + "</h5>" +
-      '<div class="hf-summary">' + hfSummaryCardHtml(data.summary, f.limit) + "</div></div>" +
+      '<div class="hf-section"><h5 class="hf-section-title">3. ' + hfEsc(summaryTitle) + "</h5>" +
+      '<div class="hf-summary">' +
+      hfSummaryCardHtml(
+        data.summary,
+        f.limit,
+        data.handicap_stats,
+        anchorVenue,
+        data.same_venue_distance_win || {
+          venue_code: (data.anchor && data.anchor.venue_code) || ""
+        },
+        data.other_venue_distance_win || null
+      ) +
+      "</div></div>" +
       "</div>";
     host.querySelectorAll("[data-hf-key]").forEach((el) => {
       el.addEventListener("change", () => {
         const key = el.getAttribute("data-hf-key");
-        if (key === "limit") horseFormFilters.limit = Number(el.value) || 10;
-        else if (key === "recent_filter") horseFormFilters.recent_filter = el.value || "all";
+        if (key === "limit") {
+          const n = Number(el.value);
+          if (HORSE_FORM_LIMIT_OPTIONS.indexOf(n) < 0) {
+            throw new Error("invalid horse form limit");
+          }
+          horseFormFilters.limit = n;
+        } else if (key === "recent_filter") {
+          horseFormFilters.recent_filter = el.value || "all";
+        }
         loadHorseForm(host, true);
       });
     });
@@ -466,6 +642,9 @@
     params.set("distance", anchor.distance || "");
     if (anchor.race_no) params.set("race_no", String(anchor.race_no));
     if (anchor.horse_name) params.set("horse_name", anchor.horse_name);
+    if (anchor.handicap != null && String(anchor.handicap) !== "") {
+      params.set("handicap", String(anchor.handicap));
+    }
     params.set("limit", String(horseFormFilters.limit));
     params.set("recent_filter", horseFormFilters.recent_filter);
     try {
@@ -503,8 +682,10 @@
     td.colSpan = tr.children.length;
     const host = document.createElement("div");
     host.className = "horse-form-panel-host";
-    const venue = row.racecourse_name || row.meeting_venue ||
-      (lastRaceSummary && (lastRaceSummary.racecourse_name || lastRaceSummary.meeting_venue)) ||
+    // Prefer meeting/row racecourse code (ST/HV); backend maps to race_records Chinese.
+    const venue = (meeting && meeting.racecourse) || row.racecourse ||
+      row.racecourse_name || row.meeting_venue ||
+      (lastRaceSummary && (lastRaceSummary.racecourse || lastRaceSummary.racecourse_name || lastRaceSummary.meeting_venue)) ||
       (meeting && meeting.racecourse_name) || "";
     const distance = row.distance || (lastRaceSummary && lastRaceSummary.distance) || "";
     host._hfAnchor = {
@@ -514,11 +695,22 @@
       distance: distance,
       race_no: selectedRaceNo != null ? String(selectedRaceNo) : (row.race_no || ""),
       horse_name: row.horse_name || "",
+      handicap: row.handicap != null ? String(row.handicap) : "",
     };
     td.appendChild(host);
     expand.appendChild(td);
     tr.after(expand);
     loadHorseForm(host, false);
+  }
+
+  function formatDailyCell(key, value) {
+    if (value == null || value === "") return "—";
+    const text = String(value);
+    if (key === "same_distance_win_rate" || key === "draw_win_rate" || key === "draw_place_rate") {
+      if (text === "—" || text === "") return "—";
+      return /%$/.test(text) ? text : text + "%";
+    }
+    return text;
   }
 
   function renderTable(rows) {
@@ -589,7 +781,7 @@
       tr.appendChild(tdIcon);
       cols.forEach((c) => {
         const td = document.createElement("td");
-        td.textContent = row[c.key] != null ? row[c.key] : "—";
+        td.textContent = formatDailyCell(c.key, row[c.key]);
         const w = c.width || 100;
         td.style.minWidth = w + "px";
         td.style.width = w + "px";
@@ -622,8 +814,20 @@
     buildParams: function () {
       const params = new URLSearchParams();
       const saved = readSavedSelection();
-      if (selectedRaceNo != null) params.set("race_no", String(selectedRaceNo));
-      else if (saved && saved.race_no != null) params.set("race_no", String(saved.race_no));
+      if (selectedRaceNo != null) {
+        params.set("race_no", String(selectedRaceNo));
+      } else if (
+        saved &&
+        saved.race_no != null &&
+        meeting &&
+        String(saved.racecourse || "").toUpperCase() === String(meeting.racecourse || "").toUpperCase() &&
+        (saved.race_date === meeting.race_date ||
+          saved.race_date_iso === meeting.race_date_iso ||
+          saved.race_date === meeting.race_date_iso ||
+          saved.race_date_iso === meeting.race_date)
+      ) {
+        params.set("race_no", String(saved.race_no));
+      }
       if (meeting) {
         params.set("date", meeting.race_date_iso || meeting.race_date);
         params.set("racecourse", meeting.racecourse);
@@ -647,9 +851,11 @@
         rebuildSortable();
       }
       meeting = data.meeting || null;
+      if (Array.isArray(data.meetings)) meetings = data.meetings;
       races = Array.isArray(data.races) ? data.races : [];
       selectedRaceNo = data.selected_race_no;
       writeSavedSelection();
+      syncMeetingSelect();
       renderRaceCards();
       renderSummary(data.summary || null);
       // Table render waits for afterLayoutSync (shell re-applies sort arrows first).
@@ -838,6 +1044,31 @@
     const fn = document.getElementById("racing-daily-export-filename");
     fn.value = (fn.value.replace(/\.(xlsx|csv|pdf|jpeg)$/i, "") || "racing_daily") + "." + t;
   });
+
+  if (meetingSelect) {
+    meetingSelect.addEventListener("change", () => {
+      if (meetingSelectSyncing) return;
+      const picked = parseMeetingOptionValue(meetingSelect.value);
+      if (!picked) return;
+      const same =
+        meeting &&
+        (meeting.race_date_iso === picked.date || meeting.race_date === picked.date) &&
+        String(meeting.racecourse || "").toUpperCase() === picked.racecourse;
+      if (same) return;
+      meeting = {
+        race_date: picked.date,
+        race_date_iso: picked.date.indexOf("-") >= 0 ? picked.date : "",
+        racecourse: picked.racecourse,
+        racecourse_name: "",
+        source: "picker",
+      };
+      selectedRaceNo = null;
+      closeHorseFormPanels();
+      if (listCtrl) listCtrl.load();
+    });
+  }
+
+  applySavedMeetingHint();
 
   const matchesActive = document.getElementById("racing-tab-panel-matches");
   if (matchesActive && matchesActive.classList.contains("active")) {

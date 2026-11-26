@@ -86,20 +86,17 @@ def update_win_odds(
     horse_no: str,
     win_odds: Any,
 ) -> None:
-    cur = conn.execute(
-        """
-        UPDATE racecard_starters
-           SET "即時賠率" = ?
-         WHERE race_date = ?
-           AND racecourse = ?
-           AND race_no = ?
-           AND "馬號" = ?
-           AND 後備 = '否';
-        """,
-        (win_odds, race_date, racecourse, race_no, horse_no),
-    )
+    from hppv.racing_hkjc_graphql import update_immediate_win_odds
 
-    if cur.rowcount == 0:
+    n = update_immediate_win_odds(
+        conn,
+        race_date=race_date,
+        racecourse=racecourse,
+        race_no=race_no,
+        horse_no=str(horse_no),
+        win_odds=win_odds,
+    )
+    if n == 0:
         # 找不到匹配紀錄就略過（只提示，不新增 row）。
         print(
             f"[略過] 未找到匹配：{race_date} {racecourse} 第{race_no}場 馬號={horse_no} 後備=否"

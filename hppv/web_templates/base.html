@@ -57,8 +57,6 @@
   <header>
     <nav>
       <a href="{{ url_for('index') }}"{% if request.endpoint == 'index' %} class="nav-active"{% endif %}>{{ t('nav.dashboard') }}</a>
-      <a href="{{ url_for('horses_list') }}"{% if request.endpoint == 'horses_list' %} class="nav-active"{% endif %}>馬匹列表</a>
-      <a href="{{ url_for('rankings') }}"{% if request.endpoint == 'rankings' %} class="nav-active"{% endif %}>排位</a>
       <a href="{{ url_for('racing_info') }}"{% if request.endpoint == 'racing_info' %} class="nav-active"{% endif %}>{{ t('nav.racing_info') }}</a>
       <a href="{{ url_for('soccer_daily') }}"{% if request.endpoint in ('soccer_daily', 'soccer_history') %} class="nav-active"{% endif %}>{{ t('nav.soccer_daily') }}</a>
       <a href="{{ url_for('settings_page') }}"{% if request.endpoint == 'settings_page' %} class="nav-active"{% endif %}>{{ t('nav.system_settings') }}</a>

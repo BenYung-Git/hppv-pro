@@ -51,6 +51,7 @@ _DAILY_COL_SQL: dict[str, str] = {
     "horse_id": "s.horse_id",
     "horse_no": 's."馬號"',
     "horse_name": 's."馬名"',
+    "finish_pos": 's."名次"',
     "draw": 's."檔位"',
     "jockey": 's."騎師"',
     "trainer": 's."練馬師"',
@@ -60,6 +61,11 @@ _DAILY_COL_SQL: dict[str, str] = {
     "gear": 's."配備"',
     "predicted_odds": 's."預測賠率"',
     "immediate_odds": 's."即時賠率"',
+    "odds_diff": 's."賠率差異"',
+    "weighted_win_rate": 's."加權總勝出率"',
+    "same_distance_win_rate": 's."同程勝率"',
+    "draw_win_rate": 's."檔位勝出率"',
+    "draw_place_rate": 's."檔位上名率"',
     "event_name": "ri.event_name",
     "calendar_date": "ri.calendar_date",
     "weekday": "ri.weekday",
@@ -83,6 +89,7 @@ _DAILY_SORT_SQL: dict[str, str] = {
     "horse_id": "s.horse_id",
     "horse_no": 'CAST(s."馬號" AS INTEGER)',
     "horse_name": 's."馬名"',
+    "finish_pos": 'CAST(s."名次" AS INTEGER)',
     "draw": 'CAST(s."檔位" AS INTEGER)',
     "jockey": 's."騎師"',
     "trainer": 's."練馬師"',
@@ -92,6 +99,11 @@ _DAILY_SORT_SQL: dict[str, str] = {
     "gear": 's."配備"',
     "predicted_odds": 'CAST(s."預測賠率" AS REAL)',
     "immediate_odds": 'CAST(s."即時賠率" AS REAL)',
+    "odds_diff": 'CAST(s."賠率差異" AS REAL)',
+    "weighted_win_rate": 'CAST(s."加權總勝出率" AS REAL)',
+    "same_distance_win_rate": 'CAST(s."同程勝率" AS REAL)',
+    "draw_win_rate": 'CAST(s."檔位勝出率" AS REAL)',
+    "draw_place_rate": 'CAST(s."檔位上名率" AS REAL)',
     "event_name": "ri.event_name",
     "calendar_date": "ri.calendar_date",
     "weekday": "ri.weekday",
@@ -325,7 +337,7 @@ def resolve_active_meeting(db_path: Path) -> RacingDailyMeeting | None:
 
     Existing project rule (dashboard / download meta):
       racecard_meta.last_source_race_date + last_source_racecourse_code
-    Fallback (desktop RacecardRankViewer / rankings when meta missing):
+    Fallback (desktop RacecardRankViewer / daily when meta missing):
       latest (race_date DESC, racecourse ASC) that has starters.
     """
     with get_connection(db_path) as conn:
@@ -439,6 +451,10 @@ def fetch_racing_daily_race(
     sort_specs: list[tuple[str, str]] | None = None,
 ) -> RacingDailyRaceView:
     """One meeting + one race: all starters (no search/pager)."""
+    # Ensure starters columns exist before SELECT (new derived cols via ALTER).
+    from hppv.racing_download import ensure_racecard_db
+
+    ensure_racecard_db(db_path)
     meeting: RacingDailyMeeting | None = None
     db_date = iso_to_racecard_date(race_date) if race_date else None
     course = str(racecourse or "").strip().upper() or None

@@ -354,19 +354,17 @@ def update_win_odds(
     馬號: str,
     win_odds: Any,
 ) -> None:
-    cur = conn.execute(
-        """
-        UPDATE racecard_starters
-           SET "即時賠率" = ?
-         WHERE race_date = ?
-           AND racecourse = ?
-           AND race_no = ?
-           AND "馬號" = ?
-           AND 後備 = '否';
-        """,
-        (win_odds, race_date, racecourse, race_no, 馬號),
+    from hppv.racing_hkjc_graphql import update_immediate_win_odds
+
+    n = update_immediate_win_odds(
+        conn,
+        race_date=race_date,
+        racecourse=racecourse,
+        race_no=race_no,
+        horse_no=str(馬號),
+        win_odds=win_odds,
     )
-    if cur.rowcount == 0:
+    if n == 0:
         # 只 update 已存在紀錄；找不到就略過並提示。
         print(f"[略過] 未找到匹配：{race_date} {racecourse} 第{race_no}場 馬號={馬號} 後備=否")
 
@@ -987,6 +985,20 @@ def update_racecard_meeting_from_web(
 
         _fill_predicted_win_odds_for_meeting(conn, race_date, racecourse_code)
 
+        from hppv.racing_download import update_finish_pos_for_meeting
+        from hppv.racing_draw_statistics import update_draw_rates_for_meeting
+        from hppv.racing_horse_form import update_hv_same_distance_win_rates_for_meeting
+
+        update_hv_same_distance_win_rates_for_meeting(
+            conn, race_date=race_date, racecourse=racecourse_code
+        )
+        update_draw_rates_for_meeting(
+            conn, race_date=race_date, racecourse=racecourse_code
+        )
+        update_finish_pos_for_meeting(
+            conn, race_date=race_date, racecourse=racecourse_code
+        )
+
         try:
             conn.execute("SAVEPOINT sp_immediate_odds_graphql;")
             _update_immediate_odds_for_meeting_from_graphql(
@@ -1134,6 +1146,20 @@ def update_latest_racecard_data(config: AppConfig) -> LatestMeeting | None:
 
         # Fill predicted win odds for this meeting (only where 後備='否').
         _fill_predicted_win_odds_for_meeting(conn, race_date, racecourse_code)
+
+        from hppv.racing_download import update_finish_pos_for_meeting
+        from hppv.racing_draw_statistics import update_draw_rates_for_meeting
+        from hppv.racing_horse_form import update_hv_same_distance_win_rates_for_meeting
+
+        update_hv_same_distance_win_rates_for_meeting(
+            conn, race_date=race_date, racecourse=racecourse_code
+        )
+        update_draw_rates_for_meeting(
+            conn, race_date=race_date, racecourse=racecourse_code
+        )
+        update_finish_pos_for_meeting(
+            conn, race_date=race_date, racecourse=racecourse_code
+        )
 
         # After we have racecard rows, update "即時賠率" from HKJC GraphQL (winOdds).
         # If GraphQL is blocked/fails, keep existing odds (currently predicted).
