@@ -218,6 +218,11 @@ def parse_past_performance_from_html(horse_id: str, html: str, source_url: str) 
         )
         if not rec.race_date:
             continue
+        # 外國／海外往績不載（只保留沙田／跑馬地／從化）。
+        from hppv.racing_hkjc_graphql import is_known_race_venue_label
+
+        if "海外" in (rec.race_no or "") or not is_known_race_venue_label(rec.venue):
+            continue
         dedup_key = (
             rec.race_date.strip(),
             rec.venue.strip(),

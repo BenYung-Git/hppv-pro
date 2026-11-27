@@ -109,14 +109,21 @@ def iter_dates_inclusive(start: date, end: date) -> list[date]:
 
 
 def normalize_venue_codes(raw: Any) -> list[str]:
+    """Normalize venue codes; keep only local ST/HV/FC (drop foreign)."""
+    allowed = frozenset(DEFAULT_VENUE_CODES) | {"FC"}
+
+    def _local_only(parts: list[str]) -> list[str]:
+        out = [p for p in parts if p in allowed]
+        return out or list(DEFAULT_VENUE_CODES)
+
     if raw is None or raw == "" or raw == []:
         return list(DEFAULT_VENUE_CODES)
     if isinstance(raw, str):
         parts = [p.strip().upper() for p in re.split(r"[,|;/\s]+", raw) if p.strip()]
-        return parts or list(DEFAULT_VENUE_CODES)
+        return _local_only(parts)
     if isinstance(raw, (list, tuple)):
         out = [str(v).strip().upper() for v in raw if str(v).strip()]
-        return out or list(DEFAULT_VENUE_CODES)
+        return _local_only(out)
     raise RacingLocalResultsError("invalid_fields", "venueCodes must be list or string")
 
 

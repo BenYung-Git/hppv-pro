@@ -61,6 +61,9 @@ from hppv.racing_local_results import (
 )
 from hppv.schema import (
     RACECARD_FINISH_POS_COLUMN,
+    RACECARD_IMMEDIATE_ODDS_COLUMN,
+    RACECARD_ODDS_DIFF_COLUMN,
+    RACECARD_PREDICTED_ODDS_COLUMN,
     RACECARD_STARTERS_DEFAULT_DISPLAY_FIELDS,
     ensure_racecard_starters_columns,
     qident,
@@ -134,17 +137,23 @@ def utc_now_iso() -> str:
 
 
 def ensure_racecard_db(db_path: Path) -> None:
+    from hppv.schema import RacecardSchemaError
+
     init_db(db_path)
     conn = get_connection(db_path)
     try:
         conn.executescript(racecard_base_schema_sql())
-        ensure_racecard_starters_columns(
-            conn=conn,
-            starters_table="racecard_starters",
-            display_fields=RACECARD_STARTERS_DEFAULT_DISPLAY_FIELDS,
-            predicted_odds_col="預測賠率",
-            immediate_odds_col="即時賠率",
-        )
+        try:
+            ensure_racecard_starters_columns(
+                conn=conn,
+                starters_table="racecard_starters",
+                display_fields=RACECARD_STARTERS_DEFAULT_DISPLAY_FIELDS,
+                predicted_odds_col="預測賠率",
+                immediate_odds_col="即時賠率",
+            )
+        except RacecardSchemaError as e:
+            logger.error("ensure_racecard_db aborted: %s", e.detail)
+            raise RacingDownloadError("schema_mismatch", e.detail) from e
         conn.commit()
     finally:
         conn.close()
@@ -216,6 +225,134 @@ def update_finish_pos_for_meeting(
     return updated
 
 
+def update_immediate_odds_from_race_records_for_meeting(
+    conn: Any,
+    *,
+    race_date: str,
+    racecourse: str,
+) -> int:
+    """Overwrite racecard_starters.即時賠率 from race_records.win_odds for one meeting.
+
+    Match rule identical to update_finish_pos_for_meeting. Missing/blank win_odds
+    leaves 即時賠率 unchanged. After each overwrite, refresh 賠率差異 for that row.
+    """
+    from hppv.racing_hkjc_graphql import (
+        compute_odds_diff,
+        venue_for_race_records,
+    )
+
+    date_iso = normalize_race_record_date_iso(race_date)
+    venue_zh = venue_for_race_records(racecourse)
+    if not date_iso or not venue_zh:
+        return 0
+    imm_col = qident(RACECARD_IMMEDIATE_ODDS_COLUMN)
+    pred_col = qident(RACECARD_PREDICTED_ODDS_COLUMN)
+    diff_col = qident(RACECARD_ODDS_DIFF_COLUMN)
+    starters = conn.execute(
+        f"""
+        SELECT id, horse_id, race_no, {pred_col} AS predicted_odds
+          FROM racecard_starters
+         WHERE race_date = ?
+           AND racecourse = ?
+           AND TRIM(COALESCE(horse_id, '')) != ''
+        """,
+        (race_date, racecourse),
+    ).fetchall()
+    updated = 0
+    lookup_sql = f"""
+        SELECT win_odds
+          FROM race_records AS rr
+         WHERE rr.horse_id = ?
+           AND TRIM(COALESCE(rr.venue, '')) = ?
+           AND ({_RACE_RECORD_DATE_ORDER_EXPR}) = ?
+         ORDER BY
+           CASE WHEN CAST(rr.race_no AS INTEGER) = ? THEN 0 ELSE 1 END,
+           CASE WHEN TRIM(COALESCE(rr.time, '')) != '' THEN 0 ELSE 1 END,
+           rr.id DESC
+         LIMIT 1
+    """
+    for row in starters:
+        starter_id = int(row["id"])
+        horse_id = str(row["horse_id"] or "").strip()
+        try:
+            race_no = int(row["race_no"])
+        except (TypeError, ValueError):
+            race_no = -1
+        found = conn.execute(
+            lookup_sql, (horse_id, venue_zh, date_iso, race_no)
+        ).fetchone()
+        if not found or found["win_odds"] is None:
+            continue
+        win_odds = str(found["win_odds"]).strip()
+        if not win_odds:
+            continue
+        predicted = row["predicted_odds"] if hasattr(row, "keys") else row[3]
+        diff = compute_odds_diff(predicted, win_odds)
+        cur = conn.execute(
+            f"""
+            UPDATE racecard_starters
+               SET {imm_col} = ?,
+                   {diff_col} = ?
+             WHERE id = ?
+            """,
+            (win_odds, diff, starter_id),
+        )
+        updated += int(cur.rowcount or 0)
+    return updated
+
+
+def recompute_all_odds_diffs(db_path: Path) -> dict[str, int]:
+    """Recompute racecard_starters.賠率差異 = 預測賠率 − 即時賠率 for every starter."""
+    from hppv.racing_hkjc_graphql import compute_odds_diff
+
+    pred_col = qident(RACECARD_PREDICTED_ODDS_COLUMN)
+    imm_col = qident(RACECARD_IMMEDIATE_ODDS_COLUMN)
+    diff_col = qident(RACECARD_ODDS_DIFF_COLUMN)
+    rows_touched = 0
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT id, {pred_col} AS predicted_odds, {imm_col} AS immediate_odds
+              FROM racecard_starters
+             ORDER BY id
+            """
+        ).fetchall()
+        for row in rows:
+            starter_id = int(row["id"])
+            diff = compute_odds_diff(row["predicted_odds"], row["immediate_odds"])
+            cur = conn.execute(
+                f"UPDATE racecard_starters SET {diff_col} = ? WHERE id = ?",
+                (diff, starter_id),
+            )
+            rows_touched += int(cur.rowcount or 0)
+        conn.commit()
+    return {"starters_updated": rows_touched}
+
+
+def recompute_immediate_odds_from_race_records(db_path: Path) -> dict[str, int]:
+    """Overwrite 即時賠率 from race_records.win_odds for every stored meeting."""
+    meetings = 0
+    starters_updated = 0
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT race_date, racecourse
+              FROM racecard_starters
+             ORDER BY race_date, racecourse
+            """
+        ).fetchall()
+        for row in rows:
+            race_date = str(row["race_date"] if hasattr(row, "keys") else row[0])
+            racecourse = str(row["racecourse"] if hasattr(row, "keys") else row[1])
+            n = update_immediate_odds_from_race_records_for_meeting(
+                conn, race_date=race_date, racecourse=racecourse
+            )
+            meetings += 1
+            starters_updated += n
+        conn.commit()
+    return {"meetings": meetings, "starters_updated": starters_updated}
+
+
 def _emit(cb: ProgressCb | None, prog: RacingDownloadProgress) -> None:
     if cb is None:
         return
@@ -269,8 +406,18 @@ def resolve_meeting_for_download(
     race_date: str | None = None,
     venue_code: str | None = None,
 ) -> ActiveMeeting:
-    """Resolve meeting from GraphQL; date/venue optional (defaults to active)."""
+    """Resolve meeting from GraphQL; date/venue optional (defaults to active).
+
+    Foreign venue codes (non ST/HV/FC) are rejected.
+    """
+    from hppv.racing_hkjc_graphql import require_local_venue_code
+
     try:
+        if venue_code:
+            try:
+                venue_code = require_local_venue_code(venue_code)
+            except RacingGraphQLError as e:
+                raise RacingDownloadError("foreign_venue", str(e)) from e
         if race_date and venue_code:
             data = fetch_race_meetings(race_date, venue_code)
             active = pick_active_meeting({"raceMeetings": data.get("raceMeetings") or []})
@@ -278,9 +425,13 @@ def resolve_meeting_for_download(
             meetings = data.get("raceMeetings") or []
             if meetings and meetings[0].get("date") and meetings[0].get("venueCode"):
                 m = meetings[0]
+                try:
+                    local_venue = require_local_venue_code(str(m["venueCode"]))
+                except RacingGraphQLError as e:
+                    raise RacingDownloadError("foreign_venue", str(e)) from e
                 return ActiveMeeting(
                     date_iso=str(m["date"]),
-                    venue_code=str(m["venueCode"]),
+                    venue_code=local_venue,
                     status=(str(m["status"]) if m.get("status") is not None else None),
                     total_number_of_race=(
                         int(m["totalNumberOfRace"])
@@ -296,7 +447,15 @@ def resolve_meeting_for_download(
         )
         if not active:
             raise RacingDownloadError("empty_meeting", "no active meeting")
-        return active
+        try:
+            return ActiveMeeting(
+                date_iso=active.date_iso,
+                venue_code=require_local_venue_code(active.venue_code),
+                status=active.status,
+                total_number_of_race=active.total_number_of_race,
+            )
+        except RacingGraphQLError as e:
+            raise RacingDownloadError("foreign_venue", str(e)) from e
     except RacingGraphQLError as e:
         raise RacingDownloadError("graphql_error", str(e)) from e
 
@@ -328,7 +487,14 @@ def run_racecard_download(
         raise RacingDownloadError("empty_meeting", "raceMeetings empty")
     meeting = meetings[0]
     db_date = to_db_date(str(meeting.get("date") or meeting_meta.date_iso))
-    venue = str(meeting.get("venueCode") or meeting_meta.venue_code)
+    from hppv.racing_hkjc_graphql import require_local_venue_code
+
+    try:
+        venue = require_local_venue_code(
+            str(meeting.get("venueCode") or meeting_meta.venue_code)
+        )
+    except RacingGraphQLError as e:
+        raise RacingDownloadError("foreign_venue", str(e)) from e
     prog.race_date = db_date
     prog.venue_code = venue
     prog.total = _count_runners(meeting)
@@ -413,13 +579,30 @@ def run_racecard_download(
 
             _fill_predicted_win_odds_for_meeting(conn, db_date, venue)
         from hppv.racing_draw_statistics import update_draw_rates_for_meeting
-        from hppv.racing_horse_form import update_hv_same_distance_win_rates_for_meeting
+        from hppv.racing_horse_form import (
+            update_hv_attainment_rate_for_meeting,
+            update_hv_same_distance_win_rates_for_meeting,
+            update_hv_smoothed_weighted_rate_for_meeting,
+            update_hv_weighted_win_rate_for_meeting,
+        )
 
         update_hv_same_distance_win_rates_for_meeting(
             conn, race_date=db_date, racecourse=venue
         )
         update_draw_rates_for_meeting(conn, race_date=db_date, racecourse=venue)
+        update_hv_attainment_rate_for_meeting(
+            conn, race_date=db_date, racecourse=venue
+        )
+        update_hv_weighted_win_rate_for_meeting(
+            conn, race_date=db_date, racecourse=venue
+        )
+        update_hv_smoothed_weighted_rate_for_meeting(
+            conn, race_date=db_date, racecourse=venue
+        )
         update_finish_pos_for_meeting(conn, race_date=db_date, racecourse=venue)
+        update_immediate_odds_from_race_records_for_meeting(
+            conn, race_date=db_date, racecourse=venue
+        )
         _write_meta(conn, race_date=db_date, venue=venue, race_nos=sorted(set(race_nos)))
         conn.commit()
     finally:
@@ -476,7 +659,14 @@ def run_odds_download(
         raise RacingDownloadError("empty_meeting", "raceMeetings empty")
     meeting = meetings[0]
     db_date = to_db_date(str(meeting.get("date") or meeting_meta.date_iso))
-    venue = str(meeting.get("venueCode") or meeting_meta.venue_code)
+    from hppv.racing_hkjc_graphql import require_local_venue_code
+
+    try:
+        venue = require_local_venue_code(
+            str(meeting.get("venueCode") or meeting_meta.venue_code)
+        )
+    except RacingGraphQLError as e:
+        raise RacingDownloadError("foreign_venue", str(e)) from e
     prog.race_date = db_date
     prog.venue_code = venue
 
@@ -617,7 +807,14 @@ def run_daily_results_download(
         raise RacingDownloadError("empty_meeting", "raceMeetings empty")
     meeting = meetings[0]
     db_date = to_db_date(str(meeting.get("date") or meeting_meta.date_iso))
-    venue = str(meeting.get("venueCode") or meeting_meta.venue_code)
+    from hppv.racing_hkjc_graphql import require_local_venue_code
+
+    try:
+        venue = require_local_venue_code(
+            str(meeting.get("venueCode") or meeting_meta.venue_code)
+        )
+    except RacingGraphQLError as e:
+        raise RacingDownloadError("foreign_venue", str(e)) from e
     prog.race_date = db_date
     prog.venue_code = venue
 
@@ -660,6 +857,9 @@ def run_daily_results_download(
     conn = get_connection(db_path)
     try:
         update_finish_pos_for_meeting(conn, race_date=db_date, racecourse=venue)
+        update_immediate_odds_from_race_records_for_meeting(
+            conn, race_date=db_date, racecourse=venue
+        )
         conn.commit()
     finally:
         conn.close()
@@ -850,6 +1050,9 @@ def run_results_period_download(
                 continue
             seen_meetings.add(key)
             update_finish_pos_for_meeting(
+                conn, race_date=racecard_day, racecourse=venue
+            )
+            update_immediate_odds_from_race_records_for_meeting(
                 conn, race_date=racecard_day, racecourse=venue
             )
         conn.commit()

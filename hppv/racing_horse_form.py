@@ -10,13 +10,26 @@ Shared sampling (HORSE_FORM_LIMIT / HORSE_FORM_LIMIT_OPTIONS):
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any, Literal
 
 from hppv.db import _RACE_RECORD_DATE_ORDER_EXPR, get_connection, is_acceptable_horse_id
 from hppv.display_format import EMPTY_DISPLAY, format_date_display, format_text_field
+from hppv.schema import (
+    RACECARD_ATTAINMENT_RATE_COLUMN,
+    RACECARD_DRAW_PLACE_RATE_COLUMN,
+    RACECARD_DRAW_WIN_RATE_COLUMN,
+    RACECARD_SAME_DISTANCE_PLACE_RATE_COLUMN,
+    RACECARD_SAME_DISTANCE_WIN_RATE_COLUMN,
+    RACECARD_WEIGHTED_WIN_RATE_COLUMN,
+    qident,
+)
+
+logger = logging.getLogger(__name__)
 
 # Shared sampling settings (single source; UI/API/filters must use these).
 HORSE_FORM_LIMIT = 12
@@ -24,7 +37,18 @@ HORSE_FORM_LIMIT_OPTIONS: tuple[int, ...] = (HORSE_FORM_LIMIT,)
 HORSE_FORM_LIMITS: frozenset[int] = frozenset(HORSE_FORM_LIMIT_OPTIONS)
 DEFAULT_HORSE_FORM_LIMIT = HORSE_FORM_LIMIT
 
+# Section 2（近場往績）場次下拉：全部／12／20／30。
+RECENT_FORM_LIMIT_ALL = "all"
+RECENT_FORM_LIMIT_OPTIONS: tuple[int, ...] = (12, 20, 30)
+RECENT_FORM_LIMIT_CHOICES: frozenset[str] = frozenset(
+    {RECENT_FORM_LIMIT_ALL, *(str(n) for n in RECENT_FORM_LIMIT_OPTIONS)}
+)
+DEFAULT_RECENT_FORM_LIMIT: int | str = 12
+# Cap when 「全部」：足夠覆蓋單一馬隻往績，避免無 LIMIT 全表掃描。
+RECENT_FORM_ALL_FETCH_CAP = 500
+
 RecentFilter = Literal["all", "same_venue", "same_distance"]
+RecentFormLimit = int | Literal["all"]
 PlaceBucket = Literal[
     "first", "second", "third", "fourth", "other", "withdrawn", "unknown"
 ]
@@ -61,6 +85,8 @@ class HorseFormAnchor:
 @dataclass(frozen=True, slots=True)
 class HorseFormFilters:
     limit: int = DEFAULT_HORSE_FORM_LIMIT
+    recent_limit: RecentFormLimit = DEFAULT_RECENT_FORM_LIMIT
+    # Kept for API backward-compat; UI no longer exposes venue/distance filter.
     recent_filter: RecentFilter = "all"
 
 
@@ -80,11 +106,36 @@ def normalize_horse_form_limit(raw: Any) -> int:
     return value
 
 
+def normalize_recent_form_limit(raw: Any) -> RecentFormLimit:
+    """近場場次：全部／12／20／30。空白 → 預設 12。"""
+    if raw is None:
+        return DEFAULT_RECENT_FORM_LIMIT
+    text = str(raw).strip().lower()
+    if text == "":
+        return DEFAULT_RECENT_FORM_LIMIT
+    if text in ("all", "全部"):
+        return RECENT_FORM_LIMIT_ALL
+    try:
+        value = int(text)
+    except (TypeError, ValueError) as e:
+        raise HorseFormValidationError(f"invalid recent_limit: {raw!r}") from e
+    if value not in RECENT_FORM_LIMIT_OPTIONS:
+        raise HorseFormValidationError(f"invalid recent_limit: {value}")
+    return value
+
+
+def recent_form_fetch_limit(recent_limit: RecentFormLimit) -> int:
+    """Resolve SQL/take limit for recent rows."""
+    if recent_limit == RECENT_FORM_LIMIT_ALL:
+        return RECENT_FORM_ALL_FETCH_CAP
+    return int(recent_limit)
+
+
 def normalize_recent_filter(raw: Any) -> RecentFilter:
+    """Legacy filter; unused by UI. Unknown → all (no invent of other modes)."""
     text = str(raw or "all").strip().lower()
     if text in ("all", "same_venue", "same_distance"):
         return text  # type: ignore[return-value]
-    # Accept short aliases from UI.
     if text in ("venue", "same-venue"):
         return "same_venue"
     if text in ("distance", "same-distance", "same_course"):
@@ -199,9 +250,11 @@ def _row_to_view(row: Any) -> dict[str, str]:
         "class_band": format_text_field(
             row["class_band"] if "class_band" in keys else None
         ),
+        "course": format_text_field(row["course"] if "course" in keys else None),
         "draw": format_text_field(row["draw"] if "draw" in keys else None),
         "handicap": format_text_field(row["handicap"] if "handicap" in keys else None),
         "jockey": format_text_field(row["jockey"] if "jockey" in keys else None),
+        "rating": format_text_field(row["rating"] if "rating" in keys else None),
         "finish_pos": finish,
         "running_pos": format_text_field(
             row["running_pos"] if "running_pos" in keys else None
@@ -211,6 +264,79 @@ def _row_to_view(row: Any) -> dict[str, str]:
         "place_bucket": classify_finish_pos(
             row["finish_pos"] if "finish_pos" in keys else None
         ),
+    }
+
+
+def is_awt_course(course: Any) -> bool:
+    """True when race_records.course indicates 全天候／AWT."""
+    from hppv.racing_standard_times import track_type_from_race_records_course
+
+    return track_type_from_race_records_course(course) == "AWT"
+
+
+def valid_played_total_counts(rows: list[dict[str, str]]) -> dict[str, int]:
+    """Return valid_played / total for a row sample (WV counts in total only)."""
+    summary = summarize_places(rows)
+    return {
+        "valid_played": int(summary["valid_played"]),
+        "total": int(summary["played"]),
+    }
+
+
+def surface_place_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
+    """Place chips + valid/total for one surface group (shared summarize_places)."""
+    summary = summarize_places(rows)
+    return {
+        "valid_played": int(summary["valid_played"]),
+        "total": int(summary["played"]),
+        "first": int(summary["first"]),
+        "second": int(summary["second"]),
+        "third": int(summary["third"]),
+        "fourth": int(summary["fourth"]),
+        "other": int(summary["other"]),
+        "withdrawn": int(summary["withdrawn"]),
+        "unknown": int(summary["unknown"]),
+    }
+
+
+def fetch_other_stats_by_surface(
+    conn: Any,
+    anchor: HorseFormAnchor,
+    *,
+    fetch_cap: int = RECENT_FORM_ALL_FETCH_CAP,
+) -> dict[str, Any]:
+    """Career-to-date (before anchor) place + valid/total for HV / ST(turf) / AWT.
+
+    Groups are mutually exclusive:
+      - HV: venue 跑馬地
+      - ST: venue 沙田 and not AWT course
+      - AWT: course is 全天候／AWT (usually 沙田)
+    """
+    raw = _fetch_candidates(
+        conn,
+        horse_id=anchor.horse_id,
+        before_iso=anchor.race_date_iso,
+        limit=fetch_cap,
+        venue=None,
+    )
+    # Take all fetched rows as views (cap already applied).
+    views = _take_views(raw, limit=max(fetch_cap, 1), distance=None)
+    hv_rows: list[dict[str, str]] = []
+    st_rows: list[dict[str, str]] = []
+    awt_rows: list[dict[str, str]] = []
+    for row in views:
+        if is_awt_course(row.get("course")):
+            awt_rows.append(row)
+            continue
+        ven = str(row.get("venue") or "").strip()
+        if ven == "跑馬地":
+            hv_rows.append(row)
+        elif ven == "沙田":
+            st_rows.append(row)
+    return {
+        "hv": {"code": "HV", "venue": "跑馬地", **surface_place_stats(hv_rows)},
+        "st": {"code": "ST", "venue": "沙田", **surface_place_stats(st_rows)},
+        "awt": {"code": "AWT", "venue": "全天候", **surface_place_stats(awt_rows)},
     }
 
 
@@ -270,7 +396,10 @@ def summarize_handicap_groups(
     *,
     today_handicap: Any,
 ) -> dict[str, Any]:
-    """Split the same recent rows by historical handicap vs today's pounds (non-exclusive)."""
+    """Split form rows by historical handicap vs today's pounds (non-exclusive).
+
+    Caller supplies the sample (horse form uses 同場同程 rows).
+    """
     today_display = format_text_field(today_handicap)
     today_n = parse_handicap_pounds(today_handicap)
     empty = summarize_win_counts([])
@@ -326,9 +455,11 @@ def _fetch_candidates(
           rr.venue,
           rr.distance,
           rr.class_band,
+          rr.course,
           rr.draw,
           rr.handicap,
           rr.jockey,
+          rr.rating,
           rr.finish_pos,
           rr.running_pos,
           rr.time,
@@ -437,8 +568,149 @@ def compute_same_venue_distance_win_rate_pct_points(
     return win_rate_to_pct_points(summary["win_rate"])
 
 
-# Only HV meetings write racecard_starters.同程勝率 (ST stays display-only in horse form).
-_SAME_DISTANCE_WIN_RATE_WRITE_VENUE_CODE = "HV"
+def compute_same_venue_distance_place_rate_pct_points(
+    conn: Any,
+    anchor: HorseFormAnchor,
+    *,
+    limit: int = DEFAULT_HORSE_FORM_LIMIT,
+) -> float | None:
+    """Venue+distance top-3 place rate as percentage points via summarize_places."""
+    rows = fetch_same_venue_distance_form(conn, anchor, limit=limit)
+    if not rows:
+        return None
+    summary = summarize_places(rows)
+    if int(summary["valid_played"]) <= 0:
+        return None
+    return win_rate_to_pct_points(summary["place_rate"])
+
+
+def compute_same_venue_distance_win_place_pct_points(
+    conn: Any,
+    anchor: HorseFormAnchor,
+    *,
+    limit: int = DEFAULT_HORSE_FORM_LIMIT,
+) -> tuple[float | None, float | None]:
+    """One form fetch → (win %, place %) percentage points."""
+    rows = fetch_same_venue_distance_form(conn, anchor, limit=limit)
+    if not rows:
+        return None, None
+    summary = summarize_places(rows)
+    if int(summary["valid_played"]) <= 0:
+        return None, None
+    return (
+        win_rate_to_pct_points(summary["win_rate"]),
+        win_rate_to_pct_points(summary["place_rate"]),
+    )
+
+
+def compute_same_venue_distance_win_place_counts(
+    conn: Any,
+    anchor: HorseFormAnchor,
+    *,
+    limit: int = DEFAULT_HORSE_FORM_LIMIT,
+) -> tuple[int, int, int] | None:
+    """One form fetch → (valid_played n, wins k, place_top3 k) or None.
+
+    Uses the same fetch + summarize_places path as 同程勝率／同程位置率.
+    """
+    rows = fetch_same_venue_distance_form(conn, anchor, limit=limit)
+    if not rows:
+        return None
+    summary = summarize_places(rows)
+    n = int(summary["valid_played"])
+    if n <= 0:
+        return None
+    wins = int(summary["first"])
+    place_top3 = (
+        int(summary["first"]) + int(summary["second"]) + int(summary["third"])
+    )
+    return n, wins, place_top3
+
+
+def compute_same_venue_distance_attainment_counts(
+    conn: Any,
+    anchor: HorseFormAnchor,
+    *,
+    limit: int = DEFAULT_HORSE_FORM_LIMIT,
+) -> tuple[int, int] | None:
+    """Same-venue+distance sample → (attained k, valid n) or None when n==0.
+
+    Reuses fetch_same_venue_distance_form (limit 12). A start counts as valid only
+    when finish time parses to seconds and an exact standard-time row exists for
+    that start's venue/track/distance/class with published_on ≤ that race date.
+    """
+    from hppv.racing_standard_times import (
+        lookup_standard_time_seconds,
+        map_class_band_to_standard,
+        parse_race_time_to_seconds,
+        track_type_from_race_records_course,
+        venue_code_from_race_records_venue,
+    )
+
+    rows = fetch_same_venue_distance_form(conn, anchor, limit=limit)
+    if not rows:
+        return None
+    attained = 0
+    valid = 0
+    for row in rows:
+        finish_sec = parse_race_time_to_seconds(row.get("time"))
+        if finish_sec is None:
+            continue
+        venue_code = venue_code_from_race_records_venue(row.get("venue"))
+        track_type = track_type_from_race_records_course(row.get("course"))
+        class_std = map_class_band_to_standard(row.get("class_band"))
+        dist_txt = normalize_distance(row.get("distance"))
+        race_iso = format_date_display(row.get("race_date"))
+        if (
+            not venue_code
+            or not track_type
+            or not class_std
+            or not dist_txt.isdigit()
+            or not race_iso
+            or race_iso == EMPTY_DISPLAY
+        ):
+            continue
+        std_sec = lookup_standard_time_seconds(
+            conn,
+            venue_code=venue_code,
+            track_type=track_type,
+            distance_m=int(dist_txt),
+            class_band=class_std,
+            as_of_iso=race_iso,
+        )
+        if std_sec is None:
+            continue
+        valid += 1
+        if finish_sec <= std_sec:
+            attained += 1
+    if valid <= 0:
+        return None
+    return attained, valid
+
+
+def compute_same_venue_distance_attainment_pct_points(
+    conn: Any,
+    anchor: HorseFormAnchor,
+    *,
+    limit: int = DEFAULT_HORSE_FORM_LIMIT,
+) -> float | None:
+    """達標率 percentage points (1dp stored later); n==0 → None; all miss → 0.0."""
+    counts = compute_same_venue_distance_attainment_counts(
+        conn, anchor, limit=limit
+    )
+    if counts is None:
+        return None
+    attained, valid = counts
+    return (float(attained) / float(valid)) * 100.0
+
+
+# 同場同程相關率：本地馬場（ST／HV／FC）依「今日馬場＋同途程」寫入。
+_RATE_WRITE_VENUE_CODES: frozenset[str] = frozenset({"ST", "HV", "FC"})
+
+
+def _is_rate_write_venue(racecourse: str) -> bool:
+    """True for ST/HV/FC meetings that store form-derived rates on starters."""
+    return str(racecourse or "").strip().upper() in _RATE_WRITE_VENUE_CODES
 
 
 def update_hv_same_distance_win_rates_for_meeting(
@@ -448,18 +720,23 @@ def update_hv_same_distance_win_rates_for_meeting(
     racecourse: str,
     limit: int = DEFAULT_HORSE_FORM_LIMIT,
 ) -> int:
-    """After racecard upsert: write HV same-venue+distance win rates; skip non-HV."""
+    """After racecard upsert: write same-venue+distance win/place rates (ST/HV/FC)."""
     from hppv.racing_hkjc_graphql import venue_display_name
-    from hppv.schema import RACECARD_SAME_DISTANCE_WIN_RATE_COLUMN, qident
+    from hppv.schema import (
+        RACECARD_SAME_DISTANCE_PLACE_RATE_COLUMN,
+        RACECARD_SAME_DISTANCE_WIN_RATE_COLUMN,
+        qident,
+    )
 
     code = str(racecourse or "").strip().upper()
-    if code != _SAME_DISTANCE_WIN_RATE_WRITE_VENUE_CODE:
+    if not _is_rate_write_venue(code):
         return 0
     venue_zh = venue_display_name(code)
     if not venue_zh:
         return 0
     date_iso = normalize_anchor_date_iso(race_date)
-    col = qident(RACECARD_SAME_DISTANCE_WIN_RATE_COLUMN)
+    win_col = qident(RACECARD_SAME_DISTANCE_WIN_RATE_COLUMN)
+    place_col = qident(RACECARD_SAME_DISTANCE_PLACE_RATE_COLUMN)
     starters = conn.execute(
         """
         SELECT s.id AS starter_id,
@@ -498,17 +775,19 @@ def update_hv_same_distance_win_rates_for_meeting(
             )
         except HorseFormValidationError:
             continue
-        pct = compute_same_venue_distance_win_rate_pct_points(
+        win_pct, place_pct = compute_same_venue_distance_win_place_pct_points(
             conn, anchor, limit=limit
         )
-        db_val = format_pct_points_for_db(pct)
+        win_val = format_pct_points_for_db(win_pct)
+        place_val = format_pct_points_for_db(place_pct)
         cur = conn.execute(
             f"""
             UPDATE racecard_starters
-               SET {col} = ?
+               SET {win_col} = ?,
+                   {place_col} = ?
              WHERE id = ?;
             """,
-            (db_val, starter_id),
+            (win_val, place_val, starter_id),
         )
         updated += int(cur.rowcount or 0)
     return updated
@@ -519,7 +798,7 @@ def recompute_all_hv_same_distance_win_rates(
     *,
     limit: int = DEFAULT_HORSE_FORM_LIMIT,
 ) -> dict[str, int]:
-    """Recompute racecard_starters.同程勝率 for every HV meeting in the DB."""
+    """Recompute racecard_starters.同程勝率／同程位置率 for every ST/HV/FC meeting."""
     meetings = 0
     starters_updated = 0
     with get_connection(db_path) as conn:
@@ -527,7 +806,7 @@ def recompute_all_hv_same_distance_win_rates(
             """
             SELECT DISTINCT race_date, racecourse
               FROM racecard_starters
-             WHERE upper(trim(racecourse)) = 'HV'
+             WHERE upper(trim(racecourse)) IN ('ST', 'HV', 'FC')
              ORDER BY race_date, racecourse
             """
         ).fetchall()
@@ -539,6 +818,626 @@ def recompute_all_hv_same_distance_win_rates(
                 race_date=race_date,
                 racecourse=racecourse,
                 limit=limit,
+            )
+            meetings += 1
+            starters_updated += n
+        conn.commit()
+    return {"meetings": meetings, "starters_updated": starters_updated}
+
+
+def update_hv_attainment_rate_for_meeting(
+    conn: Any,
+    *,
+    race_date: str,
+    racecourse: str,
+    limit: int = DEFAULT_HORSE_FORM_LIMIT,
+) -> int:
+    """After same-distance sample sources: write 達標率 for ST/HV/FC."""
+    code = str(racecourse or "").strip().upper()
+    if not _is_rate_write_venue(code):
+        return 0
+    from hppv.racing_hkjc_graphql import venue_display_name
+
+    venue_zh = venue_display_name(code)
+    if not venue_zh:
+        return 0
+    date_iso = normalize_anchor_date_iso(race_date)
+    out_col = qident(RACECARD_ATTAINMENT_RATE_COLUMN)
+    starters = conn.execute(
+        """
+        SELECT s.id AS starter_id,
+               s.horse_id AS horse_id,
+               s."馬號" AS horse_no,
+               ri.distance AS distance,
+               ri.race_no AS race_no
+          FROM racecard_starters AS s
+          JOIN racecard_race_info AS ri
+            ON ri.race_date = s.race_date
+           AND ri.racecourse = s.racecourse
+           AND ri.race_no = s.race_no
+         WHERE s.race_date = ?
+           AND s.racecourse = ?
+           AND TRIM(COALESCE(s.horse_id, '')) != ''
+           AND TRIM(COALESCE(s."馬號", '')) != ''
+           AND TRIM(COALESCE(ri.distance, '')) != ''
+        """,
+        (race_date, racecourse),
+    ).fetchall()
+    updated = 0
+    for row in starters:
+        horse_id = str(row["horse_id"] if hasattr(row, "keys") else row[1] or "").strip()
+        if not horse_id or not is_acceptable_horse_id(horse_id):
+            continue
+        distance = row["distance"] if hasattr(row, "keys") else row[3]
+        race_no = row["race_no"] if hasattr(row, "keys") else row[4]
+        starter_id = int(row["starter_id"] if hasattr(row, "keys") else row[0])
+        try:
+            anchor = parse_anchor(
+                horse_id=horse_id,
+                race_date=date_iso,
+                venue=venue_zh,
+                distance=distance,
+                race_no=race_no,
+            )
+        except HorseFormValidationError:
+            continue
+        counts = compute_same_venue_distance_attainment_counts(
+            conn, anchor, limit=limit
+        )
+        if counts is None:
+            stored = None
+            attained = 0
+            valid = 0
+            pct = None
+        else:
+            attained, valid = counts
+            pct = (float(attained) / float(valid)) * 100.0
+            stored = format_weighted_win_rate_for_db(pct)
+        logger.info(
+            "達標率 meeting=%s/%s race_no=%s horse_id=%s attained=%s valid=%s rate=%s",
+            race_date,
+            racecourse,
+            race_no,
+            horse_id,
+            attained,
+            valid,
+            stored,
+        )
+        cur = conn.execute(
+            f"""
+            UPDATE racecard_starters
+               SET {out_col} = ?
+             WHERE id = ?;
+            """,
+            (stored, starter_id),
+        )
+        updated += int(cur.rowcount or 0)
+    return updated
+
+
+def recompute_all_hv_attainment_rates(
+    db_path: Path,
+    *,
+    limit: int = DEFAULT_HORSE_FORM_LIMIT,
+) -> dict[str, int]:
+    """Recompute racecard_starters.達標率 for every ST/HV/FC meeting."""
+    meetings = 0
+    starters_updated = 0
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT race_date, racecourse
+              FROM racecard_starters
+             WHERE upper(trim(racecourse)) IN ('ST', 'HV', 'FC')
+             ORDER BY race_date, racecourse
+            """
+        ).fetchall()
+        for row in rows:
+            race_date = str(row["race_date"] if hasattr(row, "keys") else row[0])
+            racecourse = str(row["racecourse"] if hasattr(row, "keys") else row[1])
+            n = update_hv_attainment_rate_for_meeting(
+                conn,
+                race_date=race_date,
+                racecourse=racecourse,
+                limit=limit,
+            )
+            meetings += 1
+            starters_updated += n
+        conn.commit()
+    return {"meetings": meetings, "starters_updated": starters_updated}
+
+
+def parse_pct_points_text(raw: Any) -> float | None:
+    """Parse stored percentage-point text. NULL/blank/invalid → None; real 0 kept."""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if text == "" or text == EMPTY_DISPLAY:
+        return None
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        return None
+    if value != value:  # NaN
+        return None
+    return value
+
+
+def format_weighted_win_rate_for_db(pct: float | None) -> str | None:
+    """Store weighted rate as percentage points with exactly one decimal (HALF_UP)."""
+    if pct is None:
+        return None
+    quantized = Decimal(str(pct)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+    return format(quantized, "f")
+
+
+def compute_weighted_win_rate_pct_points(
+    *,
+    same_distance_win: float | None,
+    same_distance_place: float | None,
+    draw_win: float | None,
+    draw_place: float | None,
+) -> float | None:
+    """Weighted average of available percentage-point inputs; all NULL → None."""
+    from hppv.racing_rate_settings import RATE_COMPONENT_WEIGHTS
+
+    by_col = {
+        RACECARD_SAME_DISTANCE_WIN_RATE_COLUMN: same_distance_win,
+        RACECARD_SAME_DISTANCE_PLACE_RATE_COLUMN: same_distance_place,
+        RACECARD_DRAW_WIN_RATE_COLUMN: draw_win,
+        RACECARD_DRAW_PLACE_RATE_COLUMN: draw_place,
+    }
+    numerator = 0.0
+    denominator = 0
+    for col, weight in RATE_COMPONENT_WEIGHTS:
+        value = by_col[col]
+        if value is None:
+            continue
+        numerator += float(value) * int(weight)
+        denominator += int(weight)
+    if denominator == 0:
+        return None
+    return float(numerator) / float(denominator)
+
+
+def update_hv_weighted_win_rate_for_meeting(
+    conn: Any,
+    *,
+    race_date: str,
+    racecourse: str,
+) -> int:
+    """Write 加權總勝出率 from the four rate columns (ST/HV/FC)."""
+    code = str(racecourse or "").strip().upper()
+    if not _is_rate_write_venue(code):
+        return 0
+    out_col = qident(RACECARD_WEIGHTED_WIN_RATE_COLUMN)
+    sd_win_col = qident(RACECARD_SAME_DISTANCE_WIN_RATE_COLUMN)
+    sd_place_col = qident(RACECARD_SAME_DISTANCE_PLACE_RATE_COLUMN)
+    draw_win_col = qident(RACECARD_DRAW_WIN_RATE_COLUMN)
+    draw_place_col = qident(RACECARD_DRAW_PLACE_RATE_COLUMN)
+    starters = conn.execute(
+        f"""
+        SELECT id,
+               {sd_win_col} AS same_distance_win,
+               {sd_place_col} AS same_distance_place,
+               {draw_win_col} AS draw_win,
+               {draw_place_col} AS draw_place
+          FROM racecard_starters
+         WHERE race_date = ?
+           AND racecourse = ?
+        """,
+        (race_date, racecourse),
+    ).fetchall()
+    updated = 0
+    for row in starters:
+        if hasattr(row, "keys"):
+            starter_id = int(row["id"])
+            sd_win = parse_pct_points_text(row["same_distance_win"])
+            sd_place = parse_pct_points_text(row["same_distance_place"])
+            draw_win = parse_pct_points_text(row["draw_win"])
+            draw_place = parse_pct_points_text(row["draw_place"])
+        else:
+            starter_id = int(row[0])
+            sd_win = parse_pct_points_text(row[1])
+            sd_place = parse_pct_points_text(row[2])
+            draw_win = parse_pct_points_text(row[3])
+            draw_place = parse_pct_points_text(row[4])
+        weighted = compute_weighted_win_rate_pct_points(
+            same_distance_win=sd_win,
+            same_distance_place=sd_place,
+            draw_win=draw_win,
+            draw_place=draw_place,
+        )
+        stored = format_weighted_win_rate_for_db(weighted)
+        cur = conn.execute(
+            f"""
+            UPDATE racecard_starters
+               SET {out_col} = ?
+             WHERE id = ?
+            """,
+            (stored, starter_id),
+        )
+        updated += int(cur.rowcount or 0)
+    return updated
+
+
+def recompute_all_hv_weighted_win_rates(db_path: Path) -> dict[str, int]:
+    """Recompute racecard_starters.加權總勝出率 for every ST/HV/FC meeting."""
+    meetings = 0
+    starters_updated = 0
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT race_date, racecourse
+              FROM racecard_starters
+             WHERE upper(trim(racecourse)) IN ('ST', 'HV', 'FC')
+             ORDER BY race_date, racecourse
+            """
+        ).fetchall()
+        for row in rows:
+            race_date = str(row["race_date"] if hasattr(row, "keys") else row[0])
+            racecourse = str(row["racecourse"] if hasattr(row, "keys") else row[1])
+            n = update_hv_weighted_win_rate_for_meeting(
+                conn, race_date=race_date, racecourse=racecourse
+            )
+            meetings += 1
+            starters_updated += n
+        conn.commit()
+    return {"meetings": meetings, "starters_updated": starters_updated}
+
+
+_SMOOTHED_MISSING_MULTIPLIER = 1.0
+
+
+def smooth_count_rate(k: int, n: int, *, prior: float | None = None) -> float:
+    """(k + prior) / (n + CONSTANT). Default prior = RATE_SMOOTH_PRIOR."""
+    from hppv.racing_rate_settings import RATE_SMOOTH_CONSTANT, RATE_SMOOTH_PRIOR
+
+    use_prior = float(RATE_SMOOTH_PRIOR) if prior is None else float(prior)
+    return (float(k) + use_prior) / (float(n) + float(RATE_SMOOTH_CONSTANT))
+
+
+def rate_to_field_multiplier(smooth_rate: float, baseline: float) -> float:
+    """smooth_rate / baseline. baseline must be > 0."""
+    return float(smooth_rate) / float(baseline)
+
+
+def compute_smoothed_component_multiplier(
+    *,
+    k: int | None,
+    n: int | None,
+    baseline: float,
+    prior: float | None = None,
+) -> float:
+    """Missing/invalid (k,n) → 1.0; else smoothed rate / baseline."""
+    if k is None or n is None or n <= 0 or baseline <= 0:
+        return _SMOOTHED_MISSING_MULTIPLIER
+    if k < 0:
+        return _SMOOTHED_MISSING_MULTIPLIER
+    return rate_to_field_multiplier(
+        smooth_count_rate(k, n, prior=prior), baseline
+    )
+
+
+def compute_attainment_field_multipliers(
+    counts_by_id: dict[int, tuple[int, int] | None],
+) -> dict[int, float]:
+    """Per-starter 達標率 multipliers for one race.
+
+    Prior = RATE_SMOOTH_CONSTANT × field mean raw attainment (horses with n>0).
+    No horse with valid n → all multipliers 1.
+    Horse without valid n → multiplier 1.
+    """
+    from hppv.racing_rate_settings import RATE_SMOOTH_CONSTANT
+
+    with_data: list[tuple[int, int, int]] = []
+    for starter_id, counts in counts_by_id.items():
+        if counts is None:
+            continue
+        attained, valid = counts
+        if valid <= 0:
+            continue
+        with_data.append((starter_id, int(attained), int(valid)))
+
+    out: dict[int, float] = {
+        starter_id: _SMOOTHED_MISSING_MULTIPLIER for starter_id in counts_by_id
+    }
+    if not with_data:
+        return out
+
+    raw_mean = sum(k / n for _id, k, n in with_data) / float(len(with_data))
+    prior = float(RATE_SMOOTH_CONSTANT) * float(raw_mean)
+    smooth_by_id: dict[int, float] = {}
+    for starter_id, k, n in with_data:
+        smooth_by_id[starter_id] = smooth_count_rate(k, n, prior=prior)
+    baseline = sum(smooth_by_id.values()) / float(len(smooth_by_id))
+    if baseline <= 0:
+        return out
+    for starter_id, smooth in smooth_by_id.items():
+        out[starter_id] = rate_to_field_multiplier(smooth, baseline)
+    return out
+
+
+def compute_smoothed_composite_multiplier(
+    *,
+    same_distance_win_m: float,
+    same_distance_place_m: float,
+    draw_win_m: float,
+    draw_place_m: float,
+    attainment_m: float = _SMOOTHED_MISSING_MULTIPLIER,
+) -> float:
+    """Weighted average of five multipliers; denominator always 6+W."""
+    from hppv.racing_rate_settings import (
+        RATE_SMOOTHED_WEIGHT_TOTAL,
+        RATE_WEIGHT_ATTAINMENT,
+        RATE_WEIGHT_DRAW_PLACE,
+        RATE_WEIGHT_DRAW_WIN,
+        RATE_WEIGHT_SAME_DISTANCE_PLACE,
+        RATE_WEIGHT_SAME_DISTANCE_WIN,
+    )
+
+    numerator = (
+        same_distance_win_m * RATE_WEIGHT_SAME_DISTANCE_WIN
+        + same_distance_place_m * RATE_WEIGHT_SAME_DISTANCE_PLACE
+        + draw_win_m * RATE_WEIGHT_DRAW_WIN
+        + draw_place_m * RATE_WEIGHT_DRAW_PLACE
+        + attainment_m * RATE_WEIGHT_ATTAINMENT
+    )
+    return float(numerator) / float(RATE_SMOOTHED_WEIGHT_TOTAL)
+
+
+def format_smoothed_weighted_rate_for_db(pct: float | None) -> str | None:
+    """Store 平滑加權率 as percentage points with exactly one decimal (HALF_UP)."""
+    return format_weighted_win_rate_for_db(pct)
+
+
+def update_hv_smoothed_weighted_rate_for_meeting(
+    conn: Any,
+    *,
+    race_date: str,
+    racecourse: str,
+    limit: int = DEFAULT_HORSE_FORM_LIMIT,
+) -> int:
+    """Write 平滑加權率 per race after same-distance/draw sources are ready (ST/HV/FC).
+
+    Field size = non-reserve starters; size <= 3 → NULL for the race.
+    Missing component counts → multiplier 1 (weight unchanged).
+    """
+    from hppv.racing_draw_statistics import (
+        lookup_draw_start_win_place_counts,
+        rail_position_for_draw_lookup,
+        track_type_from_race_course_area,
+    )
+    from hppv.racing_hkjc_graphql import venue_display_name
+    from hppv.schema import RACECARD_SMOOTHED_WEIGHTED_RATE_COLUMN
+
+    code = str(racecourse or "").strip().upper()
+    if not _is_rate_write_venue(code):
+        return 0
+    venue_zh = venue_display_name(code)
+    if not venue_zh:
+        return 0
+    date_iso = normalize_anchor_date_iso(race_date)
+    out_col = qident(RACECARD_SMOOTHED_WEIGHTED_RATE_COLUMN)
+
+    race_nos = [
+        int(r["race_no"] if hasattr(r, "keys") else r[0])
+        for r in conn.execute(
+            """
+            SELECT DISTINCT race_no
+              FROM racecard_starters
+             WHERE race_date = ?
+               AND racecourse = ?
+             ORDER BY CAST(race_no AS INTEGER)
+            """,
+            (race_date, racecourse),
+        ).fetchall()
+    ]
+    draw_table = conn.execute(
+        """
+        SELECT 1 FROM sqlite_master
+         WHERE type = 'table' AND name = 'racing_draw_statistics'
+         LIMIT 1
+        """
+    ).fetchone()
+
+    updated = 0
+    for race_no in race_nos:
+        starters = conn.execute(
+            """
+            SELECT s.id AS starter_id,
+                   s.horse_id AS horse_id,
+                   s."馬號" AS horse_no,
+                   s."後備" AS reserve,
+                   s."檔位" AS draw,
+                   ri.distance AS distance,
+                   ri.track_name AS track_name,
+                   ri.race_course_area AS race_course_area
+              FROM racecard_starters AS s
+              JOIN racecard_race_info AS ri
+                ON ri.race_date = s.race_date
+               AND ri.racecourse = s.racecourse
+               AND ri.race_no = s.race_no
+             WHERE s.race_date = ?
+               AND s.racecourse = ?
+               AND s.race_no = ?
+             ORDER BY CAST(s."馬號" AS INTEGER), s.id
+            """,
+            (race_date, racecourse, race_no),
+        ).fetchall()
+        field_starters = [
+            r
+            for r in starters
+            if str(r["reserve"] if hasattr(r, "keys") else "").strip() == "否"
+        ]
+        field_size = len(field_starters)
+        if field_size <= 3:
+            for row in starters:
+                starter_id = int(row["starter_id"] if hasattr(row, "keys") else row[0])
+                cur = conn.execute(
+                    f"UPDATE racecard_starters SET {out_col} = NULL WHERE id = ?",
+                    (starter_id,),
+                )
+                updated += int(cur.rowcount or 0)
+            continue
+
+        win_baseline = 1.0 / float(field_size)
+        place_baseline = 3.0 / float(field_size)
+        per_starter: list[
+            tuple[
+                int,
+                int | None,
+                int | None,
+                int | None,
+                int | None,
+                int | None,
+                int | None,
+            ]
+        ] = []
+        attainment_counts: dict[int, tuple[int, int] | None] = {}
+        for row in field_starters:
+            starter_id = int(row["starter_id"])
+            horse_id = str(row["horse_id"] or "").strip()
+            distance = row["distance"]
+            # Same-distance counts (shared n for win/place) + attainment on same sample
+            sd_n: int | None = None
+            sd_wins: int | None = None
+            sd_places: int | None = None
+            att_counts: tuple[int, int] | None = None
+            if horse_id and is_acceptable_horse_id(horse_id) and str(distance or "").strip():
+                try:
+                    anchor = parse_anchor(
+                        horse_id=horse_id,
+                        race_date=date_iso,
+                        venue=venue_zh,
+                        distance=distance,
+                        race_no=race_no,
+                    )
+                except HorseFormValidationError:
+                    anchor = None
+                if anchor is not None:
+                    counts = compute_same_venue_distance_win_place_counts(
+                        conn, anchor, limit=limit
+                    )
+                    if counts is not None:
+                        sd_n, sd_wins, sd_places = counts
+                    att_counts = compute_same_venue_distance_attainment_counts(
+                        conn, anchor, limit=limit
+                    )
+
+            # Draw counts (shared n for win/place)
+            draw_n: int | None = None
+            draw_wins: int | None = None
+            draw_places: int | None = None
+            if draw_table:
+                track_type = track_type_from_race_course_area(row["race_course_area"])
+                dist_txt = normalize_distance(distance)
+                draw_txt = str(row["draw"] or "").strip()
+                rail = (
+                    rail_position_for_draw_lookup(
+                        track_type=track_type or "",
+                        track_name=row["track_name"],
+                    )
+                    if track_type
+                    else None
+                )
+                if (
+                    track_type
+                    and rail is not None
+                    and dist_txt.isdigit()
+                    and draw_txt.isdigit()
+                ):
+                    draw_counts = lookup_draw_start_win_place_counts(
+                        conn,
+                        venue_code=code,
+                        track_type=track_type,
+                        rail_position=rail,
+                        distance_m=int(dist_txt),
+                        draw_no=int(draw_txt),
+                    )
+                    if draw_counts is not None:
+                        draw_n, draw_wins, draw_places = draw_counts
+
+            attainment_counts[starter_id] = att_counts
+            per_starter.append(
+                (starter_id, sd_wins, sd_n, sd_places, draw_wins, draw_n, draw_places)
+            )
+
+        attainment_m_by_id = compute_attainment_field_multipliers(attainment_counts)
+        composites: list[tuple[int, float]] = []
+        for (
+            starter_id,
+            sd_wins,
+            sd_n,
+            sd_places,
+            draw_wins,
+            draw_n,
+            draw_places,
+        ) in per_starter:
+            sd_win_m = compute_smoothed_component_multiplier(
+                k=sd_wins, n=sd_n, baseline=win_baseline
+            )
+            sd_place_m = compute_smoothed_component_multiplier(
+                k=sd_places, n=sd_n, baseline=place_baseline
+            )
+            draw_win_m = compute_smoothed_component_multiplier(
+                k=draw_wins, n=draw_n, baseline=win_baseline
+            )
+            draw_place_m = compute_smoothed_component_multiplier(
+                k=draw_places, n=draw_n, baseline=place_baseline
+            )
+            attainment_m = attainment_m_by_id.get(
+                starter_id, _SMOOTHED_MISSING_MULTIPLIER
+            )
+            composite = compute_smoothed_composite_multiplier(
+                same_distance_win_m=sd_win_m,
+                same_distance_place_m=sd_place_m,
+                draw_win_m=draw_win_m,
+                draw_place_m=draw_place_m,
+                attainment_m=attainment_m,
+            )
+            composites.append((starter_id, composite))
+
+        total = sum(c for _id, c in composites)
+        values_by_id: dict[int, str | None] = {}
+        if total <= 0:
+            for starter_id, _c in composites:
+                values_by_id[starter_id] = None
+        else:
+            for starter_id, composite in composites:
+                pct = (composite / total) * 100.0
+                values_by_id[starter_id] = format_smoothed_weighted_rate_for_db(pct)
+
+        for row in starters:
+            starter_id = int(row["starter_id"])
+            reserve = str(row["reserve"] or "").strip()
+            stored = values_by_id.get(starter_id) if reserve == "否" else None
+            cur = conn.execute(
+                f"UPDATE racecard_starters SET {out_col} = ? WHERE id = ?",
+                (stored, starter_id),
+            )
+            updated += int(cur.rowcount or 0)
+    return updated
+
+
+def recompute_all_hv_smoothed_weighted_rates(db_path: Path) -> dict[str, int]:
+    """Recompute racecard_starters.平滑加權率 for every ST/HV/FC meeting."""
+    meetings = 0
+    starters_updated = 0
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT race_date, racecourse
+              FROM racecard_starters
+             WHERE upper(trim(racecourse)) IN ('ST', 'HV', 'FC')
+             ORDER BY race_date, racecourse
+            """
+        ).fetchall()
+        for row in rows:
+            race_date = str(row["race_date"] if hasattr(row, "keys") else row[0])
+            racecourse = str(row["racecourse"] if hasattr(row, "keys") else row[1])
+            n = update_hv_smoothed_weighted_rate_for_meeting(
+                conn, race_date=race_date, racecourse=racecourse
             )
             meetings += 1
             starters_updated += n
@@ -588,12 +1487,14 @@ def build_horse_form_payload(
 ) -> dict[str, Any]:
     from hppv.racing_hkjc_graphql import other_main_venue_code, venue_code_name
 
-    same_distance = fetch_same_distance_form(conn, anchor, limit=filters.limit)
+    # Section 1: same venue + same distance only (aligns with 同程勝率／達標率 sample).
+    same_distance = fetch_same_venue_distance_form(conn, anchor, limit=filters.limit)
+    # Section 2: recent form — no venue/distance filter; field-count via recent_limit.
     recent = fetch_recent_form(
         conn,
         anchor,
-        limit=filters.limit,
-        recent_filter=filters.recent_filter,
+        limit=recent_form_fetch_limit(filters.recent_limit),
+        recent_filter="all",
     )
     venue_code = venue_code_name(anchor.venue)
     same_venue_distance_win = (
@@ -611,11 +1512,14 @@ def build_horse_form_payload(
         if other_code
         else None
     )
+    other_stats = fetch_other_stats_by_surface(conn, anchor)
     return {
         "cutoff": "before_race_date",
         "cutoff_label_key": "racing.horse_form.cutoff",
         "limit": filters.limit,
         "limit_options": list(HORSE_FORM_LIMIT_OPTIONS),
+        "recent_limit": filters.recent_limit,
+        "recent_limit_options": [RECENT_FORM_LIMIT_ALL, *RECENT_FORM_LIMIT_OPTIONS],
         "horse": {
             "horse_id": anchor.horse_id,
             "horse_name": anchor.horse_name or "",
@@ -629,16 +1533,18 @@ def build_horse_form_payload(
             "handicap": format_text_field(anchor.handicap),
         },
         "filters": {
-            "recent_filter": filters.recent_filter,
+            "recent_limit": filters.recent_limit,
         },
         "same_distance": same_distance,
         "recent": recent,
         "summary": summarize_places(recent),
-        # Top: today venue + distance; bottom: other main venue (ST↔HV) + distance.
+        # Section 3: HV / ST(turf only) / AWT career counts before anchor.
+        "other_stats": other_stats,
+        # Kept for callers / tests; section 3 UI no longer shows these.
         "same_venue_distance_win": same_venue_distance_win,
         "other_venue_distance_win": other_venue_distance_win,
         "handicap_stats": summarize_handicap_groups(
-            recent, today_handicap=anchor.handicap
+            same_distance, today_handicap=anchor.handicap
         ),
         "stats_eligibility": {
             "valid": "numeric finish_pos >= 1",
@@ -659,8 +1565,10 @@ def fetch_horse_form(
     horse_name: Any = None,
     handicap: Any = None,
     limit: Any = None,
+    recent_limit: Any = None,
     recent_filter: Any = None,
 ) -> dict[str, Any]:
+    del recent_filter  # UI removed venue/distance filter; always recent=all.
     anchor = parse_anchor(
         horse_id=horse_id,
         race_date=race_date,
@@ -672,7 +1580,8 @@ def fetch_horse_form(
     )
     filters = HorseFormFilters(
         limit=normalize_horse_form_limit(limit),
-        recent_filter=normalize_recent_filter(recent_filter),
+        recent_limit=normalize_recent_form_limit(recent_limit),
+        recent_filter="all",
     )
     with get_connection(db_path) as conn:
         return build_horse_form_payload(conn, anchor, filters)

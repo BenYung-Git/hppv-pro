@@ -80,10 +80,12 @@ def test_daily_catalog_all_default_visible() -> None:
     assert RACING_DAILY_COLUMN_CATALOG
     assert all(bool(c.get("default_visible")) for c in RACING_DAILY_COLUMN_CATALOG)
     assert any(c["key"] == "finish_pos" for c in RACING_DAILY_COLUMN_CATALOG)
+    assert any(c["key"] == "same_distance_place_rate" for c in RACING_DAILY_COLUMN_CATALOG)
     settings = default_layout_settings(LAYOUT_KEY_RACING_DAILY)
     assert all(c["visible"] for c in settings["columns"])
     assert len(settings["columns"]) == len(RACING_DAILY_COLUMN_CATALOG)
     assert any(c["key"] == "finish_pos" for c in settings["columns"])
+    assert any(c["key"] == "same_distance_place_rate" for c in settings["columns"])
 
 
 def test_update_finish_pos_from_race_records(tmp_path: Path) -> None:

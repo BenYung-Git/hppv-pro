@@ -121,6 +121,7 @@ _VENUE_DISPLAY: dict[str, str] = {
     "HV": "跑馬地",
     "FC": "從化",
 }
+LOCAL_RACE_VENUE_CODES: frozenset[str] = frozenset(_VENUE_DISPLAY.keys())
 
 
 def venue_display_name(venue_code: str) -> str:
@@ -143,6 +144,22 @@ def venue_code_name(venue: str) -> str:
         if text == label:
             return code
     return text
+
+
+def is_local_venue_code(venue: str) -> bool:
+    """True only for ST / HV / FC (local HK/CHT meetings)."""
+    code = venue_code_name(venue)
+    return code in LOCAL_RACE_VENUE_CODES
+
+
+def require_local_venue_code(venue: str) -> str:
+    """Return normalized ST/HV/FC or raise RacingGraphQLError for foreign venues."""
+    code = venue_code_name(venue).upper() if str(venue or "").strip() else ""
+    if code not in LOCAL_RACE_VENUE_CODES:
+        raise RacingGraphQLError(
+            f"非本地馬場，已拒絕下載：venue={venue!r}（只接受 ST/HV/FC）"
+        )
+    return code
 
 
 def venue_for_race_records(venue: str) -> str:
@@ -325,26 +342,29 @@ def fetch_sp4e_pm_pool(
 
 
 def pick_active_meeting(data: Mapping[str, Any]) -> ActiveMeeting | None:
-    """Prefer activeMeetings alias; fall back to raceMeetings list."""
+    """Prefer activeMeetings alias; fall back to raceMeetings list.
+
+    Skips foreign venue codes (only ST/HV/FC).
+    """
     for key in ("activeMeetings", "raceMeetings"):
         meetings = data.get(key) or []
-        if not meetings:
-            continue
-        m = meetings[0]
-        date_iso = m.get("date")
-        venue = m.get("venueCode")
-        if not date_iso or not venue:
-            continue
-        total = m.get("totalNumberOfRace")
-        if total is None:
-            races = m.get("races") or []
-            total = len(races) if races else None
-        return ActiveMeeting(
-            date_iso=str(date_iso),
-            venue_code=str(venue),
-            status=(str(m["status"]) if m.get("status") is not None else None),
-            total_number_of_race=int(total) if total is not None else None,
-        )
+        for m in meetings:
+            date_iso = m.get("date")
+            venue = m.get("venueCode")
+            if not date_iso or not venue:
+                continue
+            if not is_local_venue_code(str(venue)):
+                continue
+            total = m.get("totalNumberOfRace")
+            if total is None:
+                races = m.get("races") or []
+                total = len(races) if races else None
+            return ActiveMeeting(
+                date_iso=str(date_iso),
+                venue_code=str(venue).strip().upper(),
+                status=(str(m["status"]) if m.get("status") is not None else None),
+                total_number_of_race=int(total) if total is not None else None,
+            )
     return None
 
 
@@ -551,7 +571,9 @@ def race_record_from_graphql_runner(
     if race_no is None:
         return None
     venue_code = _txt(meeting.get("venueCode")) or ""
-    venue_zh = _VENUE_DISPLAY.get(venue_code, venue_code)
+    if not is_local_venue_code(venue_code):
+        return None
+    venue_zh = _VENUE_DISPLAY.get(venue_code.upper(), "")
     jockey = runner.get("jockey") or {}
     trainer = runner.get("trainer") or {}
     return RaceRecord(
@@ -936,9 +958,10 @@ def apply_meeting_racecard_to_db(
         raise RacingGraphQLError("GraphQL：找不到 raceMeetings")
     meeting = meetings[0]
     date_iso = _txt(meeting.get("date")) or ""
-    venue = _txt(meeting.get("venueCode")) or (racecourse or "")
-    if not date_iso or not venue:
+    venue_raw = _txt(meeting.get("venueCode")) or (racecourse or "")
+    if not date_iso or not venue_raw:
         raise RacingGraphQLError("GraphQL meeting missing date/venueCode")
+    venue = require_local_venue_code(venue_raw)
     db_date = race_date_db or to_db_date(date_iso)
     race_nos: list[int] = []
 
@@ -967,15 +990,35 @@ def apply_meeting_racecard_to_db(
                 race_no=rn,
                 fields=fields,
             )
-    from hppv.racing_download import update_finish_pos_for_meeting
+    from hppv.racing_download import (
+        update_finish_pos_for_meeting,
+        update_immediate_odds_from_race_records_for_meeting,
+    )
     from hppv.racing_draw_statistics import update_draw_rates_for_meeting
-    from hppv.racing_horse_form import update_hv_same_distance_win_rates_for_meeting
+    from hppv.racing_horse_form import (
+        update_hv_attainment_rate_for_meeting,
+        update_hv_same_distance_win_rates_for_meeting,
+        update_hv_smoothed_weighted_rate_for_meeting,
+        update_hv_weighted_win_rate_for_meeting,
+    )
 
     update_hv_same_distance_win_rates_for_meeting(
         conn, race_date=db_date, racecourse=venue
     )
     update_draw_rates_for_meeting(conn, race_date=db_date, racecourse=venue)
+    update_hv_attainment_rate_for_meeting(
+        conn, race_date=db_date, racecourse=venue
+    )
+    update_hv_weighted_win_rate_for_meeting(
+        conn, race_date=db_date, racecourse=venue
+    )
+    update_hv_smoothed_weighted_rate_for_meeting(
+        conn, race_date=db_date, racecourse=venue
+    )
     update_finish_pos_for_meeting(conn, race_date=db_date, racecourse=venue)
+    update_immediate_odds_from_race_records_for_meeting(
+        conn, race_date=db_date, racecourse=venue
+    )
     return db_date, venue, sorted(set(race_nos))
 
 
@@ -1013,6 +1056,7 @@ def update_meeting_immediate_odds_from_graphql(
     post_func: PostFunc | None = None,
 ) -> int:
     """Update 即時賠率 via sp4e_racing_pmPool WIN only (no winOdds fallback)."""
+    racecourse = require_local_venue_code(racecourse)
     date_iso = to_graphql_date(race_date)
     # Race list comes from raceMeetings; odds values only from sp4e WIN.
     data = fetch_race_meetings(date_iso, racecourse, post_func=post_func)
@@ -1021,7 +1065,9 @@ def update_meeting_immediate_odds_from_graphql(
         return 0
     meeting = meetings[0]
     m_date = _txt(meeting.get("date"))
-    m_venue = _txt(meeting.get("venueCode")) or racecourse
+    m_venue = require_local_venue_code(
+        _txt(meeting.get("venueCode")) or racecourse
+    )
     db_date = to_db_date(m_date or date_iso)
     race_nos = sorted(
         {
@@ -1056,6 +1102,7 @@ def download_meeting_racecard_from_graphql(
     post_func: PostFunc | None = None,
 ) -> tuple[str, str, list[int]]:
     """Fetch whitelist raceMeetings and upsert racecard tables for one meeting."""
+    racecourse = require_local_venue_code(racecourse)
     date_iso = to_graphql_date(race_date)
     data = fetch_race_meetings(date_iso, racecourse, post_func=post_func)
     return apply_meeting_racecard_to_db(
@@ -1072,10 +1119,17 @@ def resolve_latest_meeting_from_graphql(
     hint_venue: str | None = None,
     post_func: PostFunc | None = None,
 ) -> ActiveMeeting | None:
-    """Resolve active/latest meeting via whitelist raceMeetings query."""
+    """Resolve active/latest meeting via whitelist raceMeetings query.
+
+    Hint venue must be local (ST/HV/FC); foreign hints fall back to ST for the
+    GraphQL request, then ``pick_active_meeting`` skips any foreign meetings.
+    """
     from datetime import date as date_cls
 
     date_iso = to_graphql_date(hint_date) if hint_date else date_cls.today().isoformat()
-    venue = hint_venue or "ST"
+    if hint_venue and is_local_venue_code(hint_venue):
+        venue = venue_code_name(hint_venue).upper()
+    else:
+        venue = "ST"
     data = fetch_race_meetings(date_iso, venue, post_func=post_func)
     return pick_active_meeting(data)

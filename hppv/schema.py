@@ -1,7 +1,29 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from textwrap import dedent
+
+logger = logging.getLogger(__name__)
+
+
+class RacecardSchemaError(RuntimeError):
+    """racecard_starters schema mismatch; never mutate data on this path."""
+
+    def __init__(self, unexpected_columns: list[str] | tuple[str, ...]) -> None:
+        cols = sorted({str(c) for c in unexpected_columns if str(c).strip()})
+        if not cols:
+            raise ValueError("unexpected_columns must be non-empty")
+        self.unexpected_columns = cols
+        detail = (
+            "racecard_starters schema 不一致：\n"
+            f"發現預期外欄位：{', '.join(cols)}\n"
+            "\n"
+            "已停止本次排位下載／更新，資料未被修改。\n"
+            "請更新程式 schema 後重試，或由管理員確認欄位是否應保留。"
+        )
+        super().__init__(detail)
+        self.detail = detail
 
 
 RACECARD_RACE_INFO_TABLE = "racecard_race_info"
@@ -29,16 +51,22 @@ RACECARD_PREDICTED_ODDS_COLUMN = "預測賠率"
 RACECARD_IMMEDIATE_ODDS_COLUMN = "即時賠率"
 RACECARD_ODDS_DIFF_COLUMN = "賠率差異"
 RACECARD_WEIGHTED_WIN_RATE_COLUMN = "加權總勝出率"
+RACECARD_SMOOTHED_WEIGHTED_RATE_COLUMN = "平滑加權率"
 RACECARD_SAME_DISTANCE_WIN_RATE_COLUMN = "同程勝率"
+RACECARD_SAME_DISTANCE_PLACE_RATE_COLUMN = "同程位置率"
 RACECARD_DRAW_WIN_RATE_COLUMN = "檔位勝出率"
 RACECARD_DRAW_PLACE_RATE_COLUMN = "檔位上名率"
+RACECARD_ATTAINMENT_RATE_COLUMN = "達標率"
 RACECARD_FINISH_POS_COLUMN = "名次"
 # Per-starter derived: odds diff / HV same-distance / draw stats / finish from results.
 RACECARD_STARTERS_DERIVED_COLUMNS: tuple[str, ...] = (
     RACECARD_WEIGHTED_WIN_RATE_COLUMN,
+    RACECARD_SMOOTHED_WEIGHTED_RATE_COLUMN,
     RACECARD_SAME_DISTANCE_WIN_RATE_COLUMN,
+    RACECARD_SAME_DISTANCE_PLACE_RATE_COLUMN,
     RACECARD_DRAW_WIN_RATE_COLUMN,
     RACECARD_DRAW_PLACE_RATE_COLUMN,
+    RACECARD_ATTAINMENT_RATE_COLUMN,
     RACECARD_ODDS_DIFF_COLUMN,
     RACECARD_FINISH_POS_COLUMN,
 )
@@ -458,9 +486,9 @@ def ensure_racecard_starters_columns(
     """
     Ensure racecard_starters structure is compatible with current app.
 
-    Compatibility strategy (kept from legacy UI logic):
-    - If table has unexpected columns, rebuild table to canonical schema.
-    - If table is missing expected columns, add them via ALTER TABLE.
+    - Missing expected columns: ALTER TABLE ADD COLUMN only.
+    - Unexpected columns: raise RacecardSchemaError; never DROP / delete / clear.
+    - Column order differences are ignored (SQLite has no reorder).
     """
     expected = racecard_starters_expected_columns(
         display_fields=display_fields,
@@ -470,8 +498,9 @@ def ensure_racecard_starters_columns(
     actual = _read_table_columns(conn, starters_table)
     unexpected = actual - expected
     if actual and unexpected:
-        conn.execute(f"DROP TABLE IF EXISTS {qident(starters_table)};")
-        actual = set()
+        err = RacecardSchemaError(sorted(unexpected))
+        logger.error("%s", err.detail)
+        raise err
 
     if not actual:
         conn.executescript(

@@ -238,7 +238,7 @@ def rail_position_for_draw_lookup(*, track_type: str, track_name: Any) -> str | 
     return text
 
 
-def lookup_draw_win_place_pct(
+def _lookup_draw_statistics_row(
     conn: Any,
     *,
     venue_code: str,
@@ -246,14 +246,11 @@ def lookup_draw_win_place_pct(
     rail_position: str,
     distance_m: int,
     draw_no: int,
-) -> tuple[str | None, str | None]:
-    """Read win_pct/place_pct by full unique key. 0 kept; missing → (None, None).
-
-    Multiple rows for the key → DrawStatisticsError (do not pick/merge).
-    """
+) -> Any | None:
+    """Return the unique draw-stats row for the key, or None if missing."""
     rows = conn.execute(
         """
-        SELECT win_pct, place_pct
+        SELECT starts, wins, seconds, thirds, fourths, win_pct, place_pct
           FROM racing_draw_statistics
          WHERE venue_code = ?
            AND track_type = ?
@@ -270,7 +267,7 @@ def lookup_draw_win_place_pct(
         ),
     ).fetchall()
     if not rows:
-        return None, None
+        return None
     if len(rows) > 1:
         raise DrawStatisticsError(
             "draw_lookup_ambiguous",
@@ -279,12 +276,78 @@ def lookup_draw_win_place_pct(
                 f"{venue_code}/{track_type}/{rail_position!r}/{distance_m}/{draw_no}"
             ),
         )
-    win_pct = rows[0]["win_pct"]
-    place_pct = rows[0]["place_pct"]
+    return rows[0]
+
+
+def lookup_draw_win_place_pct(
+    conn: Any,
+    *,
+    venue_code: str,
+    track_type: str,
+    rail_position: str,
+    distance_m: int,
+    draw_no: int,
+) -> tuple[str | None, str | None]:
+    """Read win_pct/place_pct by full unique key. 0 kept; missing → (None, None).
+
+    Multiple rows for the key → DrawStatisticsError (do not pick/merge).
+    """
+    row = _lookup_draw_statistics_row(
+        conn,
+        venue_code=venue_code,
+        track_type=track_type,
+        rail_position=rail_position,
+        distance_m=distance_m,
+        draw_no=draw_no,
+    )
+    if row is None:
+        return None, None
+    win_pct = row["win_pct"]
+    place_pct = row["place_pct"]
     # Preserve stored "0"; only treat SQL NULL as missing.
     win_out = None if win_pct is None else str(win_pct)
     place_out = None if place_pct is None else str(place_pct)
     return win_out, place_out
+
+
+def lookup_draw_start_win_place_counts(
+    conn: Any,
+    *,
+    venue_code: str,
+    track_type: str,
+    rail_position: str,
+    distance_m: int,
+    draw_no: int,
+) -> tuple[int, int, int] | None:
+    """Read (starts, wins, top3_count) for smoothing. Missing/invalid starts → None.
+
+    top3_count = wins + seconds + thirds (前三名次數).
+    """
+    row = _lookup_draw_statistics_row(
+        conn,
+        venue_code=venue_code,
+        track_type=track_type,
+        rail_position=rail_position,
+        distance_m=distance_m,
+        draw_no=draw_no,
+    )
+    if row is None:
+        return None
+    try:
+        starts = int(row["starts"])
+        wins = int(row["wins"])
+        seconds = int(row["seconds"])
+        thirds = int(row["thirds"])
+    except (TypeError, ValueError):
+        return None
+    if starts <= 0:
+        return None
+    if wins < 0 or seconds < 0 or thirds < 0:
+        return None
+    top3 = wins + seconds + thirds
+    if top3 > starts:
+        return None
+    return starts, wins, top3
 
 
 def update_draw_rates_for_meeting(

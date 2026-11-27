@@ -1291,7 +1291,10 @@ def _records_racing_daily() -> Any:
     except RacingDailySearchError as e:
         return jsonify({"ok": False, "error": e.code}), 400
     except RacingDailyError as e:
-        return jsonify({"ok": False, "error": e.code}), 400
+        body: dict[str, Any] = {"ok": False, "error": e.code}
+        if e.detail:
+            body["detail"] = e.detail
+        return jsonify(body), 400
     except Exception as e:
         logging.getLogger(__name__).exception("racing daily list failed: %s", e)
         return jsonify({"ok": False, "error": "read_failed"}), 500
@@ -2401,6 +2404,7 @@ def api_racing_horse_form() -> Any:
             horse_name=request.args.get("horse_name"),
             handicap=request.args.get("handicap"),
             limit=request.args.get("limit"),
+            recent_limit=request.args.get("recent_limit"),
             recent_filter=request.args.get("recent_filter"),
         )
     except HorseFormValidationError as e:

@@ -17,7 +17,7 @@ import requests
 from pypdf import PdfReader
 
 from hppv.db import get_connection, init_db
-from hppv.display_format import format_field_display
+from hppv.display_format import EMPTY_DISPLAY, format_field_display
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +195,129 @@ class StandardTimesError(RuntimeError):
 
 class StandardTimesSearchError(StandardTimesError):
     pass
+
+
+# Exact race_records.class_band → racing_standard_times.class_band.
+# Unlisted labels (條件限制 / 4YO / …) do not map; those starts are excluded.
+_CLASS_BAND_TO_STANDARD: dict[str, str] = {
+    "1": "Class 1",
+    "2": "Class 2",
+    "3": "Class 3",
+    "4": "Class 4",
+    "5": "Class 5",
+    "Class 1": "Class 1",
+    "Class 2": "Class 2",
+    "Class 3": "Class 3",
+    "Class 4": "Class 4",
+    "Class 5": "Class 5",
+    "第一班": "Class 1",
+    "第二班": "Class 2",
+    "第三班": "Class 3",
+    "第四班": "Class 4",
+    "第五班": "Class 5",
+    "新馬賽": "Griffin",
+    "GRIFFIN": "Griffin",
+    "Griffin": "Griffin",
+    "Griffin Race": "Griffin",
+    "G1": "Group",
+    "G2": "Group",
+    "G3": "Group",
+    "一級賽": "Group",
+    "二級賽": "Group",
+    "三級賽": "Group",
+    "分級賽": "Group",
+    "Group": "Group",
+    "Group Race": "Group",
+}
+
+_VENUE_ZH_TO_CODE: dict[str, str] = {
+    "跑馬地": "HV",
+    "沙田": "ST",
+}
+
+# Finish / standard times: m.ss.xx or m:ss.xx (minutes may be 0).
+_RE_RACE_TIME = re.compile(
+    r"^(?P<min>\d+)(?:[.:])(?P<sec>\d{1,2})\.(?P<frac>\d{2})$"
+)
+
+
+def map_class_band_to_standard(class_band: Any) -> str | None:
+    """Exact label map only; unknown / blank → None (no substitute)."""
+    text = str(class_band or "").strip()
+    if not text:
+        return None
+    return _CLASS_BAND_TO_STANDARD.get(text)
+
+
+def venue_code_from_race_records_venue(venue: Any) -> str | None:
+    text = str(venue or "").strip()
+    if not text:
+        return None
+    return _VENUE_ZH_TO_CODE.get(text)
+
+
+def track_type_from_race_records_course(course: Any) -> str | None:
+    """Derive TURF / AWT from race_records.course text; unknown → None."""
+    text = str(course or "").strip()
+    if not text:
+        return None
+    if "全天候" in text:
+        return "AWT"
+    if "草地" in text:
+        return "TURF"
+    return None
+
+
+def parse_race_time_to_seconds(raw: Any) -> float | None:
+    """Parse finish/standard time text to seconds. Invalid / empty → None."""
+    text = str(raw or "").strip()
+    if not text or text in {"--", "---", "-", EMPTY_DISPLAY}:
+        return None
+    m = _RE_RACE_TIME.fullmatch(text)
+    if not m:
+        return None
+    minutes = int(m.group("min"))
+    seconds = int(m.group("sec"))
+    frac = int(m.group("frac"))
+    if seconds >= 60:
+        return None
+    return float(minutes * 60 + seconds) + (frac / 100.0)
+
+
+def lookup_standard_time_seconds(
+    conn: Any,
+    *,
+    venue_code: str,
+    track_type: str,
+    distance_m: int,
+    class_band: str,
+    as_of_iso: str,
+) -> float | None:
+    """Latest published_on ≤ as_of for the exact query key; empty/unparsed → None."""
+    row = conn.execute(
+        """
+        SELECT standard_time
+          FROM racing_standard_times
+         WHERE venue_code = ?
+           AND track_type = ?
+           AND distance_m = ?
+           AND class_band = ?
+           AND published_on <= ?
+         ORDER BY published_on DESC
+         LIMIT 1
+        """,
+        (
+            str(venue_code).strip().upper(),
+            str(track_type).strip().upper(),
+            int(distance_m),
+            str(class_band).strip(),
+            str(as_of_iso).strip(),
+        ),
+    ).fetchone()
+    if row is None:
+        return None
+    raw = row["standard_time"] if hasattr(row, "keys") else row[0]
+    return parse_race_time_to_seconds(raw)
 
 
 @dataclass(frozen=True, slots=True)

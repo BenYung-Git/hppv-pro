@@ -30,11 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import AppConfig, default_config
-from ..db import fetch_horse_by_id, get_connection, get_recent_form_for_horse, init_db
-from ..schema import (
-    ensure_racecard_starters_columns,
-    racecard_base_schema_sql,
-)
+from ..db import fetch_horse_by_id, get_connection, get_recent_form_for_horse
 
 
 RACECARD_BASE_URL = "https://racing.hkjc.com/zh-hk/local/information/racecard"
@@ -175,8 +171,6 @@ def _estimate_raw_win_probability(
     meeting_race_date_yyyy_mm_dd: str,
     lookback_races: int = 12,
     weight_decay: float = 0.9,
-    alpha: float = 1.0,
-    beta: float = 9.0,
 ) -> float:
     """
     Estimate win probability from past performance.
@@ -186,11 +180,16 @@ def _estimate_raw_win_probability(
     - weight recency by `weight_decay ** idx`
     - starts = sum(weights for numeric finish_pos)
     - wins = sum(weights for finish_pos indicating win (01))
-    - apply beta-like smoothing: (wins + alpha) / (starts + alpha + beta)
+    - apply beta-like smoothing: (wins + PRIOR) / (starts + CONSTANT)
+      from hppv.racing_rate_settings
     - return raw probability (will be normalized among horses in the same race)
     """
+    from hppv.racing_rate_settings import RATE_SMOOTH_CONSTANT, RATE_SMOOTH_PRIOR
+
+    prior = float(RATE_SMOOTH_PRIOR)
+    constant = float(RATE_SMOOTH_CONSTANT)
     if not horse_id:
-        return 1.0 / (alpha + beta)
+        return prior / constant
 
     rows = conn.execute(
         """
@@ -214,7 +213,7 @@ def _estimate_raw_win_probability(
         if _finish_pos_to_win_flag(fp):
             wins_w += w
 
-    return (wins_w + alpha) / (starts_w + alpha + beta)
+    return (wins_w + prior) / (starts_w + constant)
 
 
 def _fill_predicted_win_odds_for_race(
@@ -913,20 +912,13 @@ def _upsert_racecard_for_race(
 
 
 def init_racecard_db(db_path: Path) -> None:
-    init_db(db_path)
+    # Single ensure path shared with web / scheduler / download.
+    from hppv.racing_download import ensure_racecard_db
+
+    ensure_racecard_db(db_path)
     conn = get_connection(db_path)
     try:
         conn.execute("PRAGMA journal_mode=WAL;")
-        # Schema is centrally managed in hppv.schema; UI only ensures DB is initialized.
-        conn.executescript(racecard_base_schema_sql(RACECARD_RACE_INFO_TABLE))
-        # racecard_starters 欄位定義與兼容修復集中在 hppv.schema。
-        ensure_racecard_starters_columns(
-            conn=conn,
-            starters_table="racecard_starters",
-            display_fields=RACECARD_DISPLAY_FIELDS,
-            predicted_odds_col=RACECARD_PREDICTED_ODDS_COLUMN,
-            immediate_odds_col=RACECARD_IMMEDIATE_ODDS_COLUMN,
-        )
     finally:
         conn.close()
 
@@ -987,12 +979,26 @@ def update_racecard_meeting_from_web(
 
         from hppv.racing_download import update_finish_pos_for_meeting
         from hppv.racing_draw_statistics import update_draw_rates_for_meeting
-        from hppv.racing_horse_form import update_hv_same_distance_win_rates_for_meeting
+        from hppv.racing_horse_form import (
+            update_hv_attainment_rate_for_meeting,
+            update_hv_same_distance_win_rates_for_meeting,
+            update_hv_smoothed_weighted_rate_for_meeting,
+            update_hv_weighted_win_rate_for_meeting,
+        )
 
         update_hv_same_distance_win_rates_for_meeting(
             conn, race_date=race_date, racecourse=racecourse_code
         )
         update_draw_rates_for_meeting(
+            conn, race_date=race_date, racecourse=racecourse_code
+        )
+        update_hv_attainment_rate_for_meeting(
+            conn, race_date=race_date, racecourse=racecourse_code
+        )
+        update_hv_weighted_win_rate_for_meeting(
+            conn, race_date=race_date, racecourse=racecourse_code
+        )
+        update_hv_smoothed_weighted_rate_for_meeting(
             conn, race_date=race_date, racecourse=racecourse_code
         )
         update_finish_pos_for_meeting(
@@ -1149,12 +1155,26 @@ def update_latest_racecard_data(config: AppConfig) -> LatestMeeting | None:
 
         from hppv.racing_download import update_finish_pos_for_meeting
         from hppv.racing_draw_statistics import update_draw_rates_for_meeting
-        from hppv.racing_horse_form import update_hv_same_distance_win_rates_for_meeting
+        from hppv.racing_horse_form import (
+            update_hv_attainment_rate_for_meeting,
+            update_hv_same_distance_win_rates_for_meeting,
+            update_hv_smoothed_weighted_rate_for_meeting,
+            update_hv_weighted_win_rate_for_meeting,
+        )
 
         update_hv_same_distance_win_rates_for_meeting(
             conn, race_date=race_date, racecourse=racecourse_code
         )
         update_draw_rates_for_meeting(
+            conn, race_date=race_date, racecourse=racecourse_code
+        )
+        update_hv_attainment_rate_for_meeting(
+            conn, race_date=race_date, racecourse=racecourse_code
+        )
+        update_hv_weighted_win_rate_for_meeting(
+            conn, race_date=race_date, racecourse=racecourse_code
+        )
+        update_hv_smoothed_weighted_rate_for_meeting(
             conn, race_date=race_date, racecourse=racecourse_code
         )
         update_finish_pos_for_meeting(

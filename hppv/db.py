@@ -265,10 +265,18 @@ def upsert_race_records(
       - A complete sibling with a different race_date/race_no blocks another
         complete insert (avoid duplicates); overwrite replaces the exact key.
     Exact-key overwrite: (horse_id, race_date, venue, race_no).
+    Skips foreign / overseas rows (venue not ST/HV/FC／沙田／跑馬地／從化).
     Returns inserted/replaced row count.
     """
+    from hppv.racing_hkjc_graphql import is_known_race_venue_label
 
-    rec_list = list(records)
+    rec_list = [
+        r
+        for r in records
+        if r
+        and is_known_race_venue_label(r.venue)
+        and "海外" not in str(r.race_no or "")
+    ]
     if not rec_list:
         return 0
 

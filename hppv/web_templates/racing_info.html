@@ -127,6 +127,37 @@
     background: #d4e5f7; color: #0f3a6b;
   }
   .racing-info .racing-daily-horse-icon svg { width: 26px; height: 26px; display: block; }
+  .racing-info .racing-daily-class-drop {
+    position: relative;
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 3px;
+    font-weight: 900;
+    font-size: 14px;
+    line-height: 1;
+    vertical-align: middle;
+    cursor: help;
+  }
+  .racing-info .racing-daily-class-drop--demoted { color: #c62828 !important; }
+  /* Darker than horse-icon blue (#1a4f8c) so 降班跑 stands out */
+  .racing-info .racing-daily-class-drop--run { color: #0a2f6b !important; }
+  .racing-info .racing-daily-class-drop[data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 6px);
+    transform: translateX(-50%);
+    z-index: 20;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: #16324f;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(22, 50, 79, 0.25);
+  }
   .racing-info table.history-table th.racing-daily-icon-col,
   .racing-info table.history-table td.racing-daily-icon-col {
     width: 40px; min-width: 40px; text-align: center; cursor: default; padding: 4px;
@@ -155,6 +186,19 @@
   .racing-info .horse-form-panel .hf-section { margin-top: 14px; }
   .racing-info .horse-form-panel .hf-section-title {
     margin: 0 0 8px; font-size: 14px; font-weight: 700; color: #16324f;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  }
+  .racing-info .horse-form-panel .hf-section-title .hf-valid-highlight {
+    display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 10px;
+    font-size: 12px; font-weight: 800; background: #fff4d6; color: #8a5a00;
+    border: 1px solid #f0d48a;
+  }
+  .racing-info .horse-form-panel .hf-section-title .hf-section-stat-chips {
+    display: inline-flex; flex-wrap: wrap; gap: 6px; margin: 0;
+  }
+  .racing-info .horse-form-panel .hf-section-title .hf-recent-limit {
+    min-width: 5.5rem; padding: 2px 8px; border: 1px solid #dbe3ef; border-radius: 6px;
+    font-size: 13px; color: #16324f; background: #fff;
   }
   .racing-info .horse-form-panel .hf-toolbar {
     display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 8px;
@@ -166,12 +210,14 @@
     min-width: 4.5rem; padding: 4px 8px; border: 1px solid #dbe3ef; border-radius: 6px;
   }
   .racing-info .horse-form-panel table.hf-table {
-    width: 100%; border-collapse: collapse; font-size: 13px;
+    width: max-content; max-width: none; table-layout: fixed;
+    border-collapse: collapse; font-size: 13px;
   }
   .racing-info .horse-form-panel .hf-table-scroll { overflow-x: auto; }
   .racing-info .horse-form-panel table.hf-table th,
   .racing-info .horse-form-panel table.hf-table td {
     border-bottom: 1px solid #e6edf5; padding: 6px 8px; text-align: left; white-space: nowrap;
+    box-sizing: border-box; overflow: hidden; text-overflow: ellipsis;
   }
   .racing-info .horse-form-panel table.hf-table th {
     background: #eef3f8; color: #16324f; font-weight: 700;
@@ -193,6 +239,15 @@
     border: 1px solid #f0d48a;
   }
   .racing-info .horse-form-panel .hf-summary-card p { margin: 4px 0; font-size: 13px; color: #3a4a5c; }
+  .racing-info .horse-form-panel .hf-other-stats-card .hf-other-stats-block {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0;
+  }
+  .racing-info .horse-form-panel .hf-other-stats-card .hf-stat-chips { margin-bottom: 0; }
+  .racing-info .horse-form-panel .hf-other-stats-card .hf-valid-highlight {
+    display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 10px;
+    font-size: 12px; font-weight: 800; background: #fff4d6; color: #8a5a00;
+    border: 1px solid #f0d48a;
+  }
   .racing-info .horse-form-panel .hf-stat-chips {
     display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;
   }

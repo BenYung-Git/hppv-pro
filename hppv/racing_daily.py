@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from hppv.db import get_connection
+from hppv.db import _RACE_RECORD_DATE_ORDER_EXPR, get_connection
 from hppv.display_format import EMPTY_DISPLAY, format_date_display, format_field_display
 from hppv.racing_history import (
     DEFAULT_HISTORY_SEARCH_OP,
@@ -63,9 +63,12 @@ _DAILY_COL_SQL: dict[str, str] = {
     "immediate_odds": 's."即時賠率"',
     "odds_diff": 's."賠率差異"',
     "weighted_win_rate": 's."加權總勝出率"',
+    "smoothed_weighted_rate": 's."平滑加權率"',
     "same_distance_win_rate": 's."同程勝率"',
+    "same_distance_place_rate": 's."同程位置率"',
     "draw_win_rate": 's."檔位勝出率"',
     "draw_place_rate": 's."檔位上名率"',
+    "attainment_rate": 's."達標率"',
     "event_name": "ri.event_name",
     "calendar_date": "ri.calendar_date",
     "weekday": "ri.weekday",
@@ -101,9 +104,12 @@ _DAILY_SORT_SQL: dict[str, str] = {
     "immediate_odds": 'CAST(s."即時賠率" AS REAL)',
     "odds_diff": 'CAST(s."賠率差異" AS REAL)',
     "weighted_win_rate": 'CAST(s."加權總勝出率" AS REAL)',
+    "smoothed_weighted_rate": 'CAST(s."平滑加權率" AS REAL)',
     "same_distance_win_rate": 'CAST(s."同程勝率" AS REAL)',
+    "same_distance_place_rate": 'CAST(s."同程位置率" AS REAL)',
     "draw_win_rate": 'CAST(s."檔位勝出率" AS REAL)',
     "draw_place_rate": 'CAST(s."檔位上名率" AS REAL)',
+    "attainment_rate": 'CAST(s."達標率" AS REAL)',
     "event_name": "ri.event_name",
     "calendar_date": "ri.calendar_date",
     "weekday": "ri.weekday",
@@ -291,6 +297,140 @@ def _row_to_view(row: Any) -> dict[str, str]:
     return out
 
 
+# HKJC standard class ladder (higher = stronger). Group / Griffin excluded.
+_CLASS_RANK: dict[str, int] = {
+    "Class 1": 5,
+    "Class 2": 4,
+    "Class 3": 3,
+    "Class 4": 2,
+    "Class 5": 1,
+}
+
+
+def class_standard_rank(class_band: Any) -> int | None:
+    """Map race class label → 1..5 rank; unmapped / Group / Griffin → None."""
+    from hppv.racing_standard_times import map_class_band_to_standard
+
+    std = map_class_band_to_standard(class_band)
+    if std is None:
+        return None
+    return _CLASS_RANK.get(std)
+
+
+def rating_to_class_standard(rating: Any) -> str | None:
+    """HKJC standard upper limits → Class 1–5. Invalid rating → None."""
+    text = str(rating or "").strip()
+    if not text or text == EMPTY_DISPLAY:
+        return None
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        return None
+    if value != value:  # NaN
+        return None
+    if value <= 40:
+        return "Class 5"
+    if value <= 60:
+        return "Class 4"
+    if value <= 80:
+        return "Class 3"
+    if value <= 100:
+        return "Class 2"
+    return "Class 1"
+
+
+def _fetch_previous_start_class_rating(
+    conn: Any,
+    *,
+    horse_id: str,
+    before_iso: str,
+) -> tuple[str | None, str | None]:
+    """Latest race_records start strictly before before_iso → (class_band, rating)."""
+    if not horse_id or not before_iso:
+        return None, None
+    row = conn.execute(
+        f"""
+        SELECT rr.class_band, rr.rating
+          FROM race_records AS rr
+         WHERE rr.horse_id = ?
+           AND {_RACE_RECORD_DATE_ORDER_EXPR} < ?
+           AND TRIM(COALESCE(rr.race_date, '')) != ''
+         ORDER BY {_RACE_RECORD_DATE_ORDER_EXPR} DESC,
+                  CAST(rr.race_no AS INTEGER) DESC,
+                  rr.id DESC
+         LIMIT 1
+        """,
+        (horse_id, before_iso),
+    ).fetchone()
+    if row is None:
+        return None, None
+    if hasattr(row, "keys"):
+        return (
+            str(row["class_band"] or "").strip() or None,
+            str(row["rating"] or "").strip() or None,
+        )
+    return (
+        str(row[0] or "").strip() or None,
+        str(row[1] or "").strip() or None,
+    )
+
+
+def annotate_class_drop_markers(
+    conn: Any,
+    rows: list[dict[str, str]],
+    *,
+    race_date_iso: str,
+    race_class: Any,
+) -> None:
+    """In-place: set class_marker to one of demoted|drop_run|promoted|step_up|''.
+
+    Compare previous start race class vs today's race class (Class 1–5 only).
+    Split red/blue by today's rating-implied class vs today's race class:
+
+    Down (prev race class > today race class):
+      - demoted (紅↓ 降班): rating class == today race class
+      - drop_run (藍↓ 降班跑): rating class > today race class
+    Up (prev race class < today race class):
+      - promoted (紅↑ 升班): rating class == today race class
+      - step_up (藍↑ 越級跑): rating class < today race class
+    """
+    today_race_rank = class_standard_rank(race_class)
+    date_iso = str(race_date_iso or "").strip()
+    for row in rows:
+        # Keep legacy keys empty for old clients; canonical key is class_marker.
+        row["class_marker"] = ""
+        row["class_demoted"] = ""
+        row["class_drop_run"] = ""
+        horse_id = str(row.get("horse_id") or "").strip()
+        if not horse_id or not date_iso or today_race_rank is None:
+            continue
+        prev_class, _prev_rating = _fetch_previous_start_class_rating(
+            conn, horse_id=horse_id, before_iso=date_iso
+        )
+        prev_race_rank = class_standard_rank(prev_class)
+        if prev_race_rank is None:
+            continue
+        rating_std = rating_to_class_standard(row.get("rating"))
+        rating_rank = _CLASS_RANK.get(rating_std) if rating_std else None
+        if rating_rank is None:
+            continue
+
+        if prev_race_rank > today_race_rank:
+            # Entered a lower class race than last start.
+            if rating_rank == today_race_rank:
+                row["class_marker"] = "demoted"
+                row["class_demoted"] = "1"
+            elif rating_rank > today_race_rank:
+                row["class_marker"] = "drop_run"
+                row["class_drop_run"] = "1"
+        elif prev_race_rank < today_race_rank:
+            # Entered a higher class race than last start.
+            if rating_rank == today_race_rank:
+                row["class_marker"] = "promoted"
+            elif rating_rank < today_race_rank:
+                row["class_marker"] = "step_up"
+
+
 def list_available_race_dates(db_path: Path) -> list[dict[str, str]]:
     """Distinct meetings for date picker (iso + display)."""
     with get_connection(db_path) as conn:
@@ -452,9 +592,12 @@ def fetch_racing_daily_race(
 ) -> RacingDailyRaceView:
     """One meeting + one race: all starters (no search/pager)."""
     # Ensure starters columns exist before SELECT (new derived cols via ALTER).
-    from hppv.racing_download import ensure_racecard_db
+    from hppv.racing_download import RacingDownloadError, ensure_racecard_db
 
-    ensure_racecard_db(db_path)
+    try:
+        ensure_racecard_db(db_path)
+    except RacingDownloadError as e:
+        raise RacingDailyError(e.code, e.detail) from e
     meeting: RacingDailyMeeting | None = None
     db_date = iso_to_racecard_date(race_date) if race_date else None
     course = str(racecourse or "").strip().upper() or None
@@ -513,8 +656,19 @@ def fetch_racing_daily_race(
             f"SELECT {select_cols} {_FROM_SQL}{where_sql}{order_sql}",
             params,
         ).fetchall()
+        rows = [_row_to_view(r) for r in rows_raw]
+        race_class = None
+        if info is not None:
+            race_class = (
+                info["race_class"] if hasattr(info, "keys") else None
+            )
+        annotate_class_drop_markers(
+            conn,
+            rows,
+            race_date_iso=meeting.race_date_iso,
+            race_class=race_class,
+        )
 
-    rows = [_row_to_view(r) for r in rows_raw]
     return RacingDailyRaceView(
         meeting=meeting,
         races=races,
