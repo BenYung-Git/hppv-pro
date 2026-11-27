@@ -72,13 +72,16 @@ def _header_index_contains(
 
 
 def header_index_venue(headers: list[str]) -> int | None:
-    """馬場 column only — must not match 場地狀況 / Going."""
-    exact = _header_index_exact(headers, "場地", "Venue")
+    """馬場／場地 column only — must not match 場地狀況 / Going."""
+    exact = _header_index_exact(headers, "場地", "馬場", "Venue")
     if exact is not None:
         return exact
-    # English compound headers e.g. "Venue / Course" (still not Going).
+    # HKJC compound e.g. 「馬場/跑道/賽道」or English 「Venue / Course」.
     return _header_index_contains(
-        headers, "Venue", exclude_substrings=("Going",)
+        headers,
+        "馬場",
+        "Venue",
+        exclude_substrings=("Going", "場地狀況", "狀況"),
     )
 
 
@@ -87,6 +90,10 @@ def header_index_going(headers: list[str]) -> int | None:
     exact = _header_index_exact(headers, "場地狀況", "Going")
     if exact is not None:
         return exact
+    # HKJC often inserts spaces: 「場地 狀況」.
+    for i, h in enumerate(headers):
+        if str(h).replace(" ", "") == "場地狀況":
+            return i
     return _header_index_contains(headers, "場地狀況", "Going")
 
 
@@ -196,12 +203,28 @@ def parse_past_performance_from_html(horse_id: str, html: str, source_url: str) 
             if idx_win_odds is None:
                 idx_win_odds = 12
 
+        venue_raw = get(idx_venue)
+        course_raw = get(idx_course)
+        # Normalize 馬場：compound 「跑馬地草地"C"」→ 跑馬地；empty venue → derive from course.
+        from hppv.racing_hkjc_graphql import (
+            is_known_race_venue_label,
+            suggest_venue_zh_from_course,
+        )
+
+        if is_known_race_venue_label(venue_raw):
+            venue_zh = str(venue_raw).strip()
+        else:
+            venue_zh = (
+                suggest_venue_zh_from_course(venue_raw)
+                or suggest_venue_zh_from_course(course_raw)
+                or ""
+            )
         rec = RaceRecord(
             horse_id=horse_id,
             race_date=get(idx_date),
-            venue=get(idx_venue),
+            venue=venue_zh,
             race_no=get(idx_race_no),
-            course=get(idx_course),
+            course=course_raw,
             distance=get(idx_dist),
             going=get(idx_going),
             class_band=get(idx_class),
@@ -219,9 +242,7 @@ def parse_past_performance_from_html(horse_id: str, html: str, source_url: str) 
         if not rec.race_date:
             continue
         # 外國／海外往績不載（只保留沙田／跑馬地／從化）。
-        from hppv.racing_hkjc_graphql import is_known_race_venue_label
-
-        if "海外" in (rec.race_no or "") or not is_known_race_venue_label(rec.venue):
+        if "海外" in (rec.race_no or "") or not venue_zh:
             continue
         dedup_key = (
             rec.race_date.strip(),

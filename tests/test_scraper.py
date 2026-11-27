@@ -92,6 +92,33 @@ def test_header_index_venue_missing_does_not_use_going() -> None:
     assert header_index_going(headers) == 1
 
 
+def test_header_index_venue_compound_macau_track() -> None:
+    """HKJC compound 「馬場/跑道/賽道」resolves as venue; spaced 場地狀況 as going."""
+    headers = [
+        "場次",
+        "名次",
+        "日期",
+        "馬場/跑道/ 賽道",
+        "途程",
+        "場地 狀況",
+        "賽事 班次",
+        "檔位",
+        "評分",
+        "練馬師",
+        "騎師",
+        "頭馬 距離",
+        "獨贏 賠率",
+        "實際 負磅",
+        "沿途 走位",
+        "完成 時間",
+        "排位 體重",
+        "配備",
+        "賽事 重播",
+    ]
+    assert header_index_venue(headers) == 3
+    assert header_index_going(headers) == 5
+
+
 def _perf_table_html(headers: list[str], cells: list[str]) -> str:
     th = "".join(f"<th>{h}</th>" for h in headers)
     td = "".join(f"<td>{c}</td>" for c in cells)
@@ -162,8 +189,8 @@ def test_parse_venue_and_going_not_swapped() -> None:
     assert rec.course == '跑馬地草地"A"'
 
 
-def test_parse_going_only_header_leaves_venue_empty() -> None:
-    """場地狀況 present without 場地 → venue must stay empty (not 好)."""
+def test_parse_going_only_header_derives_venue_from_course() -> None:
+    """No 場地 header: going stays 好; venue derived from course (not from going)."""
     headers = [
         "日期",
         "場地狀況",
@@ -211,5 +238,60 @@ def test_parse_going_only_header_leaves_venue_empty() -> None:
     )
     assert len(res.records) == 1
     rec = res.records[0]
-    assert rec.venue == ""
+    assert rec.venue == "跑馬地"
     assert rec.going == "好"
+    assert rec.course == '跑馬地草地"A"'
+
+
+def test_parse_compound_venue_course_header_keeps_local_rows() -> None:
+    """Compound 馬場/跑道 cell still yields local venue + rating (foreign filter)."""
+    headers = [
+        "場次",
+        "名次",
+        "日期",
+        "馬場/跑道/ 賽道",
+        "途程",
+        "場地 狀況",
+        "賽事 班次",
+        "檔位",
+        "評分",
+        "練馬師",
+        "騎師",
+        "頭馬 距離",
+        "獨贏 賠率",
+        "實際 負磅",
+        "沿途 走位",
+        "完成 時間",
+        "排位 體重",
+        "配備",
+        "賽事 重播",
+    ]
+    cells = [
+        "219",
+        "06",
+        "25/11/26",
+        '跑馬地草地"C+3"',
+        "1200",
+        "好",
+        "5",
+        "10",
+        "37",
+        "游達榮",
+        "艾兆禮",
+        "3-1/4",
+        "29",
+        "128",
+        "12 12 6",
+        "1.10.32",
+        "1174",
+        "TT",
+        "",
+    ]
+    res = parse_past_performance_from_html(
+        "HK_2024_K189", _perf_table_html(headers, cells), "https://example.invalid/"
+    )
+    assert len(res.records) == 1
+    rec = res.records[0]
+    assert rec.venue == "跑馬地"
+    assert rec.rating == "37"
+    assert rec.race_no == "219"
